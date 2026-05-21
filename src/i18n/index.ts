@@ -65,6 +65,19 @@ export interface TranslationDict {
   magLimitBrightest: string;
   magLimitAll: string;
 
+  // New immersive cockpit keys
+  commandPanel: string;
+  timeReal: string;
+  timeReverse: string;
+  timeAccel: string;
+  selectDate: string;
+  utcMode: string;
+  localMode: string;
+  systemInfo: string;
+  expand: string;
+  collapse: string;
+  backToPresent: string;
+
   // Planet Names & Info
   sun_name: string;
   sun_info: string;
@@ -230,6 +243,17 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     magLimitLabel: "星空可见视星等极限",
     magLimitBrightest: "3.0 (仅极亮星)",
     magLimitAll: "7.5 (全部1万颗星)",
+    commandPanel: "控制台",
+    timeReal: "实时",
+    timeReverse: "倒流",
+    timeAccel: "加速",
+    selectDate: "选择日期",
+    utcMode: "UTC",
+    localMode: "本地",
+    systemInfo: "系统信息",
+    expand: "展开",
+    collapse: "收起",
+    backToPresent: "回到现在",
 
     // Planet details In Chinese
     sun_name: "太阳 (Sun)",
@@ -393,6 +417,17 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     magLimitLabel: "Star Visibility Magnitude Limit",
     magLimitBrightest: "3.0 (Brightest)",
     magLimitAll: "7.5 (All 10k stars)",
+    commandPanel: "Command",
+    timeReal: "Real-time",
+    timeReverse: "Reverse",
+    timeAccel: "Accelerate",
+    selectDate: "Select Date",
+    utcMode: "UTC",
+    localMode: "Local",
+    systemInfo: "System Info",
+    expand: "Expand",
+    collapse: "Collapse",
+    backToPresent: "Back to Present",
 
     // English details
     sun_name: "The Sun",
