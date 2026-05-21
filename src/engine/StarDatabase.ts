@@ -1,0 +1,901 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+export interface DetailedStar {
+  id: number;
+  nameKey: string;
+  ra: number;         // 赤经 (Right Ascension, 小时数 0~24)
+  dec: number;        // 赤纬 (Declination, 度数 -90~90)
+  mag: number;        // 视星等 (越低越亮)
+  color: number;      // 16进制颜色值
+  dist: number;       // 距离 (光年, light years)
+  nameZh: string;     // 中文名称
+  nameEn: string;     // 英文名称
+  constellZh: string; // 中文星座名
+  constellEn: string; // 英文星座名
+  infoZh?: string;    // 中文介绍
+  infoEn?: string;    // 英文介绍
+  expandedZh?: string;// 详细中文介绍
+  expandedEn?: string;// 详细英文介绍
+}
+
+export const BRIGHT_STARS: DetailedStar[] = [
+  {
+    id: 0,
+    nameKey: "Polaris",
+    ra: 2.53,
+    dec: 89.26,
+    mag: 2.0,
+    color: 0xfff9e6,
+    dist: 433,
+    nameZh: "勾陈一 (北极星)",
+    nameEn: "Polaris",
+    constellZh: "小熊座",
+    constellEn: "Ursa Minor",
+    infoZh: "北极星是最靠近北天极的明亮恒星，作为勾陈一星，目前距离北天极仅有不足1度。它是北半球航海家、观星客最重要的方向信标。",
+    infoEn: "Polaris is the closest bright star to the North Celestial Pole. It serves as an essential orientational beacon for navigators and stargazers.",
+    expandedZh: "它是天球旋转的物理对称中心。随着地球自转轴长达2.6万年的岁差运动，北极星的宝座未来将由织女星等星体接替并循环统治天穹。",
+    expandedEn: "It acts as the rotational axis anchor of the sky. Due to 26,000-year cycle of Earth's axial precession, other stars (like Vega) will take its place in the deep future."
+  },
+  {
+    id: 1,
+    nameKey: "Betelgeuse",
+    ra: 5.92,
+    dec: 7.41,
+    mag: 0.45,
+    color: 0xff7e44,
+    dist: 640,
+    nameZh: "参宿四",
+    nameEn: "Betelgeuse",
+    constellZh: "猎户座",
+    constellEn: "Orion",
+    infoZh: "参宿四是一颗极为庞大、已经演化至生命衰亡晚期的红超巨星。它作为猎户座的右肩，散发着深邃眩目的红橙色等离子体热光华。",
+    infoEn: "Betelgeuse is a mammoth red supergiant nearing the end of its stellar evolution. Marking Orion's left shoulder, it glows with a deep orange-red core.",
+    expandedZh: "它的体积巨大，如果置于太阳中心，其光球半径可直接吞没木星内部轨道。天体物理学家预计它可能在未来数万年内发生壮丽 of 超新星爆发。",
+    expandedEn: "If placed at the Sun's position, its gargantuan photosphere would swallow all interior orbits up to Jupiter. It represents a prime supernova candidate."
+  },
+  {
+    id: 2,
+    nameKey: "Rigel",
+    ra: 5.25,
+    dec: -8.20,
+    mag: 0.12,
+    color: 0xd6e8ff,
+    dist: 860,
+    nameZh: "参宿七",
+    nameEn: "Rigel",
+    constellZh: "猎户座",
+    constellEn: "Orion",
+    infoZh: "参宿七是猎户座中最明亮的星，一颗炽热而活跃的蓝超巨星，代表猎人战神的左膝盖。其极高温辐射马力是太阳的12万倍左右。",
+    infoEn: "Rigel is the brightest star in Orion, a super-high temperature blue supergiant representing Orion's knee. It radiates 120,000 times the luminosity of our Sun.",
+    expandedZh: "由于其超强星风压，它源源不断地激发着周围的宇宙反射星云，其冰蓝色的莹莹辉芒是高空特写下绝对醒目的一颗水晶之心。",
+    expandedEn: "Its extreme solar wind illuminates large surrounding reflection nebulae. It stands as an icy-blue crystalline centerpiece of winter stargazing."
+  },
+  {
+    id: 3,
+    nameKey: "Bellatrix",
+    ra: 5.42,
+    dec: 6.35,
+    mag: 1.64,
+    color: 0xd6e8ff,
+    dist: 250,
+    nameZh: "参宿五",
+    nameEn: "Bellatrix",
+    constellZh: "猎户座",
+    constellEn: "Orion",
+    infoZh: "参宿五，又称女战士之星或亚马逊星，是猎户座的左肩，散发着淡雅的蓝白光辉。其质量约为太阳的8.6倍。",
+    infoEn: "Bellatrix, known historically as the Female Warrior Star, shines at Orion's right shoulder as a blue-white giant. It possesses 8.6 times the solar mass.",
+    expandedZh: "它的表面温度高昂，紫外能量极大，与红超巨星参宿四交相辉映，构成猎户神勇、雄伟的双肩极线结构线。",
+    expandedEn: "Highly luminous with intense ultraviolet radiation, it pairs symmetrically with Betelgeuse to define the heroic shoulders of Orion constellation."
+  },
+  {
+    id: 4,
+    nameKey: "Alnilam",
+    ra: 5.60,
+    dec: -1.20,
+    mag: 1.70,
+    color: 0xd5f1ff,
+    dist: 2000,
+    nameZh: "参宿二",
+    nameEn: "Alnilam",
+    constellZh: "猎户座",
+    constellEn: "Orion",
+    infoZh: "参宿二是猎户座腰带“三星对齐”的中间星。它是一颗离我们约2000光年的蓝特超巨星，拥有骇人的总质量和极端光热辐射。",
+    infoEn: "Alnilam is the middle blue supergiant residing at the center of Orion's Belt. Residing nearly 2,000 light-years away, it emits immense thermal light.",
+    expandedZh: "它是夜空高星角上极其对称的锚定核心，也是中国古代星学中参宿的核心标记坐标，长久守护着冬季夜空的正中方位。",
+    expandedEn: "As the center jewel of the Orion Belt, it is a key navigational reference point and shines with constant, unyielding cosmic energy."
+  },
+  {
+    id: 5,
+    nameKey: "Alnitak",
+    ra: 5.68,
+    dec: -1.94,
+    mag: 1.74,
+    color: 0xd5f1ff,
+    dist: 1260,
+    nameZh: "参宿一",
+    nameEn: "Alnitak",
+    constellZh: "猎户座",
+    constellEn: "Orion",
+    infoZh: "参宿一是猎户座腰带最东侧的明亮星，属于一个三合星系统。其激荡电离的巨量高能紫外线强光直接点亮了背后叹为观止的著名马头星云和火焰星云。",
+    infoEn: "Alnitak is the easternmost star of Orion's Belt. This stellar system emits intense ionizing ultraviolet rays that illuminate the legendary Horsehead and Flame Nebulae.",
+    expandedZh: "它对于恒星形成机制与大质量等离子热力学演化研究具有得天独厚的物理模型意义。",
+    expandedEn: "In addition to its stunning visual aspect, it serves as a massive astrophysical laboratory for investigating gas ionization and cosmic dust dynamics."
+  },
+  {
+    id: 6,
+    nameKey: "Mintaka",
+    ra: 5.53,
+    dec: -0.30,
+    mag: 2.23,
+    color: 0xd5f1ff,
+    dist: 1200,
+    nameZh: "参宿三",
+    nameEn: "Mintaka",
+    constellZh: "猎户座",
+    constellEn: "Orion",
+    infoZh: "参宿三是猎户腰带三星中最西侧的成员，近乎精准地坐落在天球赤道之上（赤纬0°）。因此它是地球无论南北半球都全境普照的明星。",
+    infoEn: "Mintaka is the western star of Orion's Belt, sitting almost precisely on the celestial equator. It is widely observable from almost any latitude on Earth.",
+    expandedZh: "它实际上是由五个复杂的轨道伴星组成的庞大双星体系，其高维引力互锁经常会引起光谱层面的多谱多向震荡变星食机制。",
+    expandedEn: "This is a complex multiple star system consisting of five components, featuring spectroscopic eclipses as they orbit their common barycenter."
+  },
+  {
+    id: 7,
+    nameKey: "Saiph",
+    ra: 5.79,
+    dec: -9.67,
+    mag: 2.06,
+    color: 0xd5f1ff,
+    dist: 720,
+    nameZh: "参宿六",
+    nameEn: "Saiph",
+    constellZh: "猎户座",
+    constellEn: "Orion",
+    infoZh: "参宿六是猎户座巨型四边形的右下角踝星，一颗极端高温的蓝超巨星，表面热度达26000°C以上，主要在肉眼不可见紫外释放能量。",
+    infoEn: "Saiph represents the bottom-left knee of Orion. A massive blue supergiant, its blistering 26,000 °C surface radiates mostly in invisible ultraviolet wavelengths.",
+    expandedZh: "正是因为其热能多向高频偏离，人眼接收的光度比其散发的总热量低得多。这在天体物理上也是经典的电磁谱位移机制。",
+    expandedEn: "Though it yields higher overall energy output than cooler giants, its visible brightness is lower due to stellar optical spectrum shifting."
+  },
+  {
+    id: 8,
+    nameKey: "Sirius",
+    ra: 6.75,
+    dec: -16.72,
+    mag: -1.46,
+    color: 0xffffff,
+    dist: 8.6,
+    nameZh: "天狼星",
+    nameEn: "Sirius",
+    constellZh: "大犬座",
+    constellEn: "Canis Major",
+    infoZh: "天狼星是全天夜空中视星等最明亮、引人瞩目的绝对天冕。作为发出皎月般纯白光的双星，它身旁跟随守卫着一颗极其致密的白矮星伴星。",
+    infoEn: "Sirius is the brightest star in the nighttime sky. A main-sequence white star accompanied by a faint white dwarf partner, Sirius B.",
+    expandedZh: "在中西方神话中它都与狼、犬文化息息相关。其冰晶剔透的幽光掠过大气的分子湍流时，会在冬春交替 the 夜空划出极致炫丽的彩色闪烁。",
+    expandedEn: "Culturally significant worldwide, its scintillating blue-white sparkles dominate winter and early spring horizons with unmatched radiance."
+  },
+  {
+    id: 9,
+    nameKey: "Vega",
+    ra: 18.62,
+    dec: 38.78,
+    mag: 0.03,
+    color: 0xd2eaff,
+    dist: 25.3,
+    nameZh: "织女星",
+    nameEn: "Vega",
+    constellZh: "天琴座",
+    constellEn: "Lyra",
+    infoZh: "织女星是天琴座的无价蓝宝石，夏季大三角的顶点。距离我们仅25.3光年，是中国古典七夕织女鹊桥传说的主星印记。",
+    infoEn: "Vega is a cornerstone of the Summer Triangle, and a prominent symbol in eastern folklore. Residing only 25 light-years away, it shines with pure blue-white rays.",
+    expandedZh: "它的自转速度极快（赤道自转达236km/s），被惯性力甩成扁桃体状。在两万六千年的历史岁差中，它每到循环节点就会坐上至尊的北极星宝座。",
+    expandedEn: "Vega spins so rapidly that its equator bulged noticeably. It reigned as the North Pole star in 12,000 BC, and is destined to reclaim the throne in 13,700 AD."
+  },
+  {
+    id: 10,
+    nameKey: "Altair",
+    ra: 19.85,
+    dec: 8.87,
+    mag: 0.76,
+    color: 0xfbfbff,
+    dist: 16.7,
+    nameZh: "河鼓二 (牛郎星)",
+    nameEn: "Altair",
+    constellZh: "天鹰座",
+    constellEn: "Aquila",
+    infoZh: "牛郎星，即河鼓二，是天鹰座的脊骨支柱。它发出亮银白色的光彩，与织女星跨越16光年深度星海遥相对视，是我国古老星相情话的永恒载体。",
+    infoEn: "Altair constitutes the southern vertex of the Summer Triangle. It is a main-sequence star spinning at a rapid 286 km/s, flattening its shape.",
+    expandedZh: "因为其在极高惯性下极度自转，它的两极与赤道直径呈现高度20%的椭球畸变，是流体物理力学极其鲜活的天体证据。",
+    expandedEn: "Its extreme centripetal force squashes its profile by 20%, representing an amazing stellar flattening example in astronomical history."
+  },
+  {
+    id: 11,
+    nameKey: "Deneb",
+    ra: 20.69,
+    dec: 45.28,
+    mag: 1.25,
+    color: 0xd6f7ff,
+    dist: 2600,
+    nameZh: "天津四",
+    nameEn: "Deneb",
+    constellZh: "天鹅座",
+    constellEn: "Cygnus",
+    infoZh: "天津四是天鹅座的凤尾之星，银河大裂缝上的夺目灯塔。它是一质地特殊的白超巨星，散发着骇人听闻的、太阳20万倍的总辐射威能。",
+    infoEn: "Deneb is the tail luminary of Cygnus, and the highest-altitude point of the Summer Triangle. It is a remote, super-energetic white supergiant.",
+    expandedZh: "即使它盘踞在距离地球高达2600光年外的宏大遥远深空，却依然能在天幕夜色中高挂。这在星体宏大尺度中，犹如点亮了无垠宇宙中一颗明珠，是天文学怪物级超高亮度星体。",
+    expandedEn: "Though orbiting 2,600 light-years away, its staggering 200,000x solar luminosity enables it to sparkle bright on our night skies as a cosmic powerhouse."
+  },
+  {
+    id: 12,
+    nameKey: "Arcturus",
+    ra: 14.26,
+    dec: 19.18,
+    mag: -0.05,
+    color: 0xffb595,
+    dist: 36.7,
+    nameZh: "大角星",
+    nameEn: "Arcturus",
+    constellZh: "牧夫座",
+    constellEn: "Bootes",
+    infoZh: "大角星是北半球除天狼星外，视觉上最耀眼明丽的一颗古色橙红色亚巨星、牧夫座的战锤重心。它散发着古色古香的铜金色温润火光。",
+    infoEn: "Arcturus is the brightest orange giant in the Northern Hemisphere. It is moving rapidly across galactic coordinates, identifying as an ancient halo star.",
+    expandedZh: "沿着北斗七星勺柄的圆熟物理弧度向下延伸，一经相遇的明珠即是大角，是北天初春及盛夏最引人共鸣的星空王冕之一。",
+    expandedEn: "Easily spotted by tracing the handle of the Big Dipper downwards. Its warm, glowing copper-orange hue signals advanced helium core fusion."
+  },
+  {
+    id: 13,
+    nameKey: "Capella",
+    ra: 5.28,
+    dec: 46.00,
+    mag: 0.08,
+    color: 0xfff3cc,
+    dist: 42.8,
+    nameZh: "五车二",
+    nameEn: "Capella",
+    constellZh: "御夫座",
+    constellEn: "Auriga",
+    infoZh: "五车二是全天第六亮的多合恒星系统。作为御夫座的顶峰，它在天体望远镜下实则是两对两两纠缠、一共有四颗复杂星体结合在一起的引力回转旋涡。",
+    infoEn: "Capella is a quadruple star system locked in a tight gravitational dance. This cluster represents the brightest beacon of the Auriga constellation.",
+    expandedZh: "两个巨大明亮的黄色巨星，相距仅有几千万公里，以104天的高频速度飞旋公转，形成富含多阶共振频率的璀璨电磁斑驳。",
+    expandedEn: "The primary pair are large yellow giants orbiting their common center of mass every 104 days, generating complex combined spectra."
+  },
+  {
+    id: 14,
+    nameKey: "Procyon",
+    ra: 7.66,
+    dec: 5.22,
+    mag: 0.38,
+    color: 0xfffaed,
+    dist: 11.4,
+    nameZh: "南河三",
+    nameEn: "Procyon",
+    constellZh: "小犬座",
+    constellEn: "Canis Minor",
+    infoZh: "南河三是构成亮黄色冬季大三角的重要极点之一。距离我们极其亲近，大约只有11.4光年。这使其散发的乳白色光芒在头顶十分明澄稳定。",
+    infoEn: "Procyon anchors the eastern apex of the Winter Triangle. Highly similar to Sirius, it is a nearby white F-type subgiant located merely 11.4 light-years away.",
+    expandedZh: "它的另一重要天文学秘密在于，和天狼星具有相同的重力重叠加压现象：被一颗已被榨干演化的隐形白矮星伴星拉扯着，正规律波浪形律动扭晃。",
+    expandedEn: "Like Sirius, it hosts a compact white dwarf companion whose massive gravitational drag induces periodic perturbations in orbit wobbles."
+  },
+  {
+    id: 15,
+    nameKey: "Aldebaran",
+    ra: 4.59,
+    dec: 16.51,
+    mag: 0.85,
+    color: 0xffa87d,
+    dist: 65,
+    nameZh: "毕宿五",
+    nameEn: "Aldebaran",
+    constellZh: "金牛座",
+    constellEn: "Taurus",
+    infoZh: "毕宿五，被称为金牛座之眼或牛魔王之火，是一颗步入庞大晚期核聚变状态的红巨星，表面燃烧呈现出极其威严、震慑的橙红色。",
+    infoEn: "Aldebaran marks the raging red eye of Taurus. It is a highly evolved orange giant star, casting a distinct coppery glow along the winter ecliptic line.",
+    expandedZh: "虽然它在星空背景中精美重叠在著名的毕星团深空点阵最中央，但其实它只是距离我们视觉近得多的前景星，展示了三维天体空间极富戏剧性的空间深邃透视错位。",
+    expandedEn: "Though visually aligning with the center of Hyades Star Cluster, it sits significantly closer to Earth, forming a optical superposition alignment."
+  },
+  {
+    id: 16,
+    nameKey: "Antares",
+    ra: 16.49,
+    dec: -26.43,
+    mag: 1.06,
+    color: 0xff6622,
+    dist: 550,
+    nameZh: "心宿二",
+    nameEn: "Antares",
+    constellZh: "天蝎座",
+    constellEn: "Scorpius",
+    infoZh: "心宿二是夏威天穹最令人过目不忘的赤色庞然大物，天蝎座的毒刺血印星。它是太阳系附近体积最超常、极度庞大稀释的红超巨星宿之一。",
+    infoEn: "Antares is a massive red supergiant reflecting as the fiery red heart of Scorpius constellation, historically called the Fire Star in ancient Chinese texts.",
+    expandedZh: "因为其光色如炭火通红，常与代表星空杀气的战神星星——火星（Mars）并肩出没竞相比艳，因此被宿命般地称作Antares，即‘安泰勒斯——拒战火星之敌者’。",
+    expandedEn: "Given its saturated crimson glow, it was frequently confused with Martian orbits, hence named Antares, which literally translates as 'Rival of Mars' in Greek."
+  },
+  // Ursa Major (Big Dipper)
+  {
+    id: 17,
+    nameKey: "Dubhe",
+    ra: 11.06,
+    dec: 61.75,
+    mag: 1.79,
+    color: 0xffa87d,
+    dist: 123,
+    nameZh: "天枢 (北斗一)",
+    nameEn: "Dubhe",
+    constellZh: "大熊座",
+    constellEn: "Ursa Major",
+    infoZh: "天枢是北斗七星的第一颗星，也是大熊座的第二亮星。它与天璇联线的延长线指向北极星，被称作“指极星”。",
+    infoEn: "Dubhe is the alpha star of Ursa Major and the first star of the Big Dipper. Along with Merak, it serves as a pointer to Polaris.",
+    expandedZh: "它是一颗红巨星，表面温度约为4500K，由于已经演化离开主序阶段，其光度是太阳的约300倍。在中国古代天文学中，它象征着枢纽地位。",
+    expandedEn: "It is an evolved orange giant star, roughly 300 times more luminous than the Sun. In traditional Chinese astronomy, it holds a pivotal status as the first star of the Northern Dipper."
+  },
+  {
+    id: 18,
+    nameKey: "Merak",
+    ra: 11.03,
+    dec: 56.38,
+    mag: 2.34,
+    color: 0xd6e8ff,
+    dist: 79,
+    nameZh: "天璇 (北斗二)",
+    nameEn: "Merak",
+    constellZh: "大熊座",
+    constellEn: "Ursa Major",
+    infoZh: "天璇是北斗七星的第二颗星，是一颗蓝白色的主序星。它与天枢一起构成了寻找北极星的重要指路标。",
+    infoEn: "Merak is a blue-white main-sequence star and the second star of the Big Dipper. It pairs with Dubhe to point toward Polaris.",
+    expandedZh: "天璇的质量约为太阳的2.7倍，由于距离地球仅79光年，其在夜空中显得格外明亮。它属于大熊座移动星群的一员。",
+    expandedEn: "It is 2.7 times more massive than the Sun and located 79 light-years away. Merak is a prominent member of the Ursa Major Moving Group."
+  },
+  {
+    id: 19,
+    nameKey: "Phecda",
+    ra: 11.90,
+    dec: 53.68,
+    mag: 2.44,
+    color: 0xd6e8ff,
+    dist: 83,
+    nameZh: "天玑 (北斗三)",
+    nameEn: "Phecda",
+    constellZh: "大熊座",
+    constellEn: "Ursa Major",
+    infoZh: "天玑是北斗七星的第三颗星，位于北斗勺口的左下方。它是一颗快速自转的蓝白色恒星。",
+    infoEn: "Phecda is the third star of the Big Dipper, located at the bottom-left of the bowl. It is a rapidly spinning blue-white star.",
+    expandedZh: "它拥有一个由碎片盘组成的环星系统，类似于织女星。天玑距离我们约83光年，其自转速度高达每秒178公里。",
+    expandedEn: "It possesses a debris disk similar to Vega. Residing 83 light-years away, Phecda rotates at a high speed of 178 km/s."
+  },
+  {
+    id: 20,
+    nameKey: "Megrez",
+    ra: 12.26,
+    dec: 57.02,
+    mag: 3.32,
+    color: 0xd6e8ff,
+    dist: 81,
+    nameZh: "天权 (北斗四)",
+    nameEn: "Megrez",
+    constellZh: "大熊座",
+    constellEn: "Ursa Major",
+    infoZh: "天权是北斗七星中最暗的一颗，位于勺柄与勺口的连接处。它是一颗蓝白色主序星。",
+    infoEn: "Megrez is the dimmest star of the Big Dipper, positioned where the handle connects to the bowl. It is a blue-white star.",
+    expandedZh: "虽然天权的视星等仅为3.3等，但它在定位北斗七星的整体轮廓中起到了不可或缺的几何纽带作用。",
+    expandedEn: "Despite being the faintest of the seven at magnitude 3.3, Megrez acts as the crucial geometric connector between the handle and the bowl."
+  },
+  {
+    id: 21,
+    nameKey: "Alioth",
+    ra: 12.90,
+    dec: 55.95,
+    mag: 1.76,
+    color: 0xd6e8ff,
+    dist: 81,
+    nameZh: "玉衡 (北斗五)",
+    nameEn: "Alioth",
+    constellZh: "大熊座",
+    constellEn: "Ursa Major",
+    infoZh: "玉衡是北斗七星中最亮的一颗，也是大熊座最亮的恒星，代表北斗勺柄的第一弯折处。",
+    infoEn: "Alioth is the brightest star of the Big Dipper and the entire Ursa Major constellation, representing the first bend of the handle.",
+    expandedZh: "它是一颗特殊的Ap化学异常星，其磁场强度的周期性变化与其表面化学元素（如铬和铕）的分布密切相关。",
+    expandedEn: "It is a chemically peculiar Ap star, showing periodic fluctuations in magnetic intensity corresponding to chromium and europium distribution."
+  },
+  {
+    id: 22,
+    nameKey: "Mizar",
+    ra: 13.40,
+    dec: 54.92,
+    mag: 2.23,
+    color: 0xd6e8ff,
+    dist: 83,
+    nameZh: "开阳 (北斗六)",
+    nameEn: "Mizar",
+    constellZh: "大熊座",
+    constellEn: "Ursa Major",
+    infoZh: "开阳是著名的双星系统，与它旁边微弱的伴星辅共同构成了人类历史上最古老的视力测试标尺。",
+    infoEn: "Mizar is a famous double star system. Along with its close optical companion Alcor, it served as an ancient vision test for soldiers.",
+    expandedZh: "在望远镜下，开阳本身也是一个复杂的四合星系统。它的引力相互作用为天体物理学家研究恒星多重系统提供了绝佳样本。",
+    expandedEn: "Through telescopes, Mizar resolves into a quadruple star system. Its complex gravitational locking provides a prime sample of stellar multiplicity."
+  },
+  {
+    id: 23,
+    nameKey: "Alkaid",
+    ra: 13.79,
+    dec: 49.31,
+    mag: 1.85,
+    color: 0xd6e8ff,
+    dist: 101,
+    nameZh: "摇光 (北斗七)",
+    nameEn: "Alkaid",
+    constellZh: "大熊座",
+    constellEn: "Ursa Major",
+    infoZh: "摇光位于北斗七星勺柄的最末端，是一颗高温度、极具辐射威力的蓝白主序星。",
+    infoEn: "Alkaid marks the tip of the Big Dipper's handle. It is a highly energetic, hot blue-white main-sequence star.",
+    expandedZh: "摇光表面的有效温度高达17000K，向宇宙空间释放出大量的紫外辐射。它也是大熊座移动星群中少数不属于该星群的成员之一。",
+    expandedEn: "With an effective temperature of 17,000 K, Alkaid radiates intense ultraviolet energy. Unlike other Dipper stars, it does not belong to the Ursa Major moving group."
+  },
+  // Cassiopeia
+  {
+    id: 24,
+    nameKey: "Caph",
+    ra: 0.15,
+    dec: 59.15,
+    mag: 2.28,
+    color: 0xfbfbff,
+    dist: 54,
+    nameZh: "王良一",
+    nameEn: "Caph",
+    constellZh: "仙后座",
+    constellEn: "Cassiopeia",
+    infoZh: "王良一是仙后座的第二亮星，是一颗处于演化晚期的黄白巨星。",
+    infoEn: "Caph is the second brightest star in Cassiopeia, a yellow-white giant nearing the end of its main-sequence life.",
+    expandedZh: "它的自转速度极快，是太阳的20多倍。它的视星等为2.28等，距离地球约54光年。",
+    expandedEn: "It rotates extremely fast, over 20 times faster than the Sun. Shining at magnitude 2.28, it lies 54 light-years from us."
+  },
+  {
+    id: 25,
+    nameKey: "Schedar",
+    ra: 0.68,
+    dec: 56.53,
+    mag: 2.24,
+    color: 0xffa87d,
+    dist: 228,
+    nameZh: "王良四",
+    nameEn: "Schedar",
+    constellZh: "仙后座",
+    constellEn: "Cassiopeia",
+    infoZh: "王良四是仙后座的最亮星，代表仙后座W形状的底部顶点之一。它是一颗红巨星。",
+    infoEn: "Schedar is the alpha star of Cassiopeia, forming one of the bottom vertices of the W shape. It is a red giant.",
+    expandedZh: "它的直径是太阳的40多倍，由于处于生命演化晚期，其核心已经停止了氢核聚变。它距离地球约228光年。",
+    expandedEn: "Its diameter is 40 times larger than the Sun's. In its late stage of life, hydrogen fusion has ceased in its core. It lies 228 light-years away."
+  },
+  {
+    id: 26,
+    nameKey: "Tsih",
+    ra: 0.95,
+    dec: 60.72,
+    mag: 2.15,
+    color: 0xd6e8ff,
+    dist: 610,
+    nameZh: "策",
+    nameEn: "Tsih",
+    constellZh: "仙后座",
+    constellEn: "Cassiopeia",
+    infoZh: "策是一颗著名的爆发变星，也是仙后座W形状的中心顶点。它是一颗高温蓝矮星。",
+    infoEn: "Tsih is a famous eruptive variable star, marking the central peak of Cassiopeia's W shape. It is a hot blue dwarf.",
+    expandedZh: "它周围环绕着一个由其高速自转甩出的物质气体环，导致其亮度周期性剧烈变化。它距离地球约610光年。",
+    expandedEn: "It is surrounded by a circumstellar gas ring ejected by its rapid rotation, causing erratic brightness variations. It lies 610 light-years away."
+  },
+  {
+    id: 27,
+    nameKey: "Ruchbah",
+    ra: 1.43,
+    dec: 60.23,
+    mag: 2.68,
+    color: 0xd6e8ff,
+    dist: 99,
+    nameZh: "阁道三",
+    nameEn: "Ruchbah",
+    constellZh: "仙后座",
+    constellEn: "Cassiopeia",
+    infoZh: "阁道三是仙后座的食双星，代表W形状的另一底部弯折处。它是一颗白色的主序星。",
+    infoEn: "Ruchbah is an eclipsing binary star in Cassiopeia, forming another bottom vertex of the W shape. It is a white main-sequence star.",
+    expandedZh: "它每过大约26个月就会发生一次微弱的光度食变。它的质量是太阳的2.5倍，距离地球约99光年。",
+    expandedEn: "It undergoes minor eclipses every 26 months. It has 2.5 times the mass of the Sun and resides 99 light-years away."
+  },
+  {
+    id: 28,
+    nameKey: "Segin",
+    ra: 1.91,
+    dec: 63.67,
+    mag: 3.35,
+    color: 0xd6e8ff,
+    dist: 440,
+    nameZh: "阁道五",
+    nameEn: "Segin",
+    constellZh: "仙后座",
+    constellEn: "Cassiopeia",
+    infoZh: "阁道五是仙后座W形状最东侧的顶点，是一颗明亮的蓝白色巨星。",
+    infoEn: "Segin marks the easternmost vertex of Cassiopeia's W shape. It is a bright blue-white giant star.",
+    expandedZh: "它的能量输出是太阳的2500倍左右，主要以紫外线形式释放。它距离地球约440光年。",
+    expandedEn: "Its energy output is approximately 2500 times that of the Sun, radiated mostly in the ultraviolet spectrum. It lies 440 light-years away."
+  },
+  // Leo
+  {
+    id: 29,
+    nameKey: "Regulus",
+    ra: 10.14,
+    dec: 11.97,
+    mag: 1.35,
+    color: 0xd2eaff,
+    dist: 79,
+    nameZh: "轩辕十四",
+    nameEn: "Regulus",
+    constellZh: "狮子座",
+    constellEn: "Leo",
+    infoZh: "轩辕十四是狮子座的最亮星，被称为“狮子之心”。它是一颗极高温度的蓝白色多合星系统。",
+    infoEn: "Regulus is the brightest star in Leo, often referred to as the Heart of the Lion. It is a hot, blue-white multiple star system.",
+    expandedZh: "它极其靠近黄道，因此经常被月球和行星掩食。由于其自转速度高达每秒317公里，它被严重甩成扁平状。距离地球79光年。",
+    expandedEn: "Located close to the ecliptic, it is frequently eclipsed by the Moon and planets. Its rapid 317 km/s rotation deforms it into an oblate spheroid. It sits 79 light-years away."
+  },
+  {
+    id: 30,
+    nameKey: "Denebola",
+    ra: 11.82,
+    dec: 14.57,
+    mag: 2.14,
+    color: 0xd6e8ff,
+    dist: 36,
+    nameZh: "五帝座一",
+    nameEn: "Denebola",
+    constellZh: "狮子座",
+    constellEn: "Leo",
+    infoZh: "五帝座一是狮子座的第二亮星，代表狮子的尾巴。它是一颗白色的主序矮星。",
+    infoEn: "Denebola is the second brightest star in Leo, representing the tail of the lion. It is a young white main-sequence dwarf.",
+    expandedZh: "它周围环绕着一个明显的红外超辐射碎片尘埃盘，提示有正在形成的行星系统。它距离地球约36光年。",
+    expandedEn: "It is surrounded by a prominent infrared-excess debris disk, suggesting active planet formation. It resides 36 light-years away."
+  },
+  {
+    id: 31,
+    nameKey: "Algieba",
+    ra: 10.33,
+    dec: 19.83,
+    mag: 2.01,
+    color: 0xffd5a1,
+    dist: 130,
+    nameZh: "轩辕十一",
+    nameEn: "Algieba",
+    constellZh: "狮子座",
+    constellEn: "Leo",
+    infoZh: "轩辕十一是狮子座的一颗红巨星双星系统，代表狮子的鬃毛。在小望远镜下非常壮丽。",
+    infoEn: "Algieba is a stunning red giant binary system in Leo, representing the lion's mane. It is a popular target for small telescopes.",
+    expandedZh: "它由两颗明亮的橙红色和黄绿色巨星组成，互绕公转周期长达数百年。它距离地球约130光年。",
+    expandedEn: "It consists of a pair of bright orange and greenish-yellow giant stars orbiting each other over centuries. It lies 130 light-years away."
+  },
+  {
+    id: 32,
+    nameKey: "Zosma",
+    ra: 11.24,
+    dec: 20.52,
+    mag: 2.56,
+    color: 0xd6e8ff,
+    dist: 58,
+    nameZh: "太微右垣五",
+    nameEn: "Zosma",
+    constellZh: "狮子座",
+    constellEn: "Leo",
+    infoZh: "太微右垣五是狮子座的亮星之一，位于狮子的臀部。它是一颗白色的主序星。",
+    infoEn: "Zosma is a bright star in Leo, positioned at the lion's rump. It is a white main-sequence star.",
+    expandedZh: "它的质量是太阳的2.2倍，自转速度极快。它与五帝座一一样属于大熊座移动星群的前景星。距离地球58光年。",
+    expandedEn: "It has 2.2 times the solar mass and rotates rapidly. Like Denebola, it is a prominent stellar neighbor. It lies 58 light-years away."
+  },
+  {
+    id: 33,
+    nameKey: "Chertan",
+    ra: 11.24,
+    dec: 15.42,
+    mag: 3.33,
+    color: 0xd6e8ff,
+    dist: 165,
+    nameZh: "太微右垣四",
+    nameEn: "Chertan",
+    constellZh: "狮子座",
+    constellEn: "Leo",
+    infoZh: "太微右垣四是狮子座的一颗白色主序星，位于狮子的后腿基部。",
+    infoEn: "Chertan is a white main-sequence star in Leo, marking the base of the lion's hind leg.",
+    expandedZh: "它的光谱分析表明它是一颗金属线星。它的视星等为3.33等，距离地球约165光年。",
+    expandedEn: "Spectral analysis classifies it as a metal-rich A-type star. Shining at magnitude 3.33, it resides 165 light-years away."
+  },
+  {
+    id: 34,
+    nameKey: "Adhafera",
+    ra: 10.28,
+    dec: 23.42,
+    mag: 3.44,
+    color: 0xfbfbff,
+    dist: 260,
+    nameZh: "轩辕十",
+    nameEn: "Adhafera",
+    constellZh: "狮子座",
+    constellEn: "Leo",
+    infoZh: "轩辕十位于狮子座头部镰刀弯折处，是一颗黄白色的巨星。",
+    infoEn: "Adhafera is located at the curve of the sickle in Leo's head. It is a yellow-white giant star.",
+    expandedZh: "它的亮度是太阳的约200倍，正处于向红巨星演化的过渡阶段。距离地球260光年。",
+    expandedEn: "It is about 200 times more luminous than the Sun, currently transitioning into a red giant. It is 260 light-years away."
+  },
+  {
+    id: 35,
+    nameKey: "Rasalas",
+    ra: 9.88,
+    dec: 26.00,
+    mag: 3.88,
+    color: 0xffd5a1,
+    dist: 124,
+    nameZh: "轩辕九",
+    nameEn: "Rasalas",
+    constellZh: "狮子座",
+    constellEn: "Leo",
+    infoZh: "轩辕九是狮子座镰刀星群的顶部恒星之一，是一颗橙色巨星。",
+    infoEn: "Rasalas is one of the stars at the top of the sickle asterism in Leo. It is an orange giant star.",
+    expandedZh: "它的视星等为3.88等，半径是太阳的10多倍，核心正在进行氦核聚变。距离地球124光年。",
+    expandedEn: "With a magnitude of 3.88, its radius is over 10 times that of the Sun. It undergoes helium fusion in its core and lies 124 light-years away."
+  },
+  // Scorpius
+  {
+    id: 36,
+    nameKey: "Shaula",
+    ra: 17.56,
+    dec: -37.10,
+    mag: 1.62,
+    color: 0xd6e8ff,
+    dist: 700,
+    nameZh: "尾宿八",
+    nameEn: "Shaula",
+    constellZh: "天蝎座",
+    constellEn: "Scorpius",
+    infoZh: "尾宿八是天蝎座的第二亮星，代表天蝎剧毒的蝎针末梢。它是一颗蓝超巨星。",
+    infoEn: "Shaula is the second brightest star in Scorpius, representing the stinger of the scorpion. It is a massive blue supergiant.",
+    expandedZh: "它实际上是一个包含三颗恒星的复杂引力系统，释放出强烈的X射线和高能星风。距离地球约700光年。",
+    expandedEn: "It is actually a triple star system, emitting intense X-rays and powerful stellar winds. It is located 700 light-years away."
+  },
+  {
+    id: 37,
+    nameKey: "Lesath",
+    ra: 17.51,
+    dec: -37.29,
+    mag: 2.69,
+    color: 0xd6e8ff,
+    dist: 520,
+    nameZh: "尾宿九",
+    nameEn: "Lesath",
+    constellZh: "天蝎座",
+    constellEn: "Scorpius",
+    infoZh: "尾宿九紧邻尾宿八，两星在夜空中并称为“猫之眼”，是蝎针的另一个发光顶点。",
+    infoEn: "Lesath sits close to Shaula, and together they are known as the Cat's Eyes in the scorpion's stinger.",
+    expandedZh: "它是一颗高温度的蓝白色矮星，其视星等为2.69等。它距离地球约520光年。",
+    expandedEn: "It is a hot blue-white subgiant with an apparent magnitude of 2.69, residing 520 light-years from Earth."
+  },
+  {
+    id: 38,
+    nameKey: "Sargas",
+    ra: 17.62,
+    dec: -43.00,
+    mag: 1.86,
+    color: 0xffd5a1,
+    dist: 270,
+    nameZh: "尾宿五",
+    nameEn: "Sargas",
+    constellZh: "天蝎座",
+    constellEn: "Scorpius",
+    infoZh: "尾宿五是天蝎座的一颗明亮黄巨星，位于天蝎尾巴的弯折处。",
+    infoEn: "Sargas is a bright yellow giant star in Scorpius, positioned at the bend of the tail.",
+    expandedZh: "它的质量是太阳的5倍多，由于快速膨胀，其表面重力非常微弱。距离地球270光年。",
+    expandedEn: "It is over 5 times as massive as the Sun. Due to its rapid expansion, its surface gravity is very low. It lies 270 light-years away."
+  },
+  {
+    id: 39,
+    nameKey: "Wei",
+    ra: 16.84,
+    dec: -34.29,
+    mag: 2.29,
+    color: 0xffa87d,
+    dist: 64,
+    nameZh: "尾宿三",
+    nameEn: "Wei",
+    constellZh: "天蝎座",
+    constellEn: "Scorpius",
+    infoZh: "尾宿三是天蝎座的一颗橙色巨星，位于天蝎腹部的中间位置。",
+    infoEn: "Wei is an orange giant star in Scorpius, marking a central position in the scorpion's body.",
+    expandedZh: "它的视星等为2.29等，表面温度相对较低，但发光面积巨大。距离地球约64光年。",
+    expandedEn: "With a magnitude of 2.29, it has a relatively cool surface temperature but a huge light-emitting area. It lies 64 light-years away."
+  },
+  {
+    id: 40,
+    nameKey: "Larawag",
+    ra: 16.91,
+    dec: -42.36,
+    mag: 3.62,
+    color: 0xffa87d,
+    dist: 150,
+    nameZh: "神宫四",
+    nameEn: "Larawag",
+    constellZh: "天蝎座",
+    constellEn: "Scorpius",
+    infoZh: "神宫四是天蝎座尾部弯钩上的一颗橙色巨星，光芒温润。",
+    infoEn: "Larawag is an orange giant star along the hook of the scorpion's tail, glowing with warm orange hues.",
+    expandedZh: "它在天蝎座尾部的卷曲几何结构中具有重要视觉定位作用。距离地球150光年。",
+    expandedEn: "It serves as a key visual anchor in the curved geometric tail of Scorpius. It lies 150 light-years away."
+  },
+  {
+    id: 41,
+    nameKey: "Acrab",
+    ra: 16.09,
+    dec: -19.80,
+    mag: 2.56,
+    color: 0xd6e8ff,
+    dist: 530,
+    nameZh: "房宿四",
+    nameEn: "Acrab",
+    constellZh: "天蝎座",
+    constellEn: "Scorpius",
+    infoZh: "房宿四是天蝎座头部的一颗多合星系统，代表天蝎的巨螯或头部。",
+    infoEn: "Acrab is a multiple star system at the head of Scorpius, representing the scorpion's claws or head.",
+    expandedZh: "在小型天文望远镜中，它可被轻松解析为一对蓝白色的明亮双星。距离地球约530光年。",
+    expandedEn: "Through small telescopes, it is easily resolved into a beautiful pair of hot blue-white stars. It lies 530 light-years away."
+  }
+];
+
+// Seedable Mulberry32 PRNG
+function createMulberry32(seed: number): () => number {
+  let a = seed;
+  return function() {
+    let t = a += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Box-Muller transform to generate standard normal values (mean=0, std=1)
+function boxMuller(rand: () => number): number {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = rand();
+  while (v === 0) v = rand();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+// Convert galactic coordinates (l, b) in degrees to equatorial J2000 (ra in hours, dec in degrees)
+function galacticToEquatorial(l: number, b: number): { ra: number; dec: number } {
+  const lRad = (l * Math.PI) / 180;
+  const bRad = (b * Math.PI) / 180;
+
+  const cosB = Math.cos(bRad);
+  const sinB = Math.sin(bRad);
+  const cosL = Math.cos(lRad);
+  const sinL = Math.sin(lRad);
+
+  const x_eq = -0.0548755609 * cosB * cosL - 0.8734370905 * cosB * sinL - 0.4838350156 * sinB;
+  const y_eq =  0.4941094278 * cosB * cosL - 0.4448296297 * cosB * sinL + 0.7469822444 * sinB;
+  const z_eq = -0.8676661490 * cosB * cosL - 0.1980763734 * cosB * sinL + 0.4559837761 * sinB;
+
+  let alpha = Math.atan2(y_eq, x_eq);
+  if (alpha < 0) {
+    alpha += 2 * Math.PI;
+  }
+  const ra = (alpha * 12.0) / Math.PI; // ra in 0 to 24 hours
+  const dec = (Math.asin(Math.max(-1.0, Math.min(1.0, z_eq))) * 180.0) / Math.PI; // dec in -90 to +90 degrees
+
+  return { ra, dec };
+}
+
+const SPECTRAL_COLORS = [0xffffff, 0xd2eaff, 0xffa87d, 0xffd5a1, 0xd5f1ff];
+
+function generateBackgroundStars(): { ra: number; dec: number; mag: number; color: number; dist: number }[] {
+  const rand = createMulberry32(0x1234567);
+  const stars: { ra: number; dec: number; mag: number; color: number; dist: number }[] = [];
+  
+  const totalStars = 9958;
+  const galacticPlaneCount = Math.round(totalStars * 0.65); // 6473 stars
+  const uniformCount = totalStars - galacticPlaneCount;     // 3485 stars
+
+  // 1. Generate 65% of stars clustered along the galactic plane
+  for (let i = 0; i < galacticPlaneCount; i++) {
+    const l = rand() * 360; // galactic longitude uniform in [0, 360)
+    const b = boxMuller(rand) * 12; // galactic latitude normal distribution (mean=0, std=12)
+    
+    // Clamp latitude to standard spherical bounds
+    const clampedB = Math.max(-90, Math.min(90, b));
+    const coord = galacticToEquatorial(l, clampedB);
+    const dist = parseFloat((20 + rand() * 2980).toFixed(1));
+    const mag = parseFloat((3.0 + Math.pow(rand(), 1.5) * 4.5).toFixed(2));
+    const color = SPECTRAL_COLORS[Math.floor(rand() * SPECTRAL_COLORS.length)];
+
+    stars.push({
+      ra: coord.ra,
+      dec: coord.dec,
+      mag,
+      color,
+      dist
+    });
+  }
+
+  // 2. Generate 35% of stars uniformly distributed over the celestial sphere
+  for (let i = 0; i < uniformCount; i++) {
+    const l = rand() * 360;
+    const b = Math.asin(rand() * 2 - 1) * 180 / Math.PI; // uniform latitude
+    
+    const coord = galacticToEquatorial(l, b);
+    const dist = parseFloat((20 + rand() * 2980).toFixed(1));
+    const mag = parseFloat((3.0 + Math.pow(rand(), 1.5) * 4.5).toFixed(2));
+    const color = SPECTRAL_COLORS[Math.floor(rand() * SPECTRAL_COLORS.length)];
+
+    stars.push({
+      ra: coord.ra,
+      dec: coord.dec,
+      mag,
+      color,
+      dist
+    });
+  }
+
+  return stars;
+}
+
+export const BACKGROUND_STARS = generateBackgroundStars();
+
+export const STAR_LIST: DetailedStar[] = [
+  ...BRIGHT_STARS,
+  ...BACKGROUND_STARS.map((bgStar, idx) => {
+    const id = 42 + idx;
+    return {
+      id,
+      nameKey: `bg-${id}`,
+      ra: bgStar.ra,
+      dec: bgStar.dec,
+      mag: bgStar.mag,
+      color: bgStar.color,
+      dist: bgStar.dist,
+      nameZh: `背景星 ${id}`,
+      nameEn: `Background Star ${id}`,
+      constellZh: "无",
+      constellEn: "None"
+    };
+  })
+];
+
+export const CONSTELLATIONS: { id: string; nameZh: string; nameEn: string; seq: [number, number][] }[] = [
+  {
+    id: "orion",
+    nameZh: "猎户座",
+    nameEn: "Orion",
+    seq: [ [1, 3], [3, 6], [6, 2], [2, 7], [7, 5], [5, 1], [4, 5], [6, 4] ]
+  },
+  {
+    id: "big_dipper",
+    nameZh: "大熊座 (北斗七星)",
+    nameEn: "Ursa Major (Big Dipper)",
+    seq: [ [18, 17], [17, 20], [20, 19], [19, 18], [20, 21], [21, 22], [22, 23] ]
+  },
+  {
+    id: "summer_triangle",
+    nameZh: "夏季大三角",
+    nameEn: "Summer Triangle",
+    seq: [ [9, 10], [10, 11], [11, 9] ]
+  },
+  {
+    id: "cassiopeia",
+    nameZh: "仙后座",
+    nameEn: "Cassiopeia",
+    seq: [ [24, 25], [25, 26], [26, 27], [27, 28] ]
+  },
+  {
+    id: "leo",
+    nameZh: "狮子座",
+    nameEn: "Leo",
+    seq: [ [29, 31], [31, 34], [34, 35], [29, 33], [33, 32], [32, 30], [32, 31] ]
+  },
+  {
+    id: "scorpius",
+    nameZh: "天蝎座",
+    nameEn: "Scorpius",
+    seq: [ [41, 16], [16, 39], [39, 40], [40, 38], [38, 36], [36, 37] ]
+  }
+];
