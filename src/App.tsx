@@ -35,6 +35,7 @@ export default function App() {
   // 国定星空星座辅助标记开关
   const [showConstellLines, setShowConstellLines] = useState<boolean>(true);
   const [showStarNames, setShowStarNames] = useState<boolean>(true);
+  const [showConstellNames, setShowConstellNames] = useState<boolean>(true);
   const [magLimit, setMagLimit] = useState<number>(5.5);
 
   // 望远镜模式（仅在星空模式下生效）
@@ -425,6 +426,7 @@ export default function App() {
               lang={lang}
               showConstellLines={showConstellLines}
               showStarNames={showStarNames}
+              showConstellNames={showConstellNames}
               magLimit={magLimit}
               telescopeActive={telescopeActive}
               onTelescopeChange={setTelescopeActive}
@@ -507,6 +509,8 @@ export default function App() {
               onToggleConstellLines={setShowConstellLines}
               showStarNames={showStarNames}
               onToggleStarNames={setShowStarNames}
+              showConstellNames={showConstellNames}
+              onToggleConstellNames={setShowConstellNames}
               magLimit={magLimit}
               onChangeMagLimit={setMagLimit}
               onJumpDate={(ts) => setTimeState(prev => ({ ...prev, currentTimestamp: ts }))}

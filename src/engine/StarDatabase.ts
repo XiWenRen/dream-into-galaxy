@@ -739,6 +739,91 @@ export const BRIGHT_STARS: DetailedStar[] = [
     infoEn: "Acrab is a multiple star system at the head of Scorpius, representing the scorpion's claws or head.",
     expandedZh: "在小型天文望远镜中，它可被轻松解析为一对蓝白色的明亮双星。距离地球约530光年。",
     expandedEn: "Through small telescopes, it is easily resolved into a beautiful pair of hot blue-white stars. It lies 530 light-years away."
+  },
+  {
+    id: 42,
+    nameKey: "Castor",
+    ra: 7.58,
+    dec: 31.89,
+    mag: 1.58,
+    color: 0xd6e8ff,
+    dist: 51,
+    nameZh: "北河二",
+    nameEn: "Castor",
+    constellZh: "双子座",
+    constellEn: "Gemini",
+    infoZh: "北河二是双子座α星，一个著名的六合星系统，在小型望远镜中可分解为多颗恒星。",
+    infoEn: "Castor is the alpha star of Gemini, a famous sextuple star system resolvable into multiple components in small telescopes.",
+    expandedZh: "它虽然名为双子座α，但实际亮度略逊于β星北河三。其复杂的引力系统由三对双星组成。",
+    expandedEn: "Despite being designated Alpha, it is slightly fainter than Pollux. Its complex system consists of three pairs of binary stars."
+  },
+  {
+    id: 43,
+    nameKey: "Pollux",
+    ra: 7.75,
+    dec: 28.03,
+    mag: 1.14,
+    color: 0xffd5a1,
+    dist: 34,
+    nameZh: "北河三",
+    nameEn: "Pollux",
+    constellZh: "双子座",
+    constellEn: "Gemini",
+    infoZh: "北河三是双子座最亮星，一颗已经演化至晚期的橙巨星，拥有一颗已确认的系外行星。",
+    infoEn: "Pollux is the brightest star in Gemini, an evolved orange giant with a confirmed exoplanet orbiting it.",
+    expandedZh: "它的质量约为太阳的2倍，半径却已达太阳的8倍以上。2016年确认的行星Thestias质量约为木星的2倍。",
+    expandedEn: "At about twice the Sun's mass but over 8 times its radius, it hosts planet Thestias, roughly twice Jupiter's mass."
+  },
+  {
+    id: 44,
+    nameKey: "Spica",
+    ra: 13.42,
+    dec: -11.16,
+    mag: 0.98,
+    color: 0xd6e8ff,
+    dist: 250,
+    nameZh: "角宿一",
+    nameEn: "Spica",
+    constellZh: "室女座",
+    constellEn: "Virgo",
+    infoZh: "角宿一是室女座最亮星，一颗高速自转的蓝白巨星，也是春季大三角的东南顶点。",
+    infoEn: "Spica is the brightest star in Virgo, a rapidly rotating blue-white giant and the southeastern anchor of the Spring Triangle.",
+    expandedZh: "它的自转速度极快（约200km/s），导致呈明显的椭球状。沿着北斗七星勺柄弧线经过大角星即可寻得。",
+    expandedEn: "Its rapid rotation (~200 km/s) deforms it into an oblate spheroid. Follow the Big Dipper's handle arc past Arcturus to locate it."
+  },
+  {
+    id: 45,
+    nameKey: "Alhena",
+    ra: 6.63,
+    dec: 16.40,
+    mag: 1.93,
+    color: 0xfbfbff,
+    dist: 109,
+    nameZh: "井宿三",
+    nameEn: "Alhena",
+    constellZh: "双子座",
+    constellEn: "Gemini",
+    infoZh: "井宿三是双子座γ星，位于双子孪生兄弟的脚部，是一颗白色巨星。",
+    infoEn: "Alhena is Gamma Geminorum, marking the foot of the celestial twin brothers. It is a bright white giant star.",
+    expandedZh: "它的名字在阿拉伯语中意为'烙印之痕'。它与北河二、北河三共同构成了双子座的主体轮廓。",
+    expandedEn: "Its Arabic name means 'the brand' or 'marking'. Together with Castor and Pollux, it defines Gemini's main figure."
+  },
+  {
+    id: 46,
+    nameKey: "ElNath",
+    ra: 5.44,
+    dec: 28.61,
+    mag: 1.65,
+    color: 0xd6e8ff,
+    dist: 134,
+    nameZh: "五车五",
+    nameEn: "Elnath",
+    constellZh: "金牛座",
+    constellEn: "Taurus",
+    infoZh: "五车五是金牛座第二亮星，也是御夫座最南端的一颗跨界亮星，位于牛的两只角尖之一。",
+    infoEn: "Elnath is the second brightest star in Taurus and also the southernmost star of Auriga, marking one of the Bull's horns.",
+    expandedZh: "它在历史上同时被归入金牛座和御夫座，是冬季夜空中重要的导航参考点。",
+    expandedEn: "Historically shared between Taurus and Auriga, it serves as an important navigational reference in winter skies."
   }
 ];
 
@@ -841,10 +926,12 @@ function generateBackgroundStars(): { ra: number; dec: number; mag: number; colo
 
 export const BACKGROUND_STARS = generateBackgroundStars();
 
+export const BRIGHT_STAR_COUNT = BRIGHT_STARS.length;
+
 export const STAR_LIST: DetailedStar[] = [
   ...BRIGHT_STARS,
   ...BACKGROUND_STARS.map((bgStar, idx) => {
-    const id = 42 + idx;
+    const id = BRIGHT_STAR_COUNT + idx;
     return {
       id,
       nameKey: `bg-${id}`,
@@ -897,5 +984,35 @@ export const CONSTELLATIONS: { id: string; nameZh: string; nameEn: string; seq: 
     nameZh: "天蝎座",
     nameEn: "Scorpius",
     seq: [ [41, 16], [16, 39], [39, 40], [40, 38], [38, 36], [36, 37] ]
+  },
+  {
+    id: "winter_triangle",
+    nameZh: "冬季大三角",
+    nameEn: "Winter Triangle",
+    seq: [ [8, 14], [14, 1], [1, 8] ]
+  },
+  {
+    id: "pointers",
+    nameZh: "指极星",
+    nameEn: "Pointer Stars",
+    seq: [ [17, 18], [18, 0] ]
+  },
+  {
+    id: "gemini",
+    nameZh: "双子座",
+    nameEn: "Gemini",
+    seq: [ [42, 43], [43, 45], [45, 42] ]
+  },
+  {
+    id: "spring_triangle",
+    nameZh: "春季大三角",
+    nameEn: "Spring Triangle",
+    seq: [ [12, 44], [44, 30], [30, 12] ]
+  },
+  {
+    id: "taurus_eye",
+    nameZh: "金牛座双角",
+    nameEn: "Taurus Horns",
+    seq: [ [15, 46] ]
   }
 ];

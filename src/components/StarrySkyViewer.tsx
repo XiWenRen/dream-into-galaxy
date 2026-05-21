@@ -10,7 +10,7 @@ import { TimeEngine } from '../engine/TimeEngine';
 import { OrbitEngine } from '../engine/OrbitEngine';
 import { AstrophenomenaEngine } from '../engine/AstrophenomenaEngine';
 import { translations } from '../i18n';
-import { STAR_LIST, CONSTELLATIONS, DetailedStar } from '../engine/StarDatabase';
+import { STAR_LIST, CONSTELLATIONS, BRIGHT_STAR_COUNT, DetailedStar } from '../engine/StarDatabase';
 import TelescopeOverlay from './TelescopeOverlay';
 
 // Planet Definition for Interactive Sprites
@@ -311,24 +311,24 @@ const createCircleTexture = (): THREE.Texture => {
   const ctx = canvas.getContext('2d')!;
   const imgData = ctx.createImageData(16, 16);
   const data = imgData.data;
-  
+
   const decay_radius = 1.2;
   const thickness_decay = 0.4;
   const length_decay = 5.0;
-  
+
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
       const dx = x - 7.5;
       const dy = y - 7.5;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      
+
       const glow = Math.exp(-dist / decay_radius);
       const spikeH = Math.exp(-Math.abs(dy) / thickness_decay) * Math.exp(-Math.abs(dx) / length_decay);
       const spikeV = Math.exp(-Math.abs(dx) / thickness_decay) * Math.exp(-Math.abs(dy) / length_decay);
-      
+
       let intensity = glow + 0.65 * (spikeH + spikeV);
       intensity = Math.max(0.0, Math.min(1.0, intensity));
-      
+
       const idx = (y * 16 + x) * 4;
       data[idx] = 255;
       data[idx + 1] = 255;
@@ -341,6 +341,48 @@ const createCircleTexture = (): THREE.Texture => {
   return texture;
 };
 
+// 创建星座标签纹理
+const createConstellationLabelTexture = (text: string): { texture: THREE.CanvasTexture; width: number; height: number } => {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+  const fontSize = 22;
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  const metrics = ctx.measureText(text);
+  const width = Math.ceil(metrics.width) + 20;
+  const height = fontSize + 14;
+  canvas.width = width;
+  canvas.height = height;
+
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.fillStyle = 'rgba(180, 210, 255, 0.9)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, width / 2, height / 2);
+
+  // subtle glow
+  ctx.shadowColor = 'rgba(100, 160, 255, 0.5)';
+  ctx.shadowBlur = 8;
+  ctx.fillText(text, width / 2, height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  return { texture, width, height };
+};
+
+// 创建星座名称文字Sprite
+const createConstellationLabelSprite = (text: string): THREE.Sprite => {
+  const { texture, width, height } = createConstellationLabelTexture(text);
+  const mat = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(width * 0.06, height * 0.06, 1);
+  return sprite;
+};
+
 interface StarrySkyViewerProps {
   currentTimestamp: number;
   latitude: number;
@@ -348,6 +390,7 @@ interface StarrySkyViewerProps {
   lang: 'zh' | 'en';
   showConstellLines: boolean;
   showStarNames: boolean;
+  showConstellNames?: boolean;
   magLimit?: number;
   telescopeActive?: boolean;
   onTelescopeChange?: (active: boolean) => void;
@@ -360,6 +403,7 @@ export default function StarrySkyViewer({
   lang,
   showConstellLines,
   showStarNames,
+  showConstellNames = false,
   magLimit = 5.5,
   telescopeActive = false,
   onTelescopeChange
@@ -379,6 +423,8 @@ export default function StarrySkyViewer({
   const lightRef = useRef<THREE.DirectionalLight | null>(null);
   const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
   const constellLinesRef = useRef<THREE.LineSegments | null>(null);
+  const constellLabelGroupRef = useRef<THREE.Group | null>(null);
+  const constellLabelSpritesRef = useRef<THREE.Sprite[]>([]);
 
   // 10,000星和行星渲染引用
   const starSpritesRef = useRef<THREE.Sprite[]>([]);
@@ -421,6 +467,22 @@ export default function StarrySkyViewer({
 
   useEffect(() => {
     langRef.current = lang;
+  }, [lang]);
+
+  // 语言切换时更新星座标签文字
+  useEffect(() => {
+    if (constellLabelSpritesRef.current.length === 0) return;
+    constellLabelSpritesRef.current.forEach((sprite, idx) => {
+      const c = CONSTELLATIONS[idx];
+      if (!c) return;
+      const labelName = lang === 'zh' ? c.nameZh : c.nameEn;
+      const { texture, width, height } = createConstellationLabelTexture(labelName);
+      const mat = sprite.material as THREE.SpriteMaterial;
+      if (mat.map) mat.map.dispose();
+      mat.map = texture;
+      mat.needsUpdate = true;
+      sprite.scale.set(width * 0.06, height * 0.06, 1);
+    });
   }, [lang]);
 
   useEffect(() => {
@@ -567,10 +629,10 @@ export default function StarrySkyViewer({
     scene.add(starsGroup);
     starsGroupRef.current = starsGroup;
 
-    // A. 42颗明亮恒星 Sprite 创建
+    // A. 明亮恒星 Sprite 创建
     const brightStarTex = createBrightStarGlowTexture();
     const starSprites: THREE.Sprite[] = [];
-    const brightStarsData = STAR_LIST.slice(0, 42);
+    const brightStarsData = STAR_LIST.slice(0, BRIGHT_STAR_COUNT);
     
     brightStarsData.forEach(star => {
       const baseScale = Math.max(1.0, (5.0 - star.mag) * 1.2);
@@ -624,8 +686,8 @@ export default function StarrySkyViewer({
     });
     planetSpritesRef.current = planetSprites;
 
-    // C. 9,958背景星星 Point System 创建
-    const bgStarsData = STAR_LIST.slice(42);
+    // C. 背景星星 Point System 创建
+    const bgStarsData = STAR_LIST.slice(BRIGHT_STAR_COUNT);
     const bgCount = bgStarsData.length;
     
     const bgPositions = new Float32Array(bgCount * 3);
@@ -672,6 +734,21 @@ export default function StarrySkyViewer({
     const linesObj = new THREE.LineSegments(new THREE.BufferGeometry(), lineMat);
     starsGroup.add(linesObj);
     constellLinesRef.current = linesObj;
+
+    // E. 星座名称标签组
+    const labelGroup = new THREE.Group();
+    starsGroup.add(labelGroup);
+    constellLabelGroupRef.current = labelGroup;
+    const labelSprites: THREE.Sprite[] = [];
+    CONSTELLATIONS.forEach((c) => {
+      const labelName = langRef.current === 'zh' ? c.nameZh : c.nameEn;
+      const sprite = createConstellationLabelSprite(labelName);
+      sprite.visible = false;
+      sprite.userData = { constellId: c.id, nameZh: c.nameZh, nameEn: c.nameEn };
+      labelGroup.add(sprite);
+      labelSprites.push(sprite);
+    });
+    constellLabelSpritesRef.current = labelSprites;
 
     // 7. 太阳系两大顶流 (Sun 及 Moon) 在天幕投影
     const sunGeom = new THREE.SphereGeometry(9.5, 32, 32);
@@ -1247,10 +1324,44 @@ export default function StarrySkyViewer({
 
       constellLinesRef.current.geometry.dispose();
       constellLinesRef.current.geometry = new THREE.BufferGeometry().setFromPoints(linePoints);
-      
+
       const lineMat = constellLinesRef.current.material as THREE.LineBasicMaterial;
       lineMat.opacity = 0.35 * Math.max(0, 1 - skyBrightness);
       constellLinesRef.current.visible = showConstellLines && linePoints.length > 0;
+    }
+
+    // G. 星座名称标签位置更新
+    if (constellLabelSpritesRef.current.length > 0) {
+      constellLabelSpritesRef.current.forEach((sprite, idx) => {
+        const constell = CONSTELLATIONS[idx];
+        if (!constell) return;
+        const uniqueStarIndices = new Set<number>();
+        constell.seq.forEach(pair => {
+          uniqueStarIndices.add(pair[0]);
+          uniqueStarIndices.add(pair[1]);
+        });
+        let sumAz = 0, sumAlt = 0, visibleCount = 0;
+        uniqueStarIndices.forEach(starIdx => {
+          const star = STAR_LIST[starIdx];
+          if (!star || star.mag > magLimit) return;
+          const h = getHorizontalCoordinates(star.ra, star.dec, lst, latitude);
+          if (h.alt > 0) {
+            sumAz += h.az;
+            sumAlt += h.alt;
+            visibleCount++;
+          }
+        });
+        if (visibleCount >= 2) {
+          const avgAz = sumAz / visibleCount;
+          const avgAlt = sumAlt / visibleCount;
+          const pos = get3DPositionOnDome(avgAz, avgAlt, 288);
+          sprite.position.copy(pos);
+          sprite.visible = showConstellNames;
+          sprite.material.opacity = 0.7 * Math.max(0, 1 - skyBrightness);
+        } else {
+          sprite.visible = false;
+        }
+      });
     }
 
     daysSinceJ2000Ref.current = days;
@@ -1269,7 +1380,7 @@ export default function StarrySkyViewer({
       solarEclipse: eclipseState.solarEclipse,
       lunarEclipse: eclipseState.lunarEclipse
     });
-  }, [currentTimestamp, latitude, longitude, showConstellLines, showStarNames, magLimit]);
+  }, [currentTimestamp, latitude, longitude, showConstellLines, showStarNames, showConstellNames, magLimit]);
 
   // 渲染帧与高频大气闪烁/抖动渲染循环
   useEffect(() => {
@@ -1279,6 +1390,11 @@ export default function StarrySkyViewer({
       if (rendererRef.current && sceneRef.current && cameraRef.current && controlsRef.current) {
         controlsRef.current.update();
 
+        // FOV 联动灵敏度：视野越窄，拖拽灵敏度越低
+        if (controlsRef.current) {
+          controlsRef.current.rotateSpeed = -0.4 * (fovRef.current / 65.0);
+        }
+
         // 1. 夜间月光平行光强度强力锁定
         if (lightRef.current) {
           const sunAlt = sunAltRef.current;
@@ -1286,96 +1402,76 @@ export default function StarrySkyViewer({
           if (sunAlt >= 0) {
             lightRef.current.intensity = 1.2 * (1.0 - skyBrightness) + 0.1;
           } else {
-            lightRef.current.intensity = 1.5; 
+            lightRef.current.intensity = 1.5;
           }
         }
 
-        // 2. 亮恒星高阶闪烁与大气颤动 (Micro-jitter)
+        // 2. 亮恒星位置与透明度更新（无闪烁/抖动）
         starSpritesRef.current.forEach((sprite) => {
           if (sprite.visible) {
             const az = sprite.userData.az;
             const alt = sprite.userData.alt;
             const radius = sprite.userData.radius;
-            const starId = sprite.userData.id;
             const baseOpacity = sprite.userData.baseOpacity ?? 1.0;
-
-            const jitterAz = az + (Math.random() * 0.002 - 0.001) * (180.0 / Math.PI);
-            const jitterAlt = alt + (Math.random() * 0.002 - 0.001) * (180.0 / Math.PI);
-            const pos = get3DPositionOnDome(jitterAz, jitterAlt, radius);
+            const pos = get3DPositionOnDome(az, alt, radius);
             sprite.position.copy(pos);
-
-            const t = performance.now() * 0.008;
-            const twinkleFactor = 1.0 - 0.25 * (0.5 + 0.5 * Math.sin(t * (3.0 + (starId % 5)) + starId));
-            sprite.material.opacity = baseOpacity * twinkleFactor;
+            sprite.material.opacity = baseOpacity;
           }
         });
 
-        // 3. 行星高阶闪烁与大气颤动
+        // 3. 行星位置与透明度更新（无闪烁/抖动）
         (Object.values(planetSpritesRef.current) as THREE.Sprite[]).forEach((sprite) => {
           if (sprite.visible) {
             const az = sprite.userData.az;
             const alt = sprite.userData.alt;
             const radius = sprite.userData.radius;
             const baseOpacity = sprite.userData.baseOpacity ?? 1.0;
-
-            const jitterAz = az + (Math.random() * 0.002 - 0.001) * (180.0 / Math.PI);
-            const jitterAlt = alt + (Math.random() * 0.002 - 0.001) * (180.0 / Math.PI);
-            const pos = get3DPositionOnDome(jitterAz, jitterAlt, radius);
+            const pos = get3DPositionOnDome(az, alt, radius);
             sprite.position.copy(pos);
-
-            const t = performance.now() * 0.008;
-            const twinkleFactor = 1.0 - 0.25 * (0.5 + 0.5 * Math.sin(t * 2.0));
-            sprite.material.opacity = baseOpacity * twinkleFactor;
+            sprite.material.opacity = baseOpacity;
           }
         });
 
-        // 4. 背景暗星批量粒子渲染循环
+        // 4. 背景暗星批量粒子渲染循环（无闪烁/抖动）
         if (backgroundPointsRef.current) {
           const bgPoints = backgroundPointsRef.current;
           const positions = bgPoints.geometry.attributes.position.array as Float32Array;
           const colors = bgPoints.geometry.attributes.color.array as Float32Array;
-          
-          const bgStarsData = STAR_LIST.slice(42);
+
+          const bgStarsData = STAR_LIST.slice(BRIGHT_STAR_COUNT);
           const lst = TimeEngine.getLocalSiderealTime(currentTimestampRef.current, longitudeRef.current);
           const lat = latitudeRef.current;
           const skyBr = skyBrightnessRef.current;
-          
+
           for (let i = 0; i < bgStarsData.length; i++) {
             const star = bgStarsData[i];
             const coords = getHorizontalCoordinates(star.ra, star.dec, lst, lat);
             const alt = coords.alt;
             const az = coords.az;
             const idx = i * 3;
-            
+
             if (alt <= 0 || star.mag > magLimitRef.current) {
               positions[idx] = 0;
               positions[idx + 1] = -999999;
               positions[idx + 2] = 0;
-              
+
               colors[idx] = 0;
               colors[idx + 1] = 0;
               colors[idx + 2] = 0;
             } else {
-              const jitterAz = az + (Math.random() * 0.002 - 0.001) * (180.0 / Math.PI);
-              const jitterAlt = alt + (Math.random() * 0.002 - 0.001) * (180.0 / Math.PI);
-              
-              const pos = get3DPositionOnDome(jitterAz, jitterAlt, 150);
+              const pos = get3DPositionOnDome(az, alt, 150);
               positions[idx] = pos.x;
               positions[idx + 1] = pos.y;
               positions[idx + 2] = pos.z;
-              
+
               let extinction = 1.0;
               if (alt < 12) {
                 extinction = Math.sin(alt * Math.PI / 180.0) / Math.sin(12.0 * Math.PI / 180.0);
               }
-              
-              const starId = star.id;
-              const t = performance.now() * 0.008;
-              const twinkleFactor = 1.0 - 0.25 * (0.5 + 0.5 * Math.sin(t * (3.0 + (starId % 5)) + starId));
-              
+
               const baseColor = new THREE.Color(star.color);
-              const factor = extinction * (1.0 - skyBr) * twinkleFactor;
-              
+              const factor = extinction * (1.0 - skyBr);
+
               colors[idx] = baseColor.r * factor;
               colors[idx + 1] = baseColor.g * factor;
               colors[idx + 2] = baseColor.b * factor;

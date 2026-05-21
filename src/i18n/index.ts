@@ -32,6 +32,7 @@ export interface TranslationDict {
   lunarEclipseOccurring: string;
   constellationLines: string;
   starNames: string;
+  constellationNames: string;
   observingFrom: string;
   searchPlanet: string;
   allPlanets: string;
@@ -198,6 +199,7 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     lunarEclipseOccurring: "⚠️ 月偏食 / 月全食发生中！(日地月成一直线)",
     constellationLines: "显示星座连线",
     starNames: "显示恒星名称",
+    constellationNames: "显示星座名称",
     observingFrom: "当前观星位置",
     searchPlanet: "查找天体",
     allPlanets: "全天体列表",
@@ -361,6 +363,7 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     lunarEclipseOccurring: "⚠️ Lunar Eclipse occurring! (S-E-M Alignment)",
     constellationLines: "Constellation Lines",
     starNames: "Show Star Names",
+    constellationNames: "Show Constellation Names",
     observingFrom: "Landed Observatory Site",
     searchPlanet: "Search Corpse",
     allPlanets: "All Celestial Bodies",

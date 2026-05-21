@@ -21,6 +21,8 @@ interface CelestialControlsProps {
   onToggleConstellLines: (show: boolean) => void;
   showStarNames: boolean;
   onToggleStarNames: (show: boolean) => void;
+  showConstellNames?: boolean;
+  onToggleConstellNames?: (show: boolean) => void;
   onJumpDate: (timestamp: number) => void;
   currentSolarTermNameKey?: string;
   nextSolarTermNameKey?: string;
@@ -60,6 +62,8 @@ export default function CelestialControls({
   onToggleConstellLines,
   showStarNames,
   onToggleStarNames,
+  showConstellNames = false,
+  onToggleConstellNames,
   onJumpDate,
   currentSolarTermNameKey,
   nextSolarTermNameKey,
@@ -270,7 +274,7 @@ export default function CelestialControls({
           {/* 星地开关 */}
           <div className="flex items-center space-x-4 pt-1 text-[11px] font-mono text-slate-300">
             <label className="flex items-center space-x-1.5 cursor-pointer">
-              <input 
+              <input
                 type="checkbox"
                 checked={showConstellLines}
                 onChange={(e) => onToggleConstellLines(e.target.checked)}
@@ -280,7 +284,7 @@ export default function CelestialControls({
             </label>
 
             <label className="flex items-center space-x-1.5 cursor-pointer">
-              <input 
+              <input
                 type="checkbox"
                 checked={showStarNames}
                 onChange={(e) => onToggleStarNames(e.target.checked)}
@@ -288,6 +292,18 @@ export default function CelestialControls({
               />
               <span>⭐ {translations[lang].starNames}</span>
             </label>
+
+            {onToggleConstellNames && (
+              <label className="flex items-center space-x-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showConstellNames}
+                  onChange={(e) => onToggleConstellNames(e.target.checked)}
+                  className="rounded accent-cyan-500"
+                />
+                <span>🔤 {translations[lang].constellationNames}</span>
+              </label>
+            )}
           </div>
         </div>
       ) : (
