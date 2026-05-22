@@ -9,7 +9,6 @@ import StarrySkyViewer from './components/StarrySkyViewer';
 import PlanetInfoPanel from './components/PlanetInfoPanel';
 import CommandPanel from './components/CommandPanel';
 import ArcTimeBar from './components/ArcTimeBar';
-import SystemPanel from './components/SystemPanel';
 import { TimeEngine } from './engine/TimeEngine';
 import { OrbitEngine } from './engine/OrbitEngine';
 import { AstrophenomenaEngine } from './engine/AstrophenomenaEngine';
@@ -28,6 +27,19 @@ export default function App() {
 
   // 自定义主题
   const [theme, setTheme] = useState<ThemeType>('space-tech');
+
+  // 验证系统状态
+  const [panelTab, setPanelTab] = useState<'packing' | 'audit'>('audit');
+  const [packingActive, setPackingActive] = useState<boolean>(false);
+  const [packingProgressDone, setPackingProgressDone] = useState<number>(0);
+  const [packingMode, setPackingMode] = useState<'physical' | 'visual'>('physical');
+  const [strictPhysics, setStrictPhysics] = useState<boolean>(false);
+  const [validationPairKey, setValidationPairKey] = useState<string>('sun-earth');
+  const [focusTrigger, setFocusTrigger] = useState<number>(0);
+
+  // 相机穿梭倍速及自定义速度状态
+  const [useExponentialSpeed, setUseExponentialSpeed] = useState<boolean>(true);
+  const [customSpeedPreset, setCustomSpeedPreset] = useState<string>('light');
 
   // 地面登录观测站参数 (纬度和经度)
   const [landed, setLanded] = useState<boolean>(false);
@@ -92,6 +104,7 @@ export default function App() {
 
   const handleSelectPlanet = (id: string) => {
     setSelectedPlanetId(id);
+    setFocusTrigger(prev => prev + 1);
     // 强制复位部分状态，并将详情卡重开
     setCrossSectionActive(false);
     setShowPlanetInfo(true);
@@ -168,6 +181,24 @@ export default function App() {
           selectedPlanetId={selectedPlanetId}
           onSelectPlanet={handleSelectPlanet}
           onJumpDate={(ts) => setTimeState(prev => ({ ...prev, currentTimestamp: ts }))}
+          helioX={helioPos.x}
+          helioY={helioPos.y}
+          helioZ={helioPos.z}
+          validationPairKey={validationPairKey}
+          onChangeValidationPairKey={setValidationPairKey}
+          panelTab={panelTab}
+          onChangePanelTab={setPanelTab}
+          packingActive={packingActive}
+          onTogglePackingActive={setPackingActive}
+          packingProgressDone={packingProgressDone}
+          packingMode={packingMode}
+          onChangePackingMode={setPackingMode}
+          strictPhysics={strictPhysics}
+          onToggleStrictPhysics={setStrictPhysics}
+          useExponentialSpeed={useExponentialSpeed}
+          onToggleExponentialSpeed={setUseExponentialSpeed}
+          customSpeedPreset={customSpeedPreset}
+          onChangeCustomSpeedPreset={setCustomSpeedPreset}
         />
       </div>
 
@@ -213,39 +244,24 @@ export default function App() {
               crossSectionActive={crossSectionActive}
               lang={lang}
               showConstellLines={showConstellLines}
-              magLimit={magLimit}
+              validationPairKey={validationPairKey}
+              setValidationPairKey={setValidationPairKey}
+              panelTab={panelTab}
+              setPanelTab={setPanelTab}
+              packingActive={packingActive}
+              setPackingActive={setPackingActive}
+              packingProgressDone={packingProgressDone}
+              setPackingProgressDone={setPackingProgressDone}
+              packingMode={packingMode}
+              setPackingMode={setPackingMode}
+              strictPhysics={strictPhysics}
+              setStrictPhysics={setStrictPhysics}
+              focusTrigger={focusTrigger}
+              useExponentialSpeed={useExponentialSpeed}
+              customSpeedPreset={customSpeedPreset}
             />
           )}
         </div>
-
-        {/* 双系统登录/飞跃功能触发器 — 移至右上角 */}
-        {LANDABLE_PLANETS.includes(selectedPlanetId) && (
-          <div className="absolute top-5 right-5 z-20">
-            <button
-              onClick={handleToggleLanding}
-              className={`px-4 py-2 text-[11.5px] font-extrabold cursor-pointer border tracking-widest uppercase flex items-center space-x-2 shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 text-white bg-black/80 backdrop-blur-md rounded-lg ${
-                landed
-                  ? 'border-red-500/40 hover:bg-red-950/45 text-red-400 direct-shadow'
-                  : 'border-cyan-500/40 hover:bg-cyan-950/45 text-cyan-400 direct-shadow'
-              }`}
-              id="btn-login-land-planet"
-            >
-              <div className={`w-2 h-2 rounded-full absolute -top-1 -right-1 ${landed ? 'bg-red-400 shadow-[0_0_8px_#f87171]' : 'bg-cyan-400 shadow-[0_0_8px_#22d3ee]'} animate-pulse`} />
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                {landed ? (
-                  <>
-                    <path d="M12 19V5" /><path d="m5 12 7-7 7 7" /><path d="M19 12H5" />
-                  </>
-                ) : (
-                  <>
-                    <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" /><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" /><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
-                  </>
-                )}
-              </svg>
-              <span>{landed ? translations[lang].leaveBtn : `${translations[lang].landBtn} (${translations[lang][`${selectedPlanetId}_name` as keyof typeof translations['zh']].split(' ')[0]})`}</span>
-            </button>
-          </div>
-        )}
 
         {/* 右侧：悬浮天体结构剖析与物理常数面板 (仅在 3D 宇宙模式、且选择特定星球时悬浮在右侧) */}
         {!landed && selectedPlanetId && showPlanetInfo && (
@@ -256,6 +272,9 @@ export default function App() {
               onToggleCrossSection={setCrossSectionActive}
               lang={lang}
               onClose={() => setShowPlanetInfo(false)}
+              landed={landed}
+              onToggleLanding={handleToggleLanding}
+              isLandable={LANDABLE_PLANETS.includes(selectedPlanetId)}
             />
           </div>
         )}
@@ -291,18 +310,6 @@ export default function App() {
         />
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════
-           BOTTOM: System Panel (collapsible footer replacement)
-         ═══════════════════════════════════════════════════════════════ */}
-      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
-        <SystemPanel
-          lang={lang}
-          selectedPlanetId={selectedPlanetId}
-          helioX={helioPos.x}
-          helioY={helioPos.y}
-          helioZ={helioPos.z}
-        />
-      </div>
     </div>
   );
 }

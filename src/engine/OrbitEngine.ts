@@ -128,12 +128,12 @@ export class OrbitEngine {
    * @param days 距 J2000.0 天数
    * @param useVisualScale 是否视觉放大月地距离以方便肉眼观测 (否则38万公里在天文单位1AU下太微小)
    */
-  static getLunarRelativePosition(days: number, useVisualScale = true): { x: number; y: number; z: number } {
+  static getLunarRelativePosition(days: number, _useVisualScale = true): { x: number; y: number; z: number } {
     // 月球主要公转根数 (近似周期为 27.322 天)
-    const moonA = 0.00257; // 约 384,400km = 0.00257 AU
-    // 公转放大系数
-    const visualScaleFactor = useVisualScale ? 18 : 1; 
-    const finalA = moonA * visualScaleFactor;
+    // 真实物理半长轴：约 384,400 km = 0.00257 AU
+    // 注意：此函数始终返回真实物理距离（单位 AU）。
+    // 任何视觉缩放应由调用方（如 UniverseViewer）在将 AU 转换为场景单位时处理。
+    const moonA = 0.00257;
 
     // 月球升交点黄经和近地点黄经是快速顺时针/逆时针自转移动的，这里给出一个近似快速计算方式：
     // 周期 ~ 27.3天，轨道角速度 ~ 13.176 度/天
@@ -143,8 +143,8 @@ export class OrbitEngine {
     // 倾角： 约 5.14
     const iRad = (5.145 * Math.PI) / 180.0;
 
-    const xOrbit = finalA * Math.cos(rad);
-    const yOrbit = finalA * Math.sin(rad);
+    const xOrbit = moonA * Math.cos(rad);
+    const yOrbit = moonA * Math.sin(rad);
 
     // 月地坐标平面绕黄道也带一定倾斜
     const x = xOrbit;

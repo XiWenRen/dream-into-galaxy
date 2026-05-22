@@ -37,13 +37,13 @@ const TIME_PRESETS: TimePreset[] = [
 ];
 
 // ─── Arc math ───────────────────────────────────────────────────────────────
-// Quadratic bezier: P0=(20,100), P1=(300,-20), P2=(580,100)
+// Quadratic bezier: P0=(20,20), P1=(300,80), P2=(580,20)
 // Bx(t) = 20 + 560t
-// By(t) = 100 - 240t + 240t^2 = 100 - 240t(1-t)
+// By(t) = 20 + 120t(1-t)   (upward arc, reduced curvature)
 
 function getArcPoint(t: number): { x: number; y: number } {
   const x = 20 + 560 * t;
-  const y = 100 - 240 * t * (1 - t);
+  const y = 20 + 80 * t * (1 - t);
   return { x, y };
 }
 
@@ -177,8 +177,8 @@ export default function ArcTimeBar({
     }
   };
 
-  // Arc SVG path
-  const arcPath = 'M 20 100 Q 300 -20 580 100';
+  // Arc SVG path (upward arc with reduced curvature)
+  const arcPath = 'M 20 20 Q 300 60 580 20';
 
   return (
     <div className="relative flex flex-col items-center select-none"
@@ -186,7 +186,7 @@ export default function ArcTimeBar({
     >
       {/* SVG Arc Track */}
       <svg
-        viewBox="0 0 600 120"
+        viewBox="0 0 600 80"
         className="w-full"
         style={{ height: 'auto', overflow: 'visible' }}
       >
@@ -224,9 +224,6 @@ export default function ArcTimeBar({
             strokeWidth="2.5"
             filter="url(#arcGlow)"
             strokeDasharray={`${activePreset.t * 580} 580`}
-            style={{
-              opacity: activePreset.side === 'left' ? 1 : 1,
-            }}
           />
         )}
 
@@ -267,10 +264,10 @@ export default function ArcTimeBar({
                 strokeWidth="1"
                 style={{ transition: 'all 0.2s ease' }}
               />
-              {/* Label below dot */}
+              {/* Label above dot */}
               <text
                 x={pos.x}
-                y={pos.y + (isCenter ? 22 : 16)}
+                y={pos.y - (isCenter ? 14 : 10)}
                 textAnchor="middle"
                 fill={isActive ? '#22d3ee' : 'rgba(148,163,184,0.6)'}
                 fontSize={isCenter ? 10 : 8}
@@ -289,13 +286,13 @@ export default function ArcTimeBar({
       <div
         className="absolute flex flex-col items-center gap-2"
         style={{
-          bottom: '8px',
+          top: '-36px',
           left: '50%',
           transform: 'translateX(-50%)',
         }}
       >
-        {/* Date/Time display */}
-        <div className="flex items-center gap-2 bg-slate-950/90 border border-slate-800/80 backdrop-blur-lg rounded-lg px-3 py-1.5 shadow-xl">
+        {/* Date/Time display - transparent floating, no border */}
+        <div className="flex items-center gap-2 bg-slate-950/50 backdrop-blur-md rounded-lg px-3 py-1.5 shadow-lg">
           <IconClock className="w-3 h-3 text-cyan-400/70" />
           <span className="text-[11px] font-mono font-semibold text-cyan-300 tracking-wide whitespace-nowrap">
             {formatTime(timeState.currentTimestamp, useUTC)}
@@ -371,7 +368,7 @@ export default function ArcTimeBar({
       {showDatePicker && (
         <div
           className="absolute z-50 bg-slate-950/95 border border-slate-800/80 backdrop-blur-xl rounded-xl p-3 shadow-2xl flex flex-col gap-2"
-          style={{ bottom: '70px', left: '50%', transform: 'translateX(-50%)' }}
+          style={{ top: '70px', left: '50%', transform: 'translateX(-50%)' }}
         >
           <div className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">{t.selectDate}</div>
           <input

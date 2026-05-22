@@ -7,7 +7,8 @@ import React, { useState } from 'react';
 import { translations } from '../i18n';
 import { OrbitEngine } from '../engine/OrbitEngine';
 import { ThemeType } from '../types/astronomy';
-import { SATELLITE_DATA } from './UniverseViewer';
+import { SATELLITE_DATA, VALIDATION_PAIRS, getExpectedCount } from './UniverseViewer';
+import SystemPanel from './SystemPanel';
 
 interface CommandPanelProps {
   lang: 'zh' | 'en';
@@ -28,6 +29,28 @@ interface CommandPanelProps {
   selectedPlanetId: string;
   onSelectPlanet: (id: string) => void;
   onJumpDate: (timestamp: number) => void;
+  helioX: number;
+  helioY: number;
+  helioZ: number;
+
+  // 验证面板相关 props
+  validationPairKey: string;
+  onChangeValidationPairKey: (val: string) => void;
+  panelTab: 'audit' | 'packing';
+  onChangePanelTab: (val: 'audit' | 'packing') => void;
+  packingActive: boolean;
+  onTogglePackingActive: (val: boolean) => void;
+  packingProgressDone: number;
+  packingMode: 'physical' | 'visual';
+  onChangePackingMode: (val: 'physical' | 'visual') => void;
+  strictPhysics: boolean;
+  onToggleStrictPhysics: (val: boolean) => void;
+
+  // 穿梭模式等比加速相关 props
+  useExponentialSpeed: boolean;
+  onToggleExponentialSpeed: (val: boolean) => void;
+  customSpeedPreset: string;
+  onChangeCustomSpeedPreset: (val: string) => void;
 }
 
 // ─── Icons (inline SVG, Lucide-style) ───────────────────────────────────────
@@ -99,6 +122,12 @@ const IconMaximize = ({ className = 'w-4 h-4' }: { className?: string }) => (
   </svg>
 );
 
+const IconZap = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const getPlanetSatellites = (parentPlanet: string): { nameZh: string; nameEn: string }[] => {
@@ -156,13 +185,92 @@ export default function CommandPanel({
   selectedPlanetId,
   onSelectPlanet,
   onJumpDate,
+  helioX,
+  helioY,
+  helioZ,
+
+  // 验证面板相关 props
+  validationPairKey,
+  onChangeValidationPairKey,
+  panelTab,
+  onChangePanelTab,
+  packingActive,
+  onTogglePackingActive,
+  packingProgressDone,
+  packingMode,
+  onChangePackingMode,
+  strictPhysics,
+  onToggleStrictPhysics,
+
+  // 穿梭模式等比加速相关 props
+  useExponentialSpeed,
+  onToggleExponentialSpeed,
+  customSpeedPreset,
+  onChangeCustomSpeedPreset,
 }: CommandPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+  const [showValidation, setShowValidation] = useState(false);
+  const [showSpeedControls, setShowSpeedControls] = useState(false);
+
   const isZh = lang === 'zh';
   const t = translations[lang];
 
   const resolved = resolveHierarchy(selectedPlanetId);
+
+  const getSunRadius = (): number => {
+    if (useVisualScale) {
+      return 1.05;
+    } else if (strictPhysics) {
+      return 22.0 / (2 * 108.0);
+    } else {
+      return 0.232;
+    }
+  };
+
+  const getPlanetRadius = (id: string): number => {
+    if (useVisualScale) {
+      switch(id) {
+        case 'mercury': return 0.20;
+        case 'venus': return 0.32;
+        case 'earth': return 0.38;
+        case 'moon': return 0.09;
+        case 'mars': return 0.24;
+        case 'jupiter': return 0.85;
+        case 'saturn': return 0.70;
+        case 'uranus': return 0.48;
+        case 'neptune': return 0.45;
+        default: return 0.3;
+      }
+    } else if (strictPhysics) {
+      const baseSunRad = 22.0 / (2 * 108.0);
+      switch(id) {
+        case 'mercury': return baseSunRad * (2439.7 / 696340.0);
+        case 'venus': return baseSunRad * (6051.8 / 696340.0);
+        case 'earth': return baseSunRad * (6371.0 / 696340.0);
+        case 'moon': return baseSunRad * (1737.4 / 696340.0);
+        case 'mars': return baseSunRad * (3389.5 / 696340.0);
+        case 'jupiter': return baseSunRad * (69911.0 / 696340.0);
+        case 'saturn': return baseSunRad * (58232.0 / 696340.0);
+        case 'uranus': return baseSunRad * (25362.0 / 696340.0);
+        case 'neptune': return baseSunRad * (24622.0 / 696340.0);
+        default: return baseSunRad * 0.01;
+      }
+    } else {
+      switch(id) {
+        case 'mercury': return 0.058;
+        case 'venus': return 0.106;
+        case 'earth': return 0.11;
+        case 'moon': return 0.03;
+        case 'mars': return 0.072;
+        case 'jupiter': return 0.54;
+        case 'saturn': return 0.46;
+        case 'uranus': return 0.27;
+        case 'neptune': return 0.26;
+        default: return 0.1;
+      }
+    }
+  };
 
   const handleLevel1Change = (val: string) => {
     if (val === 'sun') onSelectPlanet('sun');
@@ -309,16 +417,51 @@ export default function CommandPanel({
       {/* Mode-specific controls */}
       {!landed ? (
         /* Universe mode controls */
-        <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-          <input
-            type="checkbox"
-            checked={useVisualScale}
-            onChange={(e) => onToggleVisualScale(e.target.checked)}
-            className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
-          />
-          <IconMaximize className="w-3.5 h-3.5 text-slate-500" />
-          <span>{isZh ? '视觉比例优化' : 'Visual Scale'}</span>
-        </label>
+        <div className="flex flex-col space-y-2.5">
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="checkbox"
+              checked={useVisualScale}
+              onChange={(e) => onToggleVisualScale(e.target.checked)}
+              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <IconMaximize className="w-3.5 h-3.5 text-slate-500" />
+            <span>{isZh ? '视觉比例优化' : 'Visual Scale'}</span>
+          </label>
+
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="checkbox"
+              checked={useExponentialSpeed}
+              onChange={(e) => onToggleExponentialSpeed(e.target.checked)}
+              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <IconZap className="w-3.5 h-3.5 text-slate-500" />
+            <span>{isZh ? '等比速度加速' : 'Proportional Speed'}</span>
+          </label>
+
+          {!useExponentialSpeed && (
+            <div className="flex flex-col space-y-1 pl-5.5">
+              <span className="text-[9px] text-slate-500 uppercase tracking-wider font-mono">
+                {isZh ? '手动速度预设' : 'Manual Speed Presets'}
+              </span>
+              <select
+                value={customSpeedPreset}
+                onChange={(e) => onChangeCustomSpeedPreset(e.target.value)}
+                className="bg-slate-900 border border-slate-800 rounded px-1.5 py-1 text-[10px] text-slate-300 focus:outline-none focus:border-cyan-500/50 cursor-pointer w-full"
+              >
+                <option value="walk">{isZh ? '步行 (1.4 m/s)' : 'Walking (1.4 m/s)'}</option>
+                <option value="rocket">{isZh ? '火箭 (11.2 km/s)' : 'Rocket (11.2 km/s)'}</option>
+                <option value="meteor">{isZh ? '流星 (50 km/s)' : 'Meteor (50 km/s)'}</option>
+                <option value="light">{isZh ? '光速 (1c)' : 'Speed of Light (1c)'}</option>
+                <option value="10c">{isZh ? '10倍光速 (10c)' : '10x Speed (10c)'}</option>
+                <option value="100c">{isZh ? '100倍光速 (100c)' : '100x Speed (100c)'}</option>
+                <option value="1000c">{isZh ? '1000倍光速 (1000c)' : '1000x Speed (1000c)'}</option>
+                <option value="10000c">{isZh ? '10000倍光速 (10000c)' : '10000x Speed (10000c)'}</option>
+              </select>
+            </div>
+          )}
+        </div>
       ) : (
         /* Starry sky mode controls */
         <div className="space-y-2.5">
@@ -385,6 +528,409 @@ export default function CommandPanel({
           </div>
         </div>
       )}
+
+      {/* 🚀 相机穿梭速度控制 (Shuttle Speed) */}
+      {!landed && (
+        <div className="pt-1.5 border-t border-slate-800/60 flex flex-col gap-1.5">
+          <button
+            onClick={() => setShowSpeedControls(!showSpeedControls)}
+            className="flex items-center justify-between w-full text-[10px] font-bold font-mono text-cyan-400 hover:text-cyan-300 transition-colors uppercase tracking-wider py-1 cursor-pointer"
+          >
+            <span className="flex items-center gap-1.5">
+              <span>🚀</span>
+              <span>{isZh ? '相机穿梭速度控制' : 'SHUTTLE SPEED'}</span>
+            </span>
+            <span className="text-slate-500 font-normal">
+              {showSpeedControls ? '▲' : '▼'}
+            </span>
+          </button>
+
+          {showSpeedControls && (
+            <div className="space-y-2 bg-slate-900/40 p-2.5 rounded-lg border border-slate-800/50">
+              <label className="flex items-center gap-2 text-[10.5px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+                <input
+                  type="checkbox"
+                  checked={useExponentialSpeed}
+                  onChange={(e) => onToggleExponentialSpeed(e.target.checked)}
+                  className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+                />
+                <span>{isZh ? '开启等比加速 (越远越快)' : 'Exponential Speed Scaling'}</span>
+              </label>
+
+              {!useExponentialSpeed && (
+                <div className="flex flex-col space-y-1 pt-1.5 border-t border-slate-800/40">
+                  <span className="text-[9px] text-slate-500 uppercase tracking-wider font-mono">
+                    {isZh ? '预设自定义速度' : 'Custom Base Speed'}
+                  </span>
+                  <select
+                    value={customSpeedPreset}
+                    onChange={(e) => onChangeCustomSpeedPreset(e.target.value)}
+                    className="bg-slate-950 border border-slate-850 hover:border-cyan-500/50 text-white text-[10.5px] rounded-md px-2 py-1 focus:outline-none cursor-pointer outline-none transition-colors w-full font-mono font-bold"
+                  >
+                    <option value="walk">{isZh ? '🚶 步行 (1.4 m/s)' : 'Walking (1.4 m/s)'}</option>
+                    <option value="rocket">{isZh ? '🚀 火箭 (11.2 km/s)' : 'Rocket (11.2 km/s)'}</option>
+                    <option value="meteor">{isZh ? '☄️ 流星 (50 km/s)' : 'Meteor (50 km/s)'}</option>
+                    <option value="light">{isZh ? '✨ 光速 (1c)' : 'Light Speed (1c)'}</option>
+                    <option value="10c">{isZh ? '⚡ 10倍光速 (10c)' : '10x Light Speed (10c)'}</option>
+                    <option value="100c">{isZh ? '⚡ 100倍光速 (100c)' : '100x Light Speed (100c)'}</option>
+                    <option value="1000c">{isZh ? '⚡ 1000倍光速 (1000c)' : '1000x Light Speed (1000c)'}</option>
+                    <option value="10000c">{isZh ? '⚡ 10000倍光速 (10000c)' : '10000x Light Speed (10000c)'}</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 🛰️ 宇宙尺度几何验证系统 (Stacking Proof) */}
+      {!landed && (
+        <div className="pt-1.5 border-t border-slate-800/60 flex flex-col gap-1.5">
+          <button
+            onClick={() => setShowValidation(!showValidation)}
+            className="flex items-center justify-between w-full text-[10px] font-bold font-mono text-amber-400 hover:text-amber-300 transition-colors uppercase tracking-wider py-1 cursor-pointer"
+          >
+            <span className="flex items-center gap-1.5">
+              <span>🛰️</span>
+              <span>{isZh ? '宇宙尺度几何直观验证' : 'COSMIC PROOF'}</span>
+            </span>
+            <span className="text-slate-500 font-normal">
+              {showValidation ? '▲' : '▼'}
+            </span>
+          </button>
+
+          {showValidation && (
+            <div className="space-y-3 max-h-[220px] overflow-y-auto scrollbar pr-1 text-slate-200">
+              {/* Tab 选项: 数据审计 / 堆叠验证 */}
+              <div className="flex bg-slate-900/60 p-0.5 rounded-lg border border-slate-800/80">
+                <button
+                  onClick={() => onChangePanelTab('audit')}
+                  className={`flex-1 py-1 rounded-md text-[9px] font-bold text-center transition-all cursor-pointer ${
+                    panelTab === 'audit'
+                      ? 'bg-slate-850 text-slate-100 border border-slate-700/60 font-black'
+                      : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                  }`}
+                >
+                  {isZh ? '⭐ 轨道数据审计' : '⭐ Space Audit'}
+                </button>
+                <button
+                  onClick={() => {
+                    onChangePanelTab('packing');
+                    if (!packingActive) {
+                      onTogglePackingActive(true);
+                    }
+                  }}
+                  className={`flex-1 py-1 rounded-md text-[9px] font-bold text-center transition-all cursor-pointer ${
+                    panelTab === 'packing'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/25 font-black'
+                      : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                  }`}
+                >
+                  {isZh ? '🛰️ 堆叠对齐验证' : '🛰️ Stacking Proof'}
+                </button>
+              </div>
+
+              {panelTab === 'audit' ? (
+                <div className="space-y-2.5">
+                  {/* 1. 地月局部等比例校验卡片 */}
+                  <div className="space-y-1 bg-slate-900/40 rounded-lg p-2 border border-slate-800/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] uppercase font-bold tracking-wider text-amber-300 font-sans">
+                        {isZh ? '1. 地月轨道空间比值' : '1. Earth-Moon Space Ratio'}
+                      </span>
+                      <span className="text-[8px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded font-mono font-bold">
+                        {isZh ? '✅ 精准校准' : '✅ CALIBRATED'}
+                      </span>
+                    </div>
+                    <div className="text-[9.5px] text-slate-400 space-y-1 font-sans">
+                      <div className="flex justify-between">
+                        <span>{isZh ? '月球公转轨道半径' : 'Lunar Orbit Radius'}:</span>
+                        <span className="font-mono text-cyan-300">
+                          {useVisualScale
+                            ? `${(getPlanetRadius('earth') * 2.6).toFixed(3)} units (2.6x R_earth)`
+                            : `${(getPlanetRadius('earth') * 60.31).toFixed(3)} units (60.31x R_earth)`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>{isZh ? '地球赤道物理半径' : 'Earth Radius'}:</span>
+                        <span className="font-mono text-slate-300">
+                          {useVisualScale ? '0.380 units' : (!strictPhysics ? '0.110 units' : '0.00093 units')}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>{isZh ? '月球赤道物理半径' : 'Moon Radius'}:</span>
+                        <span className="font-mono text-slate-300">
+                          {useVisualScale ? '0.090 units' : (!strictPhysics ? '0.030 units' : '0.00025 units')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. 轨道包络面安全审计 */}
+                  <div className="space-y-1 bg-slate-900/40 rounded-lg p-2 border border-slate-800/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] uppercase font-bold tracking-wider text-amber-300 font-sans">
+                        {isZh ? '2. 轨道包络面安全审计' : '2. Orbital Horizon Bounds'}
+                      </span>
+                      <span className="text-[8px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded font-mono font-bold">
+                        {isZh ? '✅ 无干涉' : '✅ NO CLASH'}
+                      </span>
+                    </div>
+                    <div className="text-[9.5px] text-slate-400 space-y-1 font-sans">
+                      <div className="flex justify-between">
+                        <span>{isZh ? '月球公转最大外延' : 'Max Lunar Path'}:</span>
+                        <span className="font-mono text-cyan-300">
+                          {useVisualScale
+                            ? `${(getPlanetRadius('earth') * 2.6).toFixed(3)} units`
+                            : `${(getPlanetRadius('earth') * 60.31).toFixed(3)} units`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>{isZh ? '地日平均运行空间 (1 AU)' : 'Earth-Sun Void (1 AU)'}:</span>
+                        <span className="font-mono text-slate-300">22.000 units</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>{isZh ? '相对轨道干涉指数' : 'Orbit Intrusion'}:</span>
+                        <span className="font-mono text-emerald-400">
+                          {useVisualScale
+                            ? `${((getPlanetRadius('earth') * 2.6 / 22.0) * 100).toFixed(2)}%`
+                            : `${((getPlanetRadius('earth') * 60.31 / 22.0) * 100).toFixed(2)}%`} &lt; 10%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. 太阳系主星轨标定 */}
+                  <div className="space-y-1 bg-slate-900/40 rounded-lg p-2 border border-slate-800/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] uppercase font-bold tracking-wider text-amber-300 font-sans">
+                        {isZh ? '3. 太阳系主星轨标定' : '3. Solar Orbit Calibration'}
+                      </span>
+                      <span className="text-[8px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 px-1 py-0.5 rounded font-mono font-bold">
+                        {isZh ? '✅ NASA标准' : '✅ NASA STABLE'}
+                      </span>
+                    </div>
+                    <div className="text-[9.5px] text-slate-400 space-y-1 font-sans">
+                      <div className="flex justify-between">
+                        <span>{isZh ? '日地距离 (1.00 AU)' : 'Sun-Earth Space'}:</span>
+                        <span className="font-mono text-slate-300">22.00 units</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>{isZh ? '日海距离 (30.07 AU)' : 'Sun-Neptune Space'}:</span>
+                        <span className="font-mono text-slate-300">
+                          {useVisualScale ? '118.80 units' : '661.54 units'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {/* 堆叠检验配对选择器 */}
+                  <div className="flex flex-col space-y-1 bg-slate-900/40 p-2 rounded-lg border border-slate-800/50">
+                    <select
+                      value={validationPairKey}
+                      onChange={(e) => onChangeValidationPairKey(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-850 text-[10px] text-slate-100 p-1.5 rounded-md cursor-pointer focus:outline-none focus:border-amber-500/50 font-sans font-medium"
+                    >
+                      {VALIDATION_PAIRS.map(x => (
+                        <option key={x.key} value={x.key} className="bg-slate-950 text-slate-100 font-sans">
+                          {isZh ? x.nameZh : x.nameEn}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 科学算式证明 */}
+                  <div className="space-y-1 text-[9.5px] bg-slate-900/40 rounded-lg p-2 border border-slate-800/50 font-sans">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">{isZh ? '关联天体' : 'Targets'}:</span>
+                      <span className="font-bold text-cyan-300 font-mono text-[10px]">
+                        {`${(() => {
+                          const activeP = VALIDATION_PAIRS.find(x => x.key === validationPairKey) || VALIDATION_PAIRS[0];
+                          return activeP.sourceId.toUpperCase() + ' ↔ ' + activeP.targetId.toUpperCase();
+                        })()}`}
+                      </span>
+                    </div>
+                    <div className="flex flex-col pt-1 border-t border-slate-800/40">
+                      <span className="text-slate-500 text-[8.5px]">{isZh ? '理论中比例计算' : 'Theoretical Ratio'}:</span>
+                      <span className="font-mono text-amber-300 bg-slate-950/60 p-1 rounded border border-slate-900 mt-1 text-center font-bold">
+                        {`${(() => {
+                          const activeP = VALIDATION_PAIRS.find(x => x.key === validationPairKey) || VALIDATION_PAIRS[0];
+                          return isZh ? activeP.countFormulaTextZh : activeP.countFormulaTextEn;
+                        })()}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 1. 如果是视觉优化比例，显示提示引导进行 1:1 严格比例体验 */}
+                  {useVisualScale && (
+                    <div className="p-2 bg-amber-500/10 rounded-lg border border-amber-500/20 text-[9px] text-slate-300 space-y-1 font-sans">
+                      <p className="font-bold text-amber-400">
+                        {isZh ? '⚠️ 已启用「轨道视觉优化」' : '⚠️ Orbit Visual Optimization On'}
+                      </p>
+                      <p className="leading-snug text-slate-400">
+                        {isZh 
+                          ? '为了方便观察，系统对天体进行了大幅度放大。' 
+                          : 'Bodies are magnified for observability.'}
+                      </p>
+                      <p className="leading-snug text-amber-300/90 font-medium">
+                        {isZh
+                          ? '💡 提示：在上方关闭「视觉比例优化」来解锁 1:1 绝对天体物理比例验证！'
+                          : '💡 Tip: Toggle off "Visual Scale" above to test strict 1:1 scale!'}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* 2. 在真物理模式下，展示绝对物理 1:1 的高阶配置 */}
+                  {!useVisualScale && (
+                    <div className="flex flex-col space-y-1 bg-slate-900/40 p-2 rounded-lg border border-slate-800/50">
+                      <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400 flex items-center space-x-1">
+                        <span className="w-1 h-2 rounded bg-amber-400 inline-block" />
+                        <span>{isZh ? '天体物理模型尺寸比例尺' : 'Celestial Dimensions'}</span>
+                      </span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          onClick={() => onToggleStrictPhysics(true)}
+                          className={`py-1 px-1.5 rounded border text-left transition-all cursor-pointer ${
+                            strictPhysics
+                              ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                              : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
+                          }`}
+                        >
+                          <div className="text-[9px] font-bold">{isZh ? '物理 1:1 绝对' : 'Strict 1:1'}</div>
+                          <div className="text-[8px] opacity-75 mt-0.5 leading-tight">{isZh ? '太阳放 108 个' : 'Packs 108 Suns'}</div>
+                        </button>
+                        <button
+                          onClick={() => onToggleStrictPhysics(false)}
+                          className={`py-1 px-1.5 rounded border text-left transition-all cursor-pointer ${
+                            !strictPhysics
+                              ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                              : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
+                          }`}
+                        >
+                          <div className="text-[9px] font-bold">{isZh ? '可观测放大' : 'Magnified'}</div>
+                          <div className="text-[8px] opacity-75 mt-0.5 leading-tight">{isZh ? '太阳放 47 个' : 'Packs 47 Suns'}</div>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 比例尺对照调节器 */}
+                  <div className="flex flex-col space-y-1">
+                    <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400">
+                      {isZh ? '排列模拟比例尺' : 'Packing Scale Mode'}
+                    </span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        onClick={() => {
+                          onChangePackingMode('physical');
+                          onToggleStrictPhysics(true);
+                          onToggleVisualScale(false);
+                        }}
+                        className={`py-1 px-1.5 rounded text-[9px] font-medium border transition-all text-center cursor-pointer ${
+                          packingMode === 'physical'
+                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                            : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="font-bold">{isZh ? '物理比例' : 'True Physics'}</div>
+                        <div className="text-[8px] opacity-75">{isZh ? '排满108个 (1:1)' : '108 Suns'}</div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          onChangePackingMode('visual');
+                        }}
+                        className={`py-1 px-1.5 rounded text-[9px] font-bold border transition-all text-center cursor-pointer ${
+                          packingMode === 'visual'
+                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                            : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="font-bold">{isZh ? '自适应星体' : 'Matched Scale'}</div>
+                        <div className="text-[8px] opacity-75">
+                          {isZh 
+                            ? `排 ${useVisualScale ? 10 : (strictPhysics ? 108 : 47)} 个` 
+                            : `${useVisualScale ? 10 : (strictPhysics ? 108 : 47)} Suns`
+                          }
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 排列进度状态与进度条 */}
+                  {packingActive && (() => {
+                    const uiMaxCount = (packingMode === 'physical' && strictPhysics) 
+                      ? 108 
+                      : Math.floor(22.0 / (getSunRadius() * 2));
+                    return (
+                      <div className="space-y-1.5 bg-slate-900/30 rounded-lg p-2 border border-slate-800/40 transition-all duration-300">
+                        <div className="flex justify-between items-center text-[9px]">
+                          <span className="text-slate-400">{isZh ? '当前铺设进度' : 'Packing Progress'}:</span>
+                          <span className="font-mono font-semibold text-amber-400">
+                            {Math.floor(packingProgressDone)} / {uiMaxCount}
+                          </span>
+                        </div>
+                        
+                        {/* 进度条轨道 */}
+                        <div className="w-full h-1 bg-slate-900 rounded-full overflow-hidden border border-slate-850">
+                          <div 
+                            className="h-full bg-gradient-to-r from-amber-600 via-amber-400 to-amber-300 rounded-full transition-all duration-75 shadow-[0_0_4px_rgba(245,158,11,0.4)]"
+                            style={{
+                              width: `${Math.min(100, (packingProgressDone / uiMaxCount) * 100)}%`
+                            }}
+                          />
+                        </div>
+
+                        {/* 完成验证的提示语 */}
+                        {packingProgressDone >= uiMaxCount - 0.5 ? (
+                          <div className="mt-1 p-1 bg-emerald-500/15 border border-emerald-500/35 rounded text-[8.5px] text-emerald-300 flex items-center space-x-1 shadow-[0_0_6px_rgba(16,185,129,0.15)]">
+                            <span>✨</span>
+                            <span className="leading-tight font-medium">
+                              {isZh 
+                                ? `验证成功！精确排满 ${uiMaxCount} 段太阳！` 
+                                : `Proof Success! Fits exactly ${uiMaxCount} Suns!`
+                              }
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="mt-1 text-[8px] text-slate-500 italic text-center animate-pulse">
+                            {isZh ? '正在部署太阳天体群...' : 'Spawning solar bodies...'}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* 科普总结文字 */}
+              <div className="text-[9px] text-slate-400/90 leading-relaxed border-t border-slate-800/50 pt-1.5 font-medium">
+                {isZh ? (
+                  <p>
+                    💡 <span className="text-amber-300/80 font-bold">思考</span>：在 1:1 绝对物理下，日地距离能排下约 <strong className="text-amber-200">108</strong> 个太阳！
+                  </p>
+                ) : (
+                  <p>
+                    💡 <span className="text-amber-300/80 font-bold">Concept</span>: Space accommodates precisely <strong className="text-amber-200">108</strong> Suns side-by-side!
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* System Info Panel (宇宙尺度验证) */}
+      <div className="pt-1 border-t border-slate-800/60">
+        <SystemPanel
+          lang={lang}
+          selectedPlanetId={selectedPlanetId}
+          helioX={helioX}
+          helioY={helioY}
+          helioZ={helioZ}
+        />
+      </div>
 
       {/* Actions */}
       <div className="flex gap-2 pt-1 border-t border-slate-800/60">

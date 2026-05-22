@@ -11,6 +11,7 @@ import { OrbitEngine } from '../engine/OrbitEngine';
 import { AstrophenomenaEngine } from '../engine/AstrophenomenaEngine';
 import { translations } from '../i18n';
 import { STAR_LIST, CONSTELLATIONS, BRIGHT_STAR_COUNT, DetailedStar } from '../engine/StarDatabase';
+import { loadHipparcosCatalog, bvToRgb } from '../engine/HipparcosLoader';
 import TelescopeOverlay from './TelescopeOverlay';
 
 // Planet Definition for Interactive Sprites
@@ -431,6 +432,9 @@ export default function StarrySkyViewer({
   const planetSpritesRef = useRef<Record<string, THREE.Sprite>>({});
   const backgroundPointsRef = useRef<THREE.Points | null>(null);
 
+  // Hipparcos 真实星表数据（用于背景星渲染）
+  const hipparcosRef = useRef<{ ra: number; dec: number; mag: number; color: number }[]>([]);
+
   // 属性的动态Ref封装，规避渲染动画闭包过时问题
   const latitudeRef = useRef(latitude);
   const longitudeRef = useRef(longitude);
@@ -686,42 +690,53 @@ export default function StarrySkyViewer({
     });
     planetSpritesRef.current = planetSprites;
 
-    // C. 背景星星 Point System 创建
-    const bgStarsData = STAR_LIST.slice(BRIGHT_STAR_COUNT);
-    const bgCount = bgStarsData.length;
-    
-    const bgPositions = new Float32Array(bgCount * 3);
-    const bgColors = new Float32Array(bgCount * 3);
-    
-    // 初始化在地面以下隐藏
-    for (let i = 0; i < bgCount; i++) {
-      bgPositions[i * 3] = 0;
-      bgPositions[i * 3 + 1] = -9999;
-      bgPositions[i * 3 + 2] = 0;
-      
-      const color = new THREE.Color(bgStarsData[i].color);
-      bgColors[i * 3] = color.r;
-      bgColors[i * 3 + 1] = color.g;
-      bgColors[i * 3 + 2] = color.b;
-    }
-    
-    const bgGeometry = new THREE.BufferGeometry();
-    bgGeometry.setAttribute('position', new THREE.BufferAttribute(bgPositions, 3));
-    bgGeometry.setAttribute('color', new THREE.BufferAttribute(bgColors, 3));
-    
-    const bgPointsTex = createCircleTexture();
-    const bgMaterial = new THREE.PointsMaterial({
-      size: 1.5,
-      map: bgPointsTex,
-      vertexColors: true,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
+    // C. 背景星星 Point System 创建（异步加载真实 Hipparcos 星表）
+    loadHipparcosCatalog().then(stars => {
+      const filtered = stars.filter(s => s.mag <= 6.5);
+      hipparcosRef.current = filtered.map(s => {
+        const rgb = bvToRgb(s.bv);
+        return {
+          ra: s.ra,
+          dec: s.dec,
+          mag: s.mag,
+          color: new THREE.Color(rgb.r, rgb.g, rgb.b).getHex()
+        };
+      });
+
+      const bgCount = hipparcosRef.current.length;
+      const bgPositions = new Float32Array(bgCount * 3);
+      const bgColors = new Float32Array(bgCount * 3);
+
+      // 初始化在地面以下隐藏
+      for (let i = 0; i < bgCount; i++) {
+        bgPositions[i * 3] = 0;
+        bgPositions[i * 3 + 1] = -9999;
+        bgPositions[i * 3 + 2] = 0;
+
+        const color = new THREE.Color(hipparcosRef.current[i].color);
+        bgColors[i * 3] = color.r;
+        bgColors[i * 3 + 1] = color.g;
+        bgColors[i * 3 + 2] = color.b;
+      }
+
+      const bgGeometry = new THREE.BufferGeometry();
+      bgGeometry.setAttribute('position', new THREE.BufferAttribute(bgPositions, 3));
+      bgGeometry.setAttribute('color', new THREE.BufferAttribute(bgColors, 3));
+
+      const bgPointsTex = createCircleTexture();
+      const bgMaterial = new THREE.PointsMaterial({
+        size: 1.5,
+        map: bgPointsTex,
+        vertexColors: true,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+
+      const bgPoints = new THREE.Points(bgGeometry, bgMaterial);
+      starsGroup.add(bgPoints);
+      backgroundPointsRef.current = bgPoints;
     });
-    
-    const bgPoints = new THREE.Points(bgGeometry, bgMaterial);
-    starsGroup.add(bgPoints);
-    backgroundPointsRef.current = bgPoints;
 
     // D. 星座连线段几何体创建
     const lineMat = new THREE.LineBasicMaterial({
@@ -1438,7 +1453,7 @@ export default function StarrySkyViewer({
           const positions = bgPoints.geometry.attributes.position.array as Float32Array;
           const colors = bgPoints.geometry.attributes.color.array as Float32Array;
 
-          const bgStarsData = STAR_LIST.slice(BRIGHT_STAR_COUNT);
+          const bgStarsData = hipparcosRef.current;
           const lst = TimeEngine.getLocalSiderealTime(currentTimestampRef.current, longitudeRef.current);
           const lat = latitudeRef.current;
           const skyBr = skyBrightnessRef.current;
@@ -1478,7 +1493,9 @@ export default function StarrySkyViewer({
             }
           }
           bgPoints.geometry.attributes.position.needsUpdate = true;
-          bgPoints.geometry.attributes.color.needsUpdate = true;
+          if (bgStarsData.length > 0) {
+            bgPoints.geometry.attributes.color.needsUpdate = true;
+          }
         }
 
         rendererRef.current.render(sceneRef.current, cameraRef.current);

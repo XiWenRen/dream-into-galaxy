@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(cat /c/Users/dom_zhou/AppData/Local/Temp/claude/D--workspace-GalaxySim3D-GoogleAIStudio/738489a3-72b7-4a58-8e5e-d05b80bff83e/tasks/b727sh95w.output)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_console_messages",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "mcp__plugin_playwright_playwright__browser_wait_for",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "mcp__sequential-thinking__sequentialthinking",
+      "WebSearch",
+      "Skill(anthropic-skills:galaxy-sim)",
+      "Skill(anthropic-skills:galaxy-sim:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "mcp__Claude_Preview__preview_start",
+      "mcp__plugin_playwright_playwright__browser_run_code_unsafe"
+    ]
+  }
+}
