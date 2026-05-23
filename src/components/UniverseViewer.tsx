@@ -13,31 +13,14 @@ import { STAR_LIST, CONSTELLATIONS } from '../engine/StarDatabase';
 
 interface UniverseViewerProps {
   currentTimestamp: number;
-  useVisualScale?: boolean;
+  useVisualScale: boolean;
   setUseVisualScale?: (val: boolean) => void;
   selectedPlanetId: string;
   onSelectPlanet: (id: string) => void;
   crossSectionActive: boolean;
   lang: 'zh' | 'en';
   showConstellLines?: boolean;
-  showPlanetLabels?: boolean;
   magLimit?: number;
-
-  validationPairKey: string;
-  setValidationPairKey: (val: string) => void;
-  panelTab: 'packing' | 'audit';
-  setPanelTab: (val: 'packing' | 'audit') => void;
-  packingActive: boolean;
-  setPackingActive: (val: boolean) => void;
-  packingProgressDone: number;
-  setPackingProgressDone: (val: number) => void;
-  packingMode: 'physical' | 'visual';
-  setPackingMode: (val: 'physical' | 'visual') => void;
-  strictPhysics: boolean;
-  setStrictPhysics: (val: boolean) => void;
-  focusTrigger: number;
-  useExponentialSpeed: boolean;
-  customSpeedPreset: string;
 }
 
 export interface SatelliteDef {
@@ -343,23 +326,7 @@ export default function UniverseViewer({
   crossSectionActive,
   lang,
   showConstellLines = false,
-  showPlanetLabels = true,
-  magLimit = 5.5,
-  validationPairKey,
-  setValidationPairKey,
-  panelTab,
-  setPanelTab,
-  packingActive,
-  setPackingActive,
-  packingProgressDone,
-  setPackingProgressDone,
-  packingMode,
-  setPackingMode,
-  strictPhysics,
-  setStrictPhysics,
-  focusTrigger,
-  useExponentialSpeed,
-  customSpeedPreset
+  magLimit = 5.5
 }: UniverseViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -433,11 +400,6 @@ export default function UniverseViewer({
   const currentTimestampRef = useRef(currentTimestamp);
   const selectedPlanetIdRef = useRef(selectedPlanetId);
   const crossSectionActiveRef = useRef(crossSectionActive);
-  const useExponentialSpeedRef = useRef(useExponentialSpeed);
-  const customSpeedPresetRef = useRef(customSpeedPreset);
-
-  const focusPlanetIdRef = useRef<string>('');
-  const isClickSelectionRef = useRef(false);
 
   const lastSelectedPlanetIdRef = useRef<string>('');
   const lastTargetPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
@@ -455,127 +417,10 @@ export default function UniverseViewer({
   }, [crossSectionActive]);
 
   useEffect(() => {
-    useExponentialSpeedRef.current = useExponentialSpeed;
-  }, [useExponentialSpeed]);
-
-  useEffect(() => {
-    customSpeedPresetRef.current = customSpeedPreset;
-  }, [customSpeedPreset]);
-
-  useEffect(() => {
     if (constellLinesRef.current) {
       constellLinesRef.current.visible = !!showConstellLines;
     }
   }, [showConstellLines]);
-
-  // 监听星等限制滑块变化，实现无感平滑局部重绘，防止重构整个 3D 场景 (In-place magLimit Filter Effect)
-  useEffect(() => {
-    magLimitRef.current = magLimit;
-    const domeStars = domeStarsRef.current;
-    if (!domeStars) return;
-
-    const positions = domeStars.geometry.attributes.position.array as Float32Array;
-    const colors = domeStars.geometry.attributes.color.array as Float32Array;
-    const count = STAR_LIST.length;
-
-    const eps = 23.439 * Math.PI / 180;
-    const cosEps = Math.cos(eps);
-    const sinEps = Math.sin(eps);
-    const logMin = Math.log10(1.0);
-    const logMax = Math.log10(10000.0);
-
-    const domeStarPositionsMap = new Map<number, THREE.Vector3>();
-
-    for (let i = 0; i < count; i++) {
-      const star = STAR_LIST[i];
-
-      let d = star.dist;
-      if (d < 1.0) d = 1.0;
-      if (d > 10000.0) d = 10000.0;
-      const logD = Math.log10(d);
-      const dScale = 800 + 1000 * (logD - logMin) / (logMax - logMin);
-
-      const decRad = star.dec * Math.PI / 180;
-      const raRad = star.ra * Math.PI / 12;
-      const cosDec = Math.cos(decRad);
-      const sinDec = Math.sin(decRad);
-      const cosRa = Math.cos(raRad);
-      const sinRa = Math.sin(raRad);
-
-      const vEqX = cosDec * cosRa;
-      const vEqY = cosDec * sinRa;
-      const vEqZ = sinDec;
-
-      const vEcX = vEqX;
-      const vEcY = vEqY * cosEps + vEqZ * sinEps;
-      const vEcZ = -vEqY * sinEps + vEqZ * cosEps;
-
-      const xThree = vEcX * dScale;
-      const yThree = vEcZ * dScale;
-      const zThree = vEcY * dScale;
-
-      const starPos = new THREE.Vector3(xThree, yThree, zThree);
-      domeStarPositionsMap.set(star.id, starPos);
-
-      if (star.mag > magLimit) {
-        positions[i * 3] = 0;
-        positions[i * 3 + 1] = -999999;
-        positions[i * 3 + 2] = 0;
-
-        colors[i * 3] = 0;
-        colors[i * 3 + 1] = 0;
-        colors[i * 3 + 2] = 0;
-      } else {
-        positions[i * 3] = xThree;
-        positions[i * 3 + 1] = yThree;
-        positions[i * 3 + 2] = zThree;
-
-        const r = ((star.color >> 16) & 255) / 255;
-        const g = ((star.color >> 8) & 255) / 255;
-        const b = (star.color & 255) / 255;
-        colors[i * 3] = r;
-        colors[i * 3 + 1] = g;
-        colors[i * 3 + 2] = b;
-      }
-    }
-
-    domeStars.geometry.attributes.position.needsUpdate = true;
-    domeStars.geometry.attributes.color.needsUpdate = true;
-    domeStars.geometry.computeBoundingBox();
-    domeStars.geometry.computeBoundingSphere();
-
-    // 动态同步星座连线，实现与星等阈值的极速联动
-    if (constellLinesRef.current) {
-      const constellationPoints: THREE.Vector3[] = [];
-      for (const constell of CONSTELLATIONS) {
-        for (const edge of constell.seq) {
-          const starA = STAR_LIST.find(s => s.id === edge[0]);
-          const starB = STAR_LIST.find(s => s.id === edge[1]);
-          if (starA && starB && starA.mag <= magLimit && starB.mag <= magLimit) {
-            const posA = domeStarPositionsMap.get(edge[0]);
-            const posB = domeStarPositionsMap.get(edge[1]);
-            if (posA && posB) {
-              constellationPoints.push(posA);
-              constellationPoints.push(posB);
-            }
-          }
-        }
-      }
-      constellLinesRef.current.geometry.dispose();
-      constellLinesRef.current.geometry = new THREE.BufferGeometry().setFromPoints(constellationPoints);
-    }
-  }, [magLimit]);
-
-  useEffect(() => {
-    if (focusTrigger > 0) {
-      const raf = requestAnimationFrame(() => {
-        if (selectedPlanetId) {
-          focusPlanetIdRef.current = selectedPlanetId;
-        }
-      });
-      return () => cancelAnimationFrame(raf);
-    }
-  }, [focusTrigger]);
   
   const flareOpacityRef = useRef(1.0);  // 镜头光晕平滑淡入淡出插值机点
 
@@ -584,19 +429,26 @@ export default function UniverseViewer({
   const [zoomLevelText, setZoomLevelText] = useState<string>('0%');
 
   // == 日地距离几何排列验证系统 (Sun-Earth Distance Validation Simulation System) ==
+  const [panelTab, setPanelTab] = useState<'packing' | 'audit'>('audit');
+  const [packingActive, setPackingActive] = useState<boolean>(false);
+  const [packingProgressDone, setPackingProgressDone] = useState<number>(0);
+  const [packingMode, setPackingMode] = useState<'physical' | 'visual'>('physical');
+  const [strictPhysics, setStrictPhysics] = useState<boolean>(false);
+
   const packingActiveRef = useRef<boolean>(false);
   const packingProgressDoneRef = useRef<number>(0);
   const packingModeRef = useRef<'physical' | 'visual'>('physical');
   const strictPhysicsRef = useRef<boolean>(false);
   const packingGroupRef = useRef<THREE.Group | null>(null);
 
+  const [validationPairKey, setValidationPairKey] = useState<string>('sun-earth');
   const validationPairKeyRef = useRef<string>('sun-earth');
 
   useEffect(() => {
     validationPairKeyRef.current = validationPairKey;
     packingProgressDoneRef.current = 0;
     setPackingProgressDone(0);
-  }, [validationPairKey, setPackingProgressDone]);
+  }, [validationPairKey]);
 
   useEffect(() => {
     packingActiveRef.current = packingActive;
@@ -604,19 +456,19 @@ export default function UniverseViewer({
       packingProgressDoneRef.current = 0;
       setPackingProgressDone(0);
     }
-  }, [packingActive, setPackingProgressDone]);
+  }, [packingActive]);
 
   useEffect(() => {
     packingModeRef.current = packingMode;
     packingProgressDoneRef.current = 0;
     setPackingProgressDone(0);
-  }, [packingMode, setPackingProgressDone]);
+  }, [packingMode]);
 
   useEffect(() => {
     strictPhysicsRef.current = strictPhysics;
     packingProgressDoneRef.current = 0;
     setPackingProgressDone(0);
-  }, [strictPhysics, setPackingProgressDone]);
+  }, [strictPhysics]);
 
   // 鼠标 Hover 互动和浮空卡片属性
   const [hoveredPlanetId, setHoveredPlanetId] = useState<string | null>(null);
@@ -639,6 +491,12 @@ export default function UniverseViewer({
   useEffect(() => {
     hoveredLayerRef.current = hoveredLayer;
   }, [hoveredLayer]);
+
+  useEffect(() => {
+    if (constellLinesRef.current) {
+      constellLinesRef.current.visible = !!showConstellLines;
+    }
+  }, [showConstellLines]);
 
   // 真实的 8K/高清晰度(CORS Allowed)太空贴图资源库 (采用 jsdelivr 节点无阻碍高阶 CDN 加速)
   const REAL_TEXTURE_URLS: Record<string, string> = {
@@ -1173,7 +1031,6 @@ export default function UniverseViewer({
     }
 
     const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
     return texture;
@@ -1385,10 +1242,10 @@ export default function UniverseViewer({
         starColors[i * 3 + 2] = THREE.MathUtils.lerp(0.6, 0.3, ratio);  // B
       } else {
         // == 2. 四大旋臂盘区 (Galactic Disc & 4 Spiral Arms) - 冰蓝色与品紫色青年星团 ==
-        const r = Math.pow(Math.random(), 1.35) * 2000 + 180; // 径向极值扩展至 2200
+        const r = Math.pow(Math.random(), 1.35) * 2000 + 180; // 径向极值扩展至 2200 
         const armIndex = i % 4;
         const armAngle = armIndex * (Math.PI / 2);
-
+        
         // 对数螺旋线方程形式： angle = armAngle + Math.log(r) * twist
         const twist = 3.6;
         const angle = armAngle + Math.log(r * 0.08) * twist + (Math.random() - 0.5) * 0.38;
@@ -1420,24 +1277,23 @@ export default function UniverseViewer({
     starGeometry.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
 
     const starMaterial = new THREE.PointsMaterial({
-      size: 3.5,
+      size: 0.22,
       vertexColors: true,
       transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending
     });
 
     const milkyWayPoints = new THREE.Points(starGeometry, starMaterial);
-
-    // 银心偏移组：以此在视觉上确立"太阳处于次级边缘游离旋臂猎户臂，而非银河系核心"的终极宇宙学家空间透视！
+    
+    // 银心偏移组：以此在视觉上确立“太阳处于次级边缘游离旋臂猎户臂，而非银河系核心”的终极宇宙学家空间透视！
     const milkyWayGroup = new THREE.Group();
     milkyWayGroup.name = 'milky-way-group';
     milkyWayGroup.position.set(gCenterX, gCenterY, gCenterZ);
     // 绕银盘适度倾斜，体现太阳系黄道面与银道面约 60° 真实物理夹角
     milkyWayGroup.rotation.x = (55 * Math.PI) / 180;
     milkyWayGroup.rotation.z = (25 * Math.PI) / 180;
-
+    
     milkyWayGroup.add(milkyWayPoints);
     scene.add(milkyWayGroup);
 
@@ -1482,7 +1338,7 @@ export default function UniverseViewer({
       const yThree = vEcZ * dScale;
       const zThree = vEcY * dScale;
 
-      if (star.mag > magLimit) {
+      if (star.mag > magLimitRef.current) {
         domeStarPositions[i * 3] = 0;
         domeStarPositions[i * 3 + 1] = -999999;
         domeStarPositions[i * 3 + 2] = 0;
@@ -1510,10 +1366,10 @@ export default function UniverseViewer({
     domeGeo.setAttribute('color', new THREE.BufferAttribute(domeStarColors, 3));
 
     const domeMat = new THREE.PointsMaterial({
-      size: 12.0,
+      size: 5.0,
       vertexColors: true,
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.9,
       sizeAttenuation: true,
       map: createUniverseStarTexture(),
       blending: THREE.AdditiveBlending,
@@ -1529,7 +1385,7 @@ export default function UniverseViewer({
       for (const edge of constell.seq) {
         const starAObj = STAR_LIST.find(s => s.id === edge[0]);
         const starBObj = STAR_LIST.find(s => s.id === edge[1]);
-        if (starAObj && starBObj && starAObj.mag <= magLimit && starBObj.mag <= magLimit) {
+        if (starAObj && starBObj && starAObj.mag <= magLimitRef.current && starBObj.mag <= magLimitRef.current) {
           const starA = domeStarPositionsMap.get(edge[0]);
           const starB = domeStarPositionsMap.get(edge[1]);
           if (starA && starB) {
@@ -1544,7 +1400,7 @@ export default function UniverseViewer({
     const constellMat = new THREE.LineBasicMaterial({
       color: 0x4dabf7, // A nice soft light blue/cyan for constellation guides
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.35,
       depthWrite: false
     });
     const constellationLines = new THREE.LineSegments(constellGeo, constellMat);
@@ -1962,7 +1818,7 @@ export default function UniverseViewer({
     container.addEventListener('pointerdown', onPointerDown);
     container.addEventListener('pointerup', onPointerUp);
 
-    // 优化滚动缩放比例，拦截并自定义物理一致的滚轮事件 (Custom uniform scroll zoom handler - Shuttle Mode)
+    // 优化滚动缩放比例，拦截并自定义物理一致的滚轮事件 (Custom uniform scroll zoom handler)
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -1971,76 +1827,33 @@ export default function UniverseViewer({
       const controls = controlsRef.current;
       if (!camera || !controls) return;
 
-      // 如果当前有聚焦的行星，当拨动滚轮时说明要离开它进行自由太空穿梭
-      if (focusPlanetIdRef.current) {
-        focusPlanetIdRef.current = ''; // 同步清除 ref，防止在当帧 animate 中被 target.copy(targetPos) 覆盖
-        lastSelectedPlanetIdRef.current = ''; // 避免 animate 里的取消选中逻辑重置 target
-      }
-      if (selectedPlanetIdRef.current) {
-        selectedPlanetIdRef.current = '';
-        onSelectPlanet(''); // 异步通知父组件更新 React state，关闭信息面板
-      }
+      const target = controls.target;
+      const position = camera.position;
 
+      // 1. 计算目标点(target)到相机的几何向量
+      const toCamera = new THREE.Vector3().subVectors(position, target);
+      const dist = toCamera.length();
+
+      // 2. 统一滚轮方向：使每次滚轮滚动的缩放尺度具有 100% 轨物理几何上的完全一致性
       const direction = Math.sign(event.deltaY);
       if (direction === 0) return;
 
-      // 1. 计算穿梭移动速度
-      let speed = 1.0;
-      if (useExponentialSpeedRef.current) {
-        // 开启等比加速：随着距离太阳系中心越远，宇宙尺度越快
-        const distToCenter = camera.position.length();
-        speed = Math.max(0.5, distToCenter * 0.08);
+      // 3. 构建 100% 绝对一致的缩放乘数系数 (1.08x拉远/0.9259x拉近)
+      const baseFactor = 1.08;
+      const zoomFactor = direction > 0 ? baseFactor : (1 / baseFactor);
+
+      // 4. 进行安全层面的 minDistance 与 maxDistance 加密防护
+      const nextDist = dist * zoomFactor;
+      if (nextDist < controls.minDistance || nextDist > controls.maxDistance) {
+        const clampedDist = Math.max(controls.minDistance, Math.min(controls.maxDistance, nextDist));
+        if (Math.abs(clampedDist - dist) < 0.00001) return;
+        toCamera.setLength(clampedDist);
       } else {
-        // 自定义速度 presets
-        const preset = customSpeedPresetRef.current;
-        switch (preset) {
-          case 'walk':
-            speed = 0.05;
-            break;
-          case 'rocket':
-            speed = 0.8;
-            break;
-          case 'meteor':
-            speed = 5.0;
-            break;
-          case 'light':
-            speed = 40.0;
-            break;
-          case '10c':
-            speed = 400.0;
-            break;
-          case '100c':
-            speed = 4000.0;
-            break;
-          case '1000c':
-            speed = 40000.0;
-            break;
-          case '10000c':
-            speed = 400000.0;
-            break;
-          default:
-            speed = 40.0;
-        }
+        toCamera.multiplyScalar(zoomFactor);
       }
 
-      // 2. 获取相机的世界方向向量
-      const viewDir = new THREE.Vector3();
-      camera.getWorldDirection(viewDir);
-
-      // 3. 计算位移向量 (deltaY > 0 即向后退，位移为负；deltaY < 0 向前进，位移为正)
-      const moveDelta = -direction * speed * 0.8;
-      const moveVec = viewDir.multiplyScalar(moveDelta);
-
-      // 4. 将 camera position 和 controls target 同时进行平移
-      camera.position.add(moveVec);
-      controls.target.add(moveVec);
-
-      // 5. 限制最大距离，避免溢出
-      const maxDistance = 220000;
-      if (camera.position.length() > maxDistance) {
-        camera.position.setLength(maxDistance);
-      }
-
+      // 5. 将新计算的相机公轴位置直接赋回渲染并更新控制器
+      camera.position.copy(target).add(toCamera);
       controls.update();
     };
 
@@ -2110,8 +1923,26 @@ export default function UniverseViewer({
         }
         group.position.copy(finalPos);
 
+        // == 视觉焦点净化：选中某个星体特写时，隐藏其他无关星体及各自公转轨道，避免穿帮与透射重合错误 ==
+        let isVisible = true;
+        const selPlanetId = selectedPlanetIdRef.current;
+        if (selPlanetId !== '' && selPlanetId !== 'sun') {
+          const parentIdOfSelected = getParentPlanetId(selPlanetId);
+          if (config.id === selPlanetId) {
+            isVisible = true;
+          } else if (config.id === parentIdOfSelected) {
+            isVisible = true;
+          } else if (parentIdOfSelected === 'earth' && config.id === 'moon') {
+            isVisible = true;
+          } else {
+            isVisible = false;
+          }
+        }
+        
+        group.visible = isVisible;
         const orbitLine = orbitLinesRef.current[config.id];
         if (orbitLine) {
+          orbitLine.visible = isVisible;
           // 动态缩放月球轨道细圈，保证与被缩放后的月球位置100%完美契合
           if (config.id === 'moon') {
             let targetRelDist = 0.05654;
@@ -2504,6 +2335,7 @@ export default function UniverseViewer({
             packingGroupRef.current.remove(child);
           }
 
+          // 计算完美对齐（Gap-free）的微小切片球体几何体半径
           const packRad = (targetCount > 0) ? (dist / (2 * targetCount)) : 0.1;
 
           // 缓存高拟真质感配色图表
@@ -2674,23 +2506,23 @@ export default function UniverseViewer({
       setZoomLevelText(`${zoomPct.toFixed(0)}%`);
 
       // 10. 丝滑聚焦/跟随选中星体 & 动态近剪切面比例尺缩放
-      if (focusPlanetIdRef.current) {
+      if (selectedPlanetIdRef.current) {
         let targetGroup: THREE.Object3D | null = null;
-
+        
         // 查找卫星：在所有的行星组中寻找具有对应 nameEn 的卫星
         for (const parentId of Object.keys(planetMeshesRef.current)) {
           const parentGroup = planetMeshesRef.current[parentId];
           if (parentGroup) {
-            const sat = parentGroup.getObjectByName(`satellite-mesh-${focusPlanetIdRef.current}`);
+            const sat = parentGroup.getObjectByName(`satellite-mesh-${selectedPlanetIdRef.current}`);
             if (sat) {
               targetGroup = sat;
               break;
             }
           }
         }
-
+        
         if (!targetGroup) {
-          targetGroup = planetMeshesRef.current[focusPlanetIdRef.current] || sunMeshRef.current;
+          targetGroup = planetMeshesRef.current[selectedPlanetIdRef.current] || sunMeshRef.current;
         }
 
         if (targetGroup) {
@@ -2699,10 +2531,10 @@ export default function UniverseViewer({
 
           // 动态调节 Near 和 MinDistance，防止观察 1:1 精确模式下的微小行星（如 Earth 的 0.00093 半径）时因 Near Plane 穿透而看不到
           let radOfTarget = 0.5;
-          if (focusPlanetIdRef.current === 'sun') {
+          if (selectedPlanetIdRef.current === 'sun') {
             radOfTarget = getSunRadius();
           } else {
-            radOfTarget = getPlanetRadius(focusPlanetIdRef.current);
+            radOfTarget = getPlanetRadius(selectedPlanetIdRef.current);
           }
           const idealNear = Math.max(0.000001, radOfTarget * 0.02);
           if (cameraRef.current.near !== idealNear) {
@@ -2713,15 +2545,15 @@ export default function UniverseViewer({
           controlsRef.current.minDistance = radOfTarget * 1.05;
 
           // 选中星体改变时，重设 controls target 与相机视角位置以实现聚焦跟随
-          if (focusPlanetIdRef.current !== lastSelectedPlanetIdRef.current) {
+          if (selectedPlanetIdRef.current !== lastSelectedPlanetIdRef.current) {
             controlsRef.current.target.copy(targetPos);
-            const isSat = !!getParentPlanetId(focusPlanetIdRef.current) && !['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','sun','moon'].includes(focusPlanetIdRef.current.toLowerCase());
-            const offset = focusPlanetIdRef.current === 'sun'
-              ? radOfTarget * 3.5
+            const isSat = !!getParentPlanetId(selectedPlanetIdRef.current) && !['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','sun','moon'].includes(selectedPlanetIdRef.current.toLowerCase());
+            const offset = selectedPlanetIdRef.current === 'sun' 
+              ? radOfTarget * 3.5 
               : (isSat ? radOfTarget * 3.0 : radOfTarget * 4.2);
 
             cameraRef.current.position.set(targetPos.x, targetPos.y + offset * 0.4, targetPos.z + offset);
-            lastSelectedPlanetIdRef.current = focusPlanetIdRef.current;
+            lastSelectedPlanetIdRef.current = selectedPlanetIdRef.current;
             lastTargetPosRef.current.copy(targetPos);
           } else {
             // 在公转过程中平滑自适应追踪：利用增量(deltaMove)整体移动相机，防范星体高速公转时由于相机静止而直接飞出特写视口
@@ -2732,42 +2564,21 @@ export default function UniverseViewer({
           }
         }
       } else {
-        // 无选中时，只有当原本有选中（即刚取消选中）时才重置 target 聚焦到太阳，防止在自由穿梭模式下被每帧重置
-        if (lastSelectedPlanetIdRef.current !== '') {
-          controlsRef.current.target.set(0, 0, 0);
-          lastSelectedPlanetIdRef.current = '';
-          lastTargetPosRef.current.set(0, 0, 0);
-          if (cameraRef.current.near !== 0.05) {
-            cameraRef.current.near = 0.05;
-            cameraRef.current.updateProjectionMatrix();
-          }
-          controlsRef.current.minDistance = 0.5;
+        // 无选中时，相机聚焦到原点太阳
+        controlsRef.current.target.set(0, 0, 0);
+        lastSelectedPlanetIdRef.current = '';
+        lastTargetPosRef.current.set(0, 0, 0);
+        if (cameraRef.current.near !== 0.05) {
+          cameraRef.current.near = 0.05;
+          cameraRef.current.updateProjectionMatrix();
         }
-      }
-
-      // 动态调整鼠标拖动速度：距离越近，rotateSpeed 越小
-      if (controlsRef.current && cameraRef.current) {
-        const distToTarget = cameraRef.current.position.distanceTo(controlsRef.current.target);
-        let targetRad = 0.5;
-        if (focusPlanetIdRef.current) {
-          targetRad = focusPlanetIdRef.current === 'sun' ? getSunRadius() : getPlanetRadius(focusPlanetIdRef.current);
-        } else {
-          targetRad = getSunRadius();
-        }
-        controlsRef.current.rotateSpeed = Math.max(0.03, Math.min(1.0, distToTarget / (targetRad * 30)));
+        controlsRef.current.minDistance = 0.5;
       }
 
       // 11. 更新控制器与渲染新帧
       controlsRef.current.update();
       rendererRef.current.render(sceneRef.current, cameraRef.current);
     };
-
-    // 初始加载时，如果已有选中星体，直接设置 focusPlanetIdRef 触发一次聚焦
-    if (selectedPlanetId) {
-      focusPlanetIdRef.current = selectedPlanetId;
-    }
-    // 重置 lastSelectedPlanetIdRef 以允许 StrictMode 双挂载后的正确聚焦
-    lastSelectedPlanetIdRef.current = '';
 
     animate();
 
@@ -2785,10 +2596,106 @@ export default function UniverseViewer({
         }
       }
       constellLinesRef.current = null;
-      domeStarsRef.current = null;
-      lastSelectedPlanetIdRef.current = '';
     };
   }, [useVisualScale, strictPhysics]);
+
+  // 监听星等限制滑块变化，实现无感平滑局部重绘，防止重构整个 3D 场景 (In-place magLimit Filter Effect)
+  useEffect(() => {
+    magLimitRef.current = magLimit;
+    const domeStars = domeStarsRef.current;
+    if (!domeStars) return;
+
+    const positions = domeStars.geometry.attributes.position.array as Float32Array;
+    const colors = domeStars.geometry.attributes.color.array as Float32Array;
+    const count = STAR_LIST.length;
+
+    const eps = 23.439 * Math.PI / 180;
+    const cosEps = Math.cos(eps);
+    const sinEps = Math.sin(eps);
+    const logMin = Math.log10(1.0);
+    const logMax = Math.log10(10000.0);
+
+    const domeStarPositionsMap = new Map<number, THREE.Vector3>();
+
+    for (let i = 0; i < count; i++) {
+      const star = STAR_LIST[i];
+      
+      let d = star.dist;
+      if (d < 1.0) d = 1.0;
+      if (d > 10000.0) d = 10000.0;
+      const logD = Math.log10(d);
+      const dScale = 800 + 1000 * (logD - logMin) / (logMax - logMin);
+
+      const decRad = star.dec * Math.PI / 180;
+      const raRad = star.ra * Math.PI / 12;
+      const cosDec = Math.cos(decRad);
+      const sinDec = Math.sin(decRad);
+      const cosRa = Math.cos(raRad);
+      const sinRa = Math.sin(raRad);
+
+      const vEqX = cosDec * cosRa;
+      const vEqY = cosDec * sinRa;
+      const vEqZ = sinDec;
+
+      const vEcX = vEqX;
+      const vEcY = vEqY * cosEps + vEqZ * sinEps;
+      const vEcZ = -vEqY * sinEps + vEqZ * cosEps;
+
+      const xThree = vEcX * dScale;
+      const yThree = vEcZ * dScale;
+      const zThree = vEcY * dScale;
+
+      const starPos = new THREE.Vector3(xThree, yThree, zThree);
+      domeStarPositionsMap.set(star.id, starPos);
+
+      if (star.mag > magLimit) {
+        positions[i * 3] = 0;
+        positions[i * 3 + 1] = -999999;
+        positions[i * 3 + 2] = 0;
+
+        colors[i * 3] = 0;
+        colors[i * 3 + 1] = 0;
+        colors[i * 3 + 2] = 0;
+      } else {
+        positions[i * 3] = xThree;
+        positions[i * 3 + 1] = yThree;
+        positions[i * 3 + 2] = zThree;
+
+        const r = ((star.color >> 16) & 255) / 255;
+        const g = ((star.color >> 8) & 255) / 255;
+        const b = (star.color & 255) / 255;
+        colors[i * 3] = r;
+        colors[i * 3 + 1] = g;
+        colors[i * 3 + 2] = b;
+      }
+    }
+
+    domeStars.geometry.attributes.position.needsUpdate = true;
+    domeStars.geometry.attributes.color.needsUpdate = true;
+    domeStars.geometry.computeBoundingBox();
+    domeStars.geometry.computeBoundingSphere();
+
+    // 动态同步星座连线，实现与星等阈值的极速联动
+    if (constellLinesRef.current) {
+      const constellationPoints: THREE.Vector3[] = [];
+      for (const constell of CONSTELLATIONS) {
+        for (const edge of constell.seq) {
+          const starA = STAR_LIST.find(s => s.id === edge[0]);
+          const starB = STAR_LIST.find(s => s.id === edge[1]);
+          if (starA && starB && starA.mag <= magLimit && starB.mag <= magLimit) {
+            const posA = domeStarPositionsMap.get(edge[0]);
+            const posB = domeStarPositionsMap.get(edge[1]);
+            if (posA && posB) {
+              constellationPoints.push(posA);
+              constellationPoints.push(posB);
+            }
+          }
+        }
+      }
+      constellLinesRef.current.geometry.dispose();
+      constellLinesRef.current.geometry = new THREE.BufferGeometry().setFromPoints(constellationPoints);
+    }
+  }, [magLimit]);
 
   // 当选择状态改变时，通知重建立体材质（切换剖切/标准模式）
   useEffect(() => {
@@ -2848,12 +2755,10 @@ export default function UniverseViewer({
     if (intersects.length > 0) {
       const hit = intersects[0].object;
       if (hit.userData?.isSatellite) {
-        focusPlanetIdRef.current = hit.userData.nameEn;
         onSelectPlanet(hit.userData.nameEn);
       } else {
         const pid = hit.userData?.planetId;
         if (pid) {
-          focusPlanetIdRef.current = pid;
           onSelectPlanet(pid);
         }
       }
@@ -2872,7 +2777,7 @@ export default function UniverseViewer({
       />
 
       {/* 鼠标 Hover 天体悬浮标签Tooltip */}
-      {showPlanetLabels && hoveredPlanetId && hoveredPlanetPos && (
+      {hoveredPlanetId && hoveredPlanetPos && (
         <div 
           className="absolute pointer-events-none z-30 bg-slate-950/90 border border-cyan-500/30 backdrop-blur-md rounded-lg p-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.6)] text-xs text-slate-100 font-sans animate-in fade-in duration-200"
           style={{
@@ -2944,7 +2849,371 @@ export default function UniverseViewer({
         </div>
       )}
 
+      {/* 3. Floating Calibration Control Panel */}
+      <div 
+        className="absolute top-20 right-6 w-80 bg-slate-950/95 border border-slate-800/85 backdrop-blur-md rounded-xl p-4 text-slate-200 z-10 flex flex-col space-y-4 shadow-[0_12px_40px_rgba(0,0,0,0.7)] font-sans max-h-[85vh] overflow-y-auto UI-card"
+        id="floating-calibration-panel"
+      >
+        <div className="flex flex-col space-y-1">
+          <span className="text-amber-400 text-xs font-bold font-mono tracking-widest uppercase">
+            {lang === 'zh' ? '🛰️ 宇宙尺度几何直观验证系统' : '🛰️ COSMIC SCALE STACKING PROOF'}
+          </span>
+          <h3 className="text-sm font-black text-slate-100 font-sans tracking-tight">
+            {lang === 'zh' ? '多级物理天体堆叠审计' : 'Multi-Level Stacking Calibration'}
+          </h3>
+          <p className="text-[10px] text-slate-400 leading-snug">
+            {lang === 'zh' 
+              ? '通过两两关联对齐、沿着真实公转质心距离发射天体。严密证明公转星轨与物理尺寸尺度的百分百精准匹配。' 
+              : 'Validate the absolute coordinates and physical scales of orbital bodies through empirical stacking proofs.'
+            }
+          </p>
+        </div>
 
+        {/* Tab 选项: 数据审计 / 堆叠验证 */}
+        <div className="flex bg-slate-900/60 p-1 rounded-lg border border-slate-800/80">
+          <button
+            id="tab-audit-btn"
+            onClick={() => setPanelTab('audit')}
+            className={`flex-1 py-1.5 px-2 rounded-md text-[10px] font-bold text-center transition-all cursor-pointer ${
+              panelTab === 'audit'
+                ? 'bg-slate-800 text-slate-100 border border-slate-700/60 font-black'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40 border border-transparent'
+            }`}
+          >
+            {lang === 'zh' ? '⭐ 轨道数据审计' : '⭐ Space Audit'}
+          </button>
+          <button
+            id="tab-packing-btn"
+            onClick={() => {
+              setPanelTab('packing');
+              if (!packingActive) {
+                setPackingActive(true);
+              }
+            }}
+            className={`flex-1 py-1.5 px-2 rounded-md text-[10px] font-bold text-center transition-all cursor-pointer ${
+              panelTab === 'packing'
+                ? 'bg-amber-500/25 text-amber-300 border border-amber-500/30 shadow-[0_0_8px_rgba(245,158,11,0.2)] font-black'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40 border border-transparent'
+            }`}
+          >
+            {lang === 'zh' ? '🛰️ 堆叠对齐验证' : '🛰️ Stacking Proof'}
+          </button>
+        </div>
+
+        {panelTab === 'audit' ? (
+          <div className="space-y-3.5 transition-all duration-300" id="audit-tab-panel">
+            {/* 1. 地月局部等比例校验卡片 */}
+            <div className="space-y-1.5 bg-slate-900/50 rounded-lg p-2.5 border border-slate-800/50">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-amber-300 font-sans">
+                  {lang === 'zh' ? '1. 地月轨道空间比值' : '1. Earth-Moon Space Ratio'}
+                </span>
+                <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded font-mono font-bold">
+                  {lang === 'zh' ? '✅ 精准校准' : '✅ CALIBRATED'}
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-400 space-y-1 font-sans">
+                <div className="flex justify-between">
+                  <span>{lang === 'zh' ? '月球公转轨道半径' : 'Lunar Orbit Radius'}:</span>
+                  <span className="font-mono text-cyan-300">
+                    {useVisualScale 
+                      ? '0.988 units (2.6x R_earth)' 
+                      : (!strictPhysics 
+                          ? '0.286 units (2.6x R_earth)'
+                          : '0.0562 units (60.31x R_earth)')}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{lang === 'zh' ? '地球赤道物理半径' : 'Earth Polar Radius'}:</span>
+                  <span className="font-mono text-slate-300">
+                    {useVisualScale ? '0.380 units' : (!strictPhysics ? '0.110 units' : '0.00093 units')}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{lang === 'zh' ? '月球赤道物理半径' : 'Moon Polar Radius'}:</span>
+                  <span className="font-mono text-slate-300">
+                    {useVisualScale ? '0.090 units' : (!strictPhysics ? '0.030 units' : '0.00025 units')}
+                  </span>
+                </div>
+                <p className="text-[9px] text-slate-500 leading-snug pt-1 border-t border-slate-800/30">
+                  {lang === 'zh'
+                    ? `💡 结论：地月距离在一切模式下其距离皆锁定于天体半径比例的精密几何范围，绝对等比！`
+                    : `💡 Conclusion: Earth-Moon distance scales perfectly with body radii. Space geometry is locked gap-free to physical constants.`}
+                </p>
+              </div>
+            </div>
+
+            {/* 2. 月轨与太阳包络圆安全校准 */}
+            <div className="space-y-1.5 bg-slate-900/50 rounded-lg p-2.5 border border-slate-800/50">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-amber-300 font-sans">
+                  {lang === 'zh' ? '2. 轨道包络面安全审计' : '2. Orbital Horizon Bounds'}
+                </span>
+                <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded font-mono font-bold">
+                  {lang === 'zh' ? '✅ 无干涉' : '✅ NO CLASH'}
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-400 space-y-1 font-sans">
+                <div className="flex justify-between">
+                  <span>{lang === 'zh' ? '月球公转最大外延' : 'Max Lunar Path Extent'}:</span>
+                  <span className="font-mono text-cyan-300">
+                    {useVisualScale ? '0.988 units' : (!strictPhysics ? '0.286 units' : '0.0562 units')}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{lang === 'zh' ? '地日平均运行空间 (1 AU)' : 'Earth-Sun Void Space (1 AU)'}:</span>
+                  <span className="font-mono text-slate-300">22.000 units</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{lang === 'zh' ? '相对轨道干涉指数' : 'Orbit Intrusion Interf.'}:</span>
+                  <span className="font-mono text-emerald-400">
+                    {useVisualScale ? '4.49%' : (!strictPhysics ? '1.30%' : '0.25%')} &lt; 10% ({lang === 'zh' ? '完美安全' : 'PASS'})
+                  </span>
+                </div>
+                <p className="text-[9px] text-slate-500 leading-snug pt-1 border-t border-slate-800/30">
+                  {lang === 'zh'
+                    ? '💡 安全审计：月轨直径远远低于地日距离 1 AU，在空间上具有极高独立性，毫无交叉干涉！'
+                    : '💡 Safe Audit: Moon orbit is strictly bound as a compact local trace around Earth (<10% of 1 AU), avoiding any clash with the solar center!'}
+                </p>
+              </div>
+            </div>
+
+            {/* 3. 八大行星太阳公转开普勒三定律检验 */}
+            <div className="space-y-1.5 bg-slate-900/50 rounded-lg p-2.5 border border-slate-800/50 font-sans">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-amber-300 font-sans">
+                  {lang === 'zh' ? '3. 太阳系主星轨标定' : '3. Solar Orbit Calibration'}
+                </span>
+                <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 px-1 py-0.5 rounded font-mono font-bold">
+                  {lang === 'zh' ? '✅ NASA标准' : '✅ NASA STABLE'}
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-400 space-y-1 font-sans">
+                <div className="flex justify-between font-sans">
+                  <span>{lang === 'zh' ? '日地距离 (1.00 AU)' : 'Sun-Earth Space (1.00 AU)'}:</span>
+                  <span className="font-mono text-slate-300">22.00 units</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{lang === 'zh' ? '日海距离 (30.07 AU)' : 'Sun-Neptune Space'}:</span>
+                  <span className="font-mono text-slate-300">
+                    {useVisualScale ? '118.80 units (对数压缩)' : '661.54 units (100% True)'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{lang === 'zh' ? '多级轨道面倾斜夹角' : 'Orbital Incline Matrices'}:</span>
+                  <span className="font-mono text-slate-300">✅ {lang === 'zh' ? '物理耦合' : 'Perfect Plane Matrix'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3.5 transition-all duration-300 font-sans" id="packing-tab-panel">
+            {/* 堆叠检验配对选择器 */}
+            <div className="flex flex-col space-y-1 bg-slate-900/50 p-2.5 rounded-lg border border-slate-800/40">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center space-x-1 mb-1 font-sans">
+                <span className="w-1.5 h-3 rounded bg-amber-400 inline-block font-sans" />
+                <span>{lang === 'zh' ? '选择检验天体与目标对' : 'Select Validation Pair'}</span>
+              </span>
+              <select
+                id="validation-pair-select"
+                value={validationPairKey}
+                onChange={(e) => {
+                  setValidationPairKey(e.target.value);
+                }}
+                className="w-full bg-slate-950 border border-slate-800 text-xs text-slate-100 p-2 rounded-lg cursor-pointer focus:outline-none focus:border-amber-500/50 font-sans"
+              >
+                {VALIDATION_PAIRS.map(x => (
+                  <option key={x.key} value={x.key} className="bg-slate-950 text-slate-100 font-sans">
+                    {lang === 'zh' ? x.nameZh : x.nameEn}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 科学算式证明 */}
+            <div className="space-y-1.5 text-[11px] bg-slate-900/50 rounded-lg p-2.5 border border-slate-800/55 font-sans">
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-slate-400">{lang === 'zh' ? '检验关联天体' : 'Relational Targets'}:</span>
+                <span className="font-bold text-cyan-300 font-mono text-xs">
+                  {`${(() => {
+                    const activeP = VALIDATION_PAIRS.find(x => x.key === validationPairKey) || VALIDATION_PAIRS[0];
+                    return activeP.sourceId.toUpperCase() + ' ↔ ' + activeP.targetId.toUpperCase();
+                  })()}`}
+                </span>
+              </div>
+              <div className="flex flex-col text-[10px] pt-1.5 border-t border-slate-800/40 space-y-0.5 font-sans">
+                <span className="text-slate-400">{lang === 'zh' ? '理论中天体比例计算' : 'Theoretical Ratio Calculations'}:</span>
+                <span className="font-mono text-amber-300 bg-slate-950/60 p-1.5 rounded border border-slate-900 mt-1 text-center font-bold">
+                  {`${(() => {
+                    const activeP = VALIDATION_PAIRS.find(x => x.key === validationPairKey) || VALIDATION_PAIRS[0];
+                    return lang === 'zh' ? activeP.countFormulaTextZh : activeP.countFormulaTextEn;
+                  })()}`}
+                </span>
+              </div>
+            </div>
+
+            {/* 1. 如果是视觉优化比例，显示提示引导进行 1:1 严格比例体验 */}
+            {useVisualScale && (
+              <div className="p-2.5 bg-amber-500/10 rounded-lg border border-amber-500/20 text-[10px] text-slate-300 space-y-1.5 font-sans">
+                <p className="font-bold text-amber-400 flex items-center space-x-1">
+                  <span>⚠️</span>
+                  <span>{lang === 'zh' ? '已启用「轨道视觉优化」' : 'Orbit Visual Optimization On'}</span>
+                </p>
+<p className="leading-snug text-slate-400 font-sans">
+                  {lang === 'zh' 
+                    ? '为了方便观察，系统默认对天体模型进行了极大幅度的非等比例放大。此时地日距离仅能放下 10 个对应比例的太阳。' 
+                    : 'For observer details, celestial models are majorly zoomed up. Only ~10 scaled Suns could fit this warped space.'}
+                </p>
+                <p className="leading-snug text-amber-300/90 font-medium">
+                  {lang === 'zh'
+                    ? '💡 提示：前往左下角关闭「视觉比例优化」来解锁 1:1 绝对天体物理比例验证！'
+                    : '💡 Tip: Toggle off "Optimize Scale" in the bottom-left map UI to test strict 1:1 scale alignment!'}
+                </p>
+              </div>
+            )}
+
+            {/* 2. 在真物理模式下，展示绝对物理 1:1 的高阶配置 */}
+            {!useVisualScale && (
+              <div className="flex flex-col space-y-2 bg-slate-900/40 p-2.5 rounded-lg border border-slate-800/60">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center space-x-1">
+                  <span className="w-1 h-3 rounded bg-amber-400 inline-block" />
+                  <span>{lang === 'zh' ? '体模型尺寸比例尺' : 'Celestial Body Size Scale'}</span>
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setStrictPhysics(true)}
+                    className={`py-1.5 px-2 rounded-md border text-left transition-all cursor-pointer ${
+                      strictPhysics
+                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                        : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
+                    }`}
+                  >
+                    <div className="text-[10px] font-bold">{lang === 'zh' ? '物理 1:1 绝对同尺' : 'Strict 1:1 True'}</div>
+                    <div className="text-[8px] opacity-75 mt-0.5 leading-snug">{lang === 'zh' ? '太阳与轨道完美对齐' : 'Sun fits space exactly'}</div>
+                    <div className="text-[8px] font-mono mt-0.5 text-amber-400/80">{lang === 'zh' ? '正好放 108 个' : 'Packs 108 Suns'}</div>
+                  </button>
+                  <button
+                    onClick={() => setStrictPhysics(false)}
+                    className={`py-1.5 px-2 rounded-md border text-left transition-all cursor-pointer ${
+                      !strictPhysics
+                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                        : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
+                    }`}
+                  >
+                    <div className="text-[10px] font-bold">{lang === 'zh' ? '可观测放大星体' : 'Magnified Star'}</div>
+                    <div className="text-[8px] opacity-75 mt-0.5 leading-snug">{lang === 'zh' ? '大比例，易交互点击' : 'Bigger celestial views'}</div>
+                    <div className="text-[8px] font-mono mt-0.5 text-amber-400/80">{lang === 'zh' ? '可堆叠 47 个' : 'Packs 47 Suns'}</div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 比例尺对照调节器 */}
+            <div className="flex flex-col space-y-1.5">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                {lang === 'zh' ? '排列模拟比例尺' : 'Packing Scale Mode'}
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    setPackingMode('physical');
+                    setStrictPhysics(true);
+                    setUseVisualScale?.(false);
+                  }}
+                  className={`py-1.5 px-2 rounded-md text-[10px] font-medium border transition-all text-center cursor-pointer ${
+                    packingMode === 'physical'
+                      ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.15)]'
+                      : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="font-bold">{lang === 'zh' ? '物理真实比例' : 'True Physics'}</div>
+                  <div className="text-[9px] opacity-75">
+                    {lang === 'zh' 
+                      ? '排满 108 个太阳 (1:1)' 
+                      : 'Pack 108 Suns'
+                    }
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    setPackingMode('visual');
+                  }}
+                  className={`py-1.5 px-2 rounded-md text-[10px] font-bold border transition-all text-center cursor-pointer ${
+                    packingMode === 'visual'
+                      ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.15)]'
+                      : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="font-bold">{lang === 'zh' ? '自适应星体比例' : 'Matched Star Scale'}</div>
+                  <div className="text-[9px] opacity-75">
+                    {lang === 'zh' 
+                      ? `排满 ${useVisualScale ? 10 : (strictPhysics ? 108 : 47)} 个大太阳` 
+                      : `Pack ${useVisualScale ? 10 : (strictPhysics ? 108 : 47)} Suns`
+                    }
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* 排列进度状态与进度条 */}
+            {packingActive && (() => {
+              const uiMaxCount = (packingMode === 'physical' && strictPhysics) 
+                ? 108 
+                : Math.floor(22.0 / (getSunRadius() * 2));
+              return (
+                <div className="space-y-2 bg-slate-900/30 rounded-lg p-2.5 border border-slate-800/40 transition-all duration-300">
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="text-slate-400">{lang === 'zh' ? '当前铺设进度' : 'Packing Progress'}:</span>
+                    <span className="font-mono font-semibold text-amber-400">
+                      {Math.floor(packingProgressDone)} / {uiMaxCount}
+                    </span>
+                  </div>
+                  
+                  {/* 进度条轨道 */}
+                  <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                    <div 
+                      className="h-full bg-gradient-to-r from-amber-600 via-amber-400 to-amber-300 rounded-full transition-all duration-75 shadow-[0_0_6px_rgba(245,158,11,0.4)]"
+                      style={{
+                        width: `${Math.min(100, (packingProgressDone / uiMaxCount) * 100)}%`
+                      }}
+                    />
+                  </div>
+
+                  {/* 完成验证的炫彩提示语 */}
+                  {packingProgressDone >= uiMaxCount - 0.5 ? (
+                    <div className="mt-1.5 p-1.5 bg-emerald-500/15 border border-emerald-500/30 rounded-md text-[10px] text-emerald-300 flex items-center space-x-1.5 shadow-[0_0_8px_rgba(16,185,129,0.15)] animate-bounce">
+                      <span>✨</span>
+                      <span className="leading-tight font-medium">
+                        {lang === 'zh' 
+                          ? `验证成功！精确排满 ${uiMaxCount} 段紧密契合太阳！` 
+                          : `Proof Success! Fits exactly ${uiMaxCount} Suns gap-free!`
+                        }
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 text-[9px] text-slate-500 italic text-center animate-pulse">
+                      {lang === 'zh' ? '正在沿着实时公转半径轨道部署太阳...' : 'Spawning solar bodies along orbital vector...'}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* 科普总结文字 */}
+        <div className="text-[10px] text-slate-400/90 leading-relaxed border-t border-slate-800/50 pt-2 font-medium">
+          {lang === 'zh' ? (
+            <p>
+              💡 <span className="text-amber-300/80 font-bold">思考</span>：在绝对 1:1 物理比例下，日地距离能够完美排下约 <strong className="text-amber-200">108</strong> 个完全原大的太阳，此时空间尺度与星体尺度 100% 绝对契合！这是真实的宇宙几何奇迹！
+            </p>
+          ) : (
+            <p>
+              💡 <span className="text-amber-300/80 font-bold">Concept</span>: Under strict 1:1 physical dimensions, the Earth-Sun void accommodates precisely <strong className="text-amber-200">108</strong> real-size Suns side-by-side, achieving complete scale synchronization!
+            </p>
+          )}
+        </div>
+      </div>
 
       {/* 底部缩放尺读数 */}
       <div 
