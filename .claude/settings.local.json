@@ -20,7 +20,11 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "mcp__Claude_Preview__preview_start",
-      "mcp__plugin_playwright_playwright__browser_run_code_unsafe"
+      "mcp__plugin_playwright_playwright__browser_run_code_unsafe",
+      "Bash(grep -n \"constellLinesRef.current =\" C:/Users/dom_zhou/.claude/projects/D--workspace-GalaxySim3D-GoogleAIStudio/890d965a-7579-41e4-8989-5260ce4f8da7.jsonl)",
+      "Read(//tmp/**)",
+      "Bash(grep -n \"loadHipparcosCatalog\\(\\).then\\\\|createStellarFieldFromCatalog\\\\|new THREE.LineSegments\\\\|constellationLinesGeo\\\\|constellationLine\" C:/Users/dom_zhou/.claude/projects/D--workspace-GalaxySim3D-GoogleAIStudio/890d965a-7579-41e4-8989-5260ce4f8da7.jsonl > /tmp/star_code.txt && wc -l /tmp/star_code.txt)",
+      "mcp__plugin_playwright_playwright__browser_select_option"
     ]
   }
 }

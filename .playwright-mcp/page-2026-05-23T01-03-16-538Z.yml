@@ -1,0 +1,126 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic [ref=e103]:
+      - generic [ref=e104]:
+        - img [ref=e105]
+        - generic [ref=e108]: 控制台
+      - button "收起" [ref=e109] [cursor=pointer]:
+        - img [ref=e110]
+    - generic [ref=e10]:
+      - generic [ref=e113]: 天体
+      - generic [ref=e114]:
+        - combobox [ref=e115] [cursor=pointer]:
+          - option "恒星"
+          - option "行星"
+          - option "卫星" [selected]
+        - combobox [ref=e116] [cursor=pointer]:
+          - option "地球" [selected]
+          - option "火星"
+          - option "木星"
+          - option "土星"
+          - option "天王星"
+          - option "海王星"
+      - combobox [ref=e183] [cursor=pointer]:
+        - option "月球" [selected]
+    - generic [ref=e117]:
+      - generic [ref=e118]: 系统主题样式
+      - generic [ref=e119]:
+        - button "space-tech" [ref=e120] [cursor=pointer]
+        - button "cosmic-dark" [ref=e121] [cursor=pointer]
+        - button "neon-hologram" [ref=e122] [cursor=pointer]
+        - button "solar-gold" [ref=e123] [cursor=pointer]
+    - button "ZH / EN" [ref=e124] [cursor=pointer]:
+      - generic [ref=e125]: ZH
+      - generic [ref=e126]: /
+      - generic [ref=e127]: EN
+    - generic [ref=e128]:
+      - button "望远镜" [ref=e129] [cursor=pointer]:
+        - img [ref=e130]
+        - generic [ref=e135]: 望远镜
+      - generic [ref=e136] [cursor=pointer]:
+        - checkbox "星座连线" [checked] [ref=e137]
+        - img [ref=e138]
+        - generic [ref=e141]: 星座连线
+      - generic [ref=e142] [cursor=pointer]:
+        - checkbox "恒星名称" [checked] [ref=e143]
+        - img [ref=e144]
+        - generic [ref=e146]: 恒星名称
+      - generic [ref=e147] [cursor=pointer]:
+        - checkbox "行星名称" [checked] [ref=e148]
+        - img [ref=e149]
+        - generic [ref=e152]: 行星名称
+      - generic [ref=e153]:
+        - generic [ref=e154]:
+          - generic [ref=e155]:
+            - img [ref=e156]
+            - text: 星空可见视星等极限
+          - generic [ref=e158]: "5.5"
+        - slider [ref=e159] [cursor=pointer]: "5.5"
+        - generic [ref=e160]:
+          - generic [ref=e161]: 3.0 (仅极亮星)
+          - generic [ref=e162]: 7.5 (全部1万颗星)
+    - button "系统信息" [ref=e165] [cursor=pointer]:
+      - img [ref=e166]
+      - generic [ref=e168]: 系统信息
+    - generic [ref=e170]:
+      - button "CHECK" [ref=e171] [cursor=pointer]:
+        - img [ref=e172]
+        - generic [ref=e175]: CHECK
+      - button "回到现在" [ref=e176] [cursor=pointer]:
+        - img [ref=e177]
+        - generic [ref=e182]: 回到现在
+  - main [ref=e11]:
+    - generic [ref=e100]:
+      - generic:
+        - generic: N 正北 (0°)
+        - generic: "|"
+        - generic: E 正东 (90°)
+        - generic: "|"
+        - generic: S 正南 (180°)
+        - generic: "|"
+        - generic: W 正西 (270°)
+      - generic:
+        - generic:
+          - generic: 🔭 当前观星位置 — 月球 (Moon)
+          - generic: LST 14.96h
+        - generic:
+          - generic:
+            - generic: "🌞 太阳 (Sun) 缩放级别:"
+            - generic: "-29.6° (夜)"
+          - generic:
+            - generic: "🌍 地球 (Earth) 缩放级别:"
+            - generic: 90.0°
+          - generic:
+            - generic: "🌒 当前月相计算:"
+            - generic: 满月 (望 - Full Moon)
+      - generic: 💡 拖拽360度环顾天空；滚轮缩放视角；右上角🔭切拥望远镜模式；悬停磁吸关注星体并单击选择
+  - generic [ref=e64]:
+    - img [ref=e65]:
+      - generic [ref=e67] [cursor=pointer]:
+        - generic: "-1h"
+      - generic [ref=e69] [cursor=pointer]:
+        - generic: "-1m"
+      - generic [ref=e71] [cursor=pointer]:
+        - generic: "-5x"
+      - generic [ref=e73] [cursor=pointer]:
+        - generic: 1:1
+      - generic [ref=e75] [cursor=pointer]:
+        - generic: 5x
+      - generic [ref=e77] [cursor=pointer]:
+        - generic: 1m
+      - generic [ref=e79] [cursor=pointer]:
+        - generic: 1h
+      - generic [ref=e81] [cursor=pointer]:
+        - generic: 1d
+      - generic [ref=e83] [cursor=pointer]:
+        - generic: 3y
+    - generic [ref=e85]:
+      - generic [ref=e86]:
+        - img [ref=e87]
+        - generic [ref=e90]: 2026-06-05 13:39:57 UTC
+        - button "暂停" [ref=e91] [cursor=pointer]:
+          - img [ref=e92]
+        - button "选择日期" [ref=e95] [cursor=pointer]:
+          - img [ref=e96]
+        - button "UTC" [ref=e98] [cursor=pointer]
+      - generic [ref=e99]: 43,200x

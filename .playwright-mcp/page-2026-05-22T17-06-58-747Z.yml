@@ -1,0 +1,80 @@
+- generic [ref=e3]:
+  - button "展开控制台" [ref=e6] [cursor=pointer]:
+    - img [ref=e7]
+  - main [ref=e11]:
+    - generic [ref=e13]:
+      - generic:
+        - generic: "距太阳:"
+        - generic: 1.96 AU
+        - generic: "|"
+        - generic: 地球 (Earth)
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - heading "地球 (Earth)" [level=2] [ref=e20]:
+            - generic [ref=e21]: 地球 (Earth)
+          - paragraph [ref=e22]: earth SYSTEM COORDS
+        - generic [ref=e23]:
+          - button "登录星球" [ref=e24] [cursor=pointer]:
+            - img [ref=e26]
+            - generic [ref=e31]: 登录星球
+          - button "🔬 剖面剖析模式" [ref=e32] [cursor=pointer]:
+            - generic [ref=e33]: 🔬
+            - generic [ref=e34]: 剖面剖析模式
+          - button "关闭介绍面板" [ref=e35] [cursor=pointer]:
+            - img [ref=e36]
+      - generic [ref=e38]:
+        - generic [ref=e39]: 人类唯一的家园。拥有丰富多样的液态水海洋、稳定的磁层保障以及含有氧气和富氮的厚重保护性大气层。
+        - generic [ref=e40]:
+          - generic [ref=e41]:
+            - generic [ref=e42]: 大气层与云层
+            - generic [ref=e43]: 物理光线散射与动态气流模拟
+          - button [ref=e44] [cursor=pointer]
+        - generic [ref=e45]:
+          - heading "📋 物理参数" [level=3] [ref=e46]
+          - generic [ref=e47]:
+            - generic [ref=e48]:
+              - generic [ref=e49]: 赤道半径
+              - generic [ref=e50]: 6,371 km
+            - generic [ref=e51]:
+              - generic [ref=e52]: 自转周期
+              - generic [ref=e53]: 23.934 hrs
+            - generic [ref=e54]:
+              - generic [ref=e55]: 自转轴倾角
+              - generic [ref=e56]: 23.44°
+            - generic [ref=e57]:
+              - generic [ref=e58]: 平均距离
+              - generic [ref=e59]: 1.0000 AU
+            - generic [ref=e60]:
+              - generic [ref=e61]: 公转周期
+              - generic [ref=e62]: 365.256 地球日
+  - generic [ref=e64]:
+    - img [ref=e65]:
+      - generic [ref=e67] [cursor=pointer]:
+        - generic: "-1h"
+      - generic [ref=e69] [cursor=pointer]:
+        - generic: "-1m"
+      - generic [ref=e71] [cursor=pointer]:
+        - generic: "-5x"
+      - generic [ref=e73] [cursor=pointer]:
+        - generic: 1:1
+      - generic [ref=e75] [cursor=pointer]:
+        - generic: 5x
+      - generic [ref=e77] [cursor=pointer]:
+        - generic: 1m
+      - generic [ref=e79] [cursor=pointer]:
+        - generic: 1h
+      - generic [ref=e81] [cursor=pointer]:
+        - generic: 1d
+      - generic [ref=e83] [cursor=pointer]:
+        - generic: 3y
+    - generic [ref=e85]:
+      - generic [ref=e86]:
+        - img [ref=e87]
+        - generic [ref=e90]: 2026-05-22 18:01:02 UTC
+        - button "暂停" [ref=e91] [cursor=pointer]:
+          - img [ref=e92]
+        - button "选择日期" [ref=e95] [cursor=pointer]:
+          - img [ref=e96]
+        - button "UTC" [ref=e98] [cursor=pointer]
+      - generic [ref=e99]: 43,200x

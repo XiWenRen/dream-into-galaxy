@@ -97,7 +97,7 @@ export class OrbitEngine {
     if (useVisualScale) {
       if (a > 1.2) {
         // 对1.2AU以上使用渐进压缩，水/金/地 保持原本紧密，外轨道不至于撑破视界
-        renderA = 1.2 + Math.log10(a - 0.2) * 1.5;
+        renderA = 1.2 + Math.log10(a - 0.2) * 2.5;
       }
     }
 

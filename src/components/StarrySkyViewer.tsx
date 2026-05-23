@@ -9,6 +9,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TimeEngine } from '../engine/TimeEngine';
 import { OrbitEngine } from '../engine/OrbitEngine';
 import { AstrophenomenaEngine } from '../engine/AstrophenomenaEngine';
+import { ObserverEngine } from '../engine/ObserverEngine';
 import { translations } from '../i18n';
 import { STAR_LIST, CONSTELLATIONS, BRIGHT_STAR_COUNT, DetailedStar } from '../engine/StarDatabase';
 import { loadHipparcosCatalog, bvToRgb } from '../engine/HipparcosLoader';
@@ -384,10 +385,38 @@ const createConstellationLabelSprite = (text: string): THREE.Sprite => {
   return sprite;
 };
 
+function getDominantBodyInfo(observerId: string): { id: string; nameZh: string; nameEn: string; icon: string; textureUrl: string } | null {
+  switch (observerId) {
+    case 'earth':
+      return { id: 'moon', nameZh: '月球 (The Moon)', nameEn: 'The Moon', icon: '\u{1F319}', textureUrl: '/textures/8k_moon.jpg' };
+    case 'moon':
+      return { id: 'earth', nameZh: '地球 (Earth)', nameEn: 'Earth', icon: '\u{1F30D}', textureUrl: '/textures/8k_earth_daymap.jpg' };
+    default:
+      return null;
+  }
+}
+
+function loadRealTexture(
+  url: string,
+  cacheRef: React.MutableRefObject<Record<string, THREE.Texture>>,
+  onLoad: (tex: THREE.Texture) => void
+): void {
+  if (cacheRef.current[url]) {
+    onLoad(cacheRef.current[url]);
+    return;
+  }
+  const loader = new THREE.TextureLoader();
+  loader.load(url, (tex) => {
+    cacheRef.current[url] = tex;
+    onLoad(tex);
+  });
+}
+
 interface StarrySkyViewerProps {
   currentTimestamp: number;
   latitude: number;
   longitude: number;
+  observerBodyId: string;
   lang: 'zh' | 'en';
   showConstellLines: boolean;
   showStarNames: boolean;
@@ -401,6 +430,7 @@ export default function StarrySkyViewer({
   currentTimestamp,
   latitude,
   longitude,
+  observerBodyId,
   lang,
   showConstellLines,
   showStarNames,
@@ -446,6 +476,9 @@ export default function StarrySkyViewer({
 
   // 三维FOV缩放控制 (3° ~ 65°)
   const fovRef = useRef(65);
+  const textureCacheRef = useRef<Record<string, THREE.Texture>>({});
+  const observerBodyIdRef = useRef(observerBodyId);
+  const satelliteSpritesRef = useRef<Record<string, THREE.Sprite>>({});
 
   // 磁吸snap目标跟踪
   const snapTargetRef = useRef<THREE.Sprite | THREE.Mesh | null>(null);
@@ -468,6 +501,101 @@ export default function StarrySkyViewer({
   useEffect(() => {
     currentTimestampRef.current = currentTimestamp;
   }, [currentTimestamp]);
+
+  useEffect(() => {
+    observerBodyIdRef.current = observerBodyId;
+
+    // Update ground color when observer body changes
+    const scene = sceneRef.current;
+    if (scene) {
+      const ground = scene.getObjectByName('ground-mesh') as THREE.Mesh | undefined;
+      if (ground) {
+        const groundColorMap: Record<string, number> = {
+          earth: 0x05130b, moon: 0x2a2a2e, mars: 0x3d1a0f,
+          mercury: 0x4a4a4a, venus: 0x8b7355, jupiter: 0x5a3d1a,
+          saturn: 0x3d3429, uranus: 0x2a3d3d, neptune: 0x1a2a3d,
+        };
+        const mat = ground.material as THREE.MeshBasicMaterial;
+        mat.color.setHex(groundColorMap[observerBodyId] ?? 0x05130b);
+      }
+    }
+
+    // Update dominant body (moonSkyRef) texture and appearance
+    const moonSky = moonSkyRef.current;
+    if (moonSky) {
+      const moonMat = moonSky.material as THREE.MeshStandardMaterial;
+      const dominant = getDominantBodyInfo(observerBodyId);
+      if (dominant) {
+        moonSky.visible = true;
+        if (observerBodyId === 'earth') {
+          moonSky.scale.setScalar(1.0);
+          moonMat.color.setHex(0xffffff);
+          moonMat.emissive.setHex(0x000000);
+          moonMat.emissiveIntensity = 0;
+          loadRealTexture(dominant.textureUrl, textureCacheRef, (tex) => {
+            if (observerBodyIdRef.current === 'earth' && moonSkyRef.current) {
+              (moonSkyRef.current.material as THREE.MeshStandardMaterial).map = tex;
+              (moonSkyRef.current.material as THREE.MeshStandardMaterial).needsUpdate = true;
+            }
+          });
+        } else if (observerBodyId === 'moon') {
+          moonSky.scale.setScalar(4.0);
+          moonMat.color.setHex(0xffffff);
+          moonMat.emissive.setHex(0x1a5a8a);
+          moonMat.emissiveIntensity = 0.6;
+          loadRealTexture(dominant.textureUrl, textureCacheRef, (tex) => {
+            if (observerBodyIdRef.current === 'moon' && moonSkyRef.current) {
+              (moonSkyRef.current.material as THREE.MeshStandardMaterial).map = tex;
+              (moonSkyRef.current.material as THREE.MeshStandardMaterial).needsUpdate = true;
+            }
+          });
+        }
+      } else {
+        moonSky.visible = false;
+      }
+    }
+
+    // Rebuild satellite sprites for the new observer body
+    const starsGroup = starsGroupRef.current;
+    if (starsGroup) {
+      (Object.values(satelliteSpritesRef.current) as THREE.Sprite[]).forEach(sprite => {
+        starsGroup.remove(sprite);
+        sprite.material.dispose();
+      });
+      satelliteSpritesRef.current = {};
+
+      const sats = ObserverEngine.getSatellitesInSky(
+        { bodyId: observerBodyId, latitude, longitude },
+        TimeEngine.getDaysSinceJ2000(currentTimestampRef.current)
+      );
+      const brightStarTex = createBrightStarGlowTexture();
+      const satSprites: Record<string, THREE.Sprite> = {};
+      sats.forEach(sat => {
+        const baseScale = Math.max(2.0, (5.0 - sat.magnitude) * 1.2);
+        const mat = new THREE.SpriteMaterial({
+          map: brightStarTex,
+          color: new THREE.Color(sat.color),
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        });
+        const sprite = new THREE.Sprite(mat);
+        sprite.scale.set(baseScale, baseScale, 1.0);
+        sprite.userData = {
+          id: sat.id,
+          name: sat.nameEn,
+          nameZh: sat.nameZh,
+          mag: sat.magnitude,
+          radius: 275,
+          type: 'satellite',
+          satelliteData: sat
+        };
+        starsGroup.add(sprite);
+        satSprites[sat.id] = sprite;
+      });
+      satelliteSpritesRef.current = satSprites;
+    }
+  }, [observerBodyId]);
 
   useEffect(() => {
     langRef.current = lang;
@@ -903,17 +1031,32 @@ export default function StarrySkyViewer({
             extraEn: 'Solar Longitude: ' + AstrophenomenaEngine.getSolarLongitude(daysSinceJ2000Ref.current).toFixed(1) + '°'
           });
         } else if (hit === moonSkyRef.current) {
-          setHoveredCelestial({
-            id: 'moon',
-            nameZh: '月球 (The Moon)',
-            nameEn: 'The Moon',
-            typeZh: '天然卫星 / 潮汐锁定守护者',
-            typeEn: 'Natural Satellite / Tidally Locked',
-            infoZh: '地球唯一的天然卫星。我们已为它特写模式注入了浪漫宁静的漫射朊胧白月光晕（Misty Moonlight Glow）！',
-            infoEn: "Earth's only natural satellite. Calibrated in standard 3D depth with hazy lunar glow.",
-            extraZh: '当前月相度: ' + (moonPhaseInfoRef.current ? (moonPhaseInfoRef.current.percent * 100).toFixed(0) : '0') + '%',
-            extraEn: 'Moon Phase Percent: ' + (moonPhaseInfoRef.current ? (moonPhaseInfoRef.current.percent * 100).toFixed(0) : '0') + '%'
-          });
+          const dom = getDominantBodyInfo(observerBodyIdRef.current);
+          if (dom && dom.id === 'moon') {
+            setHoveredCelestial({
+              id: 'moon',
+              nameZh: '月球 (The Moon)',
+              nameEn: 'The Moon',
+              typeZh: '天然卫星 / 潮汐锁定守护者',
+              typeEn: 'Natural Satellite / Tidally Locked',
+              infoZh: '地球唯一的天然卫星。我们已为它特写模式注入了浪漫宁静的漫射朦胧白月光晕（Misty Moonlight Glow）！',
+              infoEn: "Earth's only natural satellite. Calibrated in standard 3D depth with hazy lunar glow.",
+              extraZh: '当前月相度: ' + (moonPhaseInfoRef.current ? (moonPhaseInfoRef.current.percent * 100).toFixed(0) : '0') + '%',
+              extraEn: 'Moon Phase Percent: ' + (moonPhaseInfoRef.current ? (moonPhaseInfoRef.current.percent * 100).toFixed(0) : '0') + '%'
+            });
+          } else if (dom && dom.id === 'earth') {
+            setHoveredCelestial({
+              id: 'earth',
+              nameZh: '地球 (Earth)',
+              nameEn: 'Earth',
+              typeZh: '行星 / 生命摇篮',
+              typeEn: 'Planet / Cradle of Life',
+              infoZh: '从月球上看，地球是一颗美丽的蓝色弹珠，悬挂在黑色的天空之中。由于潮汐锁定，地球在月空中几乎静止不动。',
+              infoEn: 'From the Moon, Earth appears as a beautiful blue marble suspended in the black sky. Due to tidal locking, it remains nearly stationary.',
+              extraZh: '仰角: ' + (moonSkyRef.current ? getHorizontalCoordinates(moonRaRef.current, moonDecRef.current, TimeEngine.getLocalSiderealTime(currentTimestampRef.current, longitudeRef.current), latitudeRef.current).alt.toFixed(1) : '0') + '°',
+              extraEn: 'Altitude: ' + (moonSkyRef.current ? getHorizontalCoordinates(moonRaRef.current, moonDecRef.current, TimeEngine.getLocalSiderealTime(currentTimestampRef.current, longitudeRef.current), latitudeRef.current).alt.toFixed(1) : '0') + '°'
+            });
+          }
         } else if (hit.userData.type === 'planet') {
           const planetData = hit.userData.planetData;
           const distAU = hit.userData.distAU || 0.0;
@@ -1025,20 +1168,38 @@ export default function StarrySkyViewer({
             extraDetailsEn: 'Physical Specifications: Axial Obliquity 7.25°, central thermonuclear zone reaches 15M °C. Under horizontal dome stargazing, its altitude coordinates drive real-time atmospheric blue-to-black scatter shifts.'
           });
         } else if (hit === moonSkyRef.current) {
-          setSelectedCelestial({
-            id: 'moon',
-            nameZh: '月球 (The Moon)',
-            nameEn: 'The Moon',
-            typeZh: '天然卫星 / 地月引力互锁',
-            typeEn: 'Natural Satellite / Earth Companion',
-            mag: -12.74,
-            ra: moonRaRef.current || 0,
-            dec: moonDecRef.current || 0,
-            infoZh: '月球是地球唯一的天然卫星，处于完美的自转公转潮汐锁定状态。它对地球上海水的潮汐引力、自转轴稳定和夜空宁静观测起到了绝对核心的物理支撑。在特写阶段，它的周围环绕着高精度程序化渲染的“漫射朦胧白月晕（Misty Moonlight Glow）”以及3D偏振相机对齐精灵，体现空灵幽美的月夜奇观！',
-            infoEn: 'Earth\'s only natural satellite, fully tidally locked to Earth. It exerts a core physical drag creating ocean tides, stabilizing Earth axial obliquity, and providing moonlight. Our simulator just added realistic camera-facing lunar halo glow and multi-level silver wraps around its body!',
-            extraDetailsZh: '地月完美距离：平均轨道半径 384,400 公里。在系统的 “1:1 堆叠验证” 中也可以严格检验出其空间恰好容纳 30.17 个原色原始尺寸地球，是一场浩瀚惊人的轨道奇景。',
-            extraDetailsEn: 'Distance calibration: Mean orbital gap of 384,400 km. In our physical 1:1 stacking validation tool tab, the space exactly fits 30.17 original-size Earth spheres aligned end to end.'
-          });
+          const dom = getDominantBodyInfo(observerBodyIdRef.current);
+          if (dom && dom.id === 'moon') {
+            setSelectedCelestial({
+              id: 'moon',
+              nameZh: '月球 (The Moon)',
+              nameEn: 'The Moon',
+              typeZh: '天然卫星 / 地月引力互锁',
+              typeEn: 'Natural Satellite / Earth Companion',
+              mag: -12.74,
+              ra: moonRaRef.current || 0,
+              dec: moonDecRef.current || 0,
+              infoZh: '月球是地球唯一的天然卫星，处于完美的自转公转潮汐锁定状态。它对地球上海水的潮汐引力、自转轴稳定和夜空宁静观测起到了绝对核心的物理支撑。在特写阶段，它的周围环绕着高精度程序化渲染的”漫射朦胧白月晕（Misty Moonlight Glow）”以及3D偏振相机对齐精灵，体现空灵幽美的月夜奇观！',
+              infoEn: 'Earth\'s only natural satellite, fully tidally locked to Earth. It exerts a core physical drag creating ocean tides, stabilizing Earth axial obliquity, and providing moonlight. Our simulator just added realistic camera-facing lunar halo glow and multi-level silver wraps around its body!',
+              extraDetailsZh: '地月完美距离：平均轨道半径 384,400 公里。在系统的 “1:1 堆叠验证” 中也可以严格检验出其空间恰好容纳 30.17 个原色原始尺寸地球，是一场浩瀚惊人的轨道奇景。',
+              extraDetailsEn: 'Distance calibration: Mean orbital gap of 384,400 km. In our physical 1:1 stacking validation tool tab, the space exactly fits 30.17 original-size Earth spheres aligned end to end.'
+            });
+          } else if (dom && dom.id === 'earth') {
+            setSelectedCelestial({
+              id: 'earth',
+              nameZh: '地球 (Earth)',
+              nameEn: 'Earth',
+              typeZh: '行星 / 生命摇篮',
+              typeEn: 'Planet / Cradle of Life',
+              mag: -17.0,
+              ra: moonRaRef.current || 0,
+              dec: moonDecRef.current || 0,
+              infoZh: '从月球表面看去，地球是一颗悬挂在漆黑天空中的蓝色弹珠。由于潮汐锁定，地球在月空中几乎静止不动，是月球上最壮观的景观。地球直径约为月球的4倍，角直径约2°，亮度和大小都远超其他天体。',
+              infoEn: 'From the lunar surface, Earth appears as a blue marble suspended in the pitch-black sky. Due to tidal locking, it remains nearly stationary in the lunar sky, making it the most spectacular sight on the Moon.',
+              extraDetailsZh: '地球平均直径 12,742 公里 | 从月球看角直径约 2° | 潮汐锁定使其在月空中几乎固定',
+              extraDetailsEn: 'Earth mean diameter 12,742 km | Angular diameter ~2° from Moon | Tidal locking keeps it nearly fixed in lunar sky'
+            });
+          }
         } else if (hit.userData.type === 'planet') {
           const planetData = hit.userData.planetData;
           const distAU = hit.userData.distAU || 0.0;
@@ -1121,22 +1282,15 @@ export default function StarrySkyViewer({
     const starsGroup = starsGroupRef.current;
     if (!scene || !starsGroup) return;
 
-    const lst = TimeEngine.getLocalSiderealTime(currentTimestamp, longitude);
+    const ctx = { bodyId: observerBodyId, latitude, longitude };
+    const lst = ObserverEngine.getLocalSiderealTime(ctx, currentTimestamp);
     const days = TimeEngine.getDaysSinceJ2000(currentTimestamp);
 
-    // A. 太阳投影位置
-    const lambdaSun = AstrophenomenaEngine.getSolarLongitude(days);
-    const sunLongRad = (lambdaSun * Math.PI) / 180.0;
-    const oblRad = (23.439 * Math.PI) / 180.0;
-    const sunDecRad = Math.asin(Math.sin(oblRad) * Math.sin(sunLongRad));
-    const sunDec = (sunDecRad * 180.0) / Math.PI;
-    let sunRaRad = Math.atan2(Math.cos(oblRad) * Math.sin(sunLongRad), Math.cos(sunLongRad));
-    let sunRa = (sunRaRad * 12.0) / Math.PI;
-    if (sunRa < 0) sunRa += 24;
-
+    // A. 太阳投影位置（多参考系）
+    const { ra: sunRa, dec: sunDec } = ObserverEngine.getSolarRADec(ctx, days);
     const sunCoords = getHorizontalCoordinates(sunRa, sunDec, lst, latitude);
     const sunPos = get3DPositionOnDome(sunCoords.az, sunCoords.alt, 278);
-    
+
     if (sunSkyRef.current) {
       sunSkyRef.current.position.copy(sunPos);
       sunSkyRef.current.visible = sunCoords.alt > -2;
@@ -1144,9 +1298,9 @@ export default function StarrySkyViewer({
       const eclipses = AstrophenomenaEngine.detectEclipse(days);
       const sunMat = sunSkyRef.current.material as THREE.MeshBasicMaterial;
       if (eclipses.solarEclipse) {
-        sunMat.color.setHex(0x0c0c0c); 
+        sunMat.color.setHex(0x0c0c0c);
         if (sunCoronaSpriteRef.current) {
-          sunCoronaSpriteRef.current.material.opacity = 1.0; 
+          sunCoronaSpriteRef.current.material.opacity = 1.0;
           sunCoronaSpriteRef.current.scale.set(70.0, 70.0, 1.0);
           sunCoronaSpriteRef.current.material.color.setHex(0xfffaea);
         }
@@ -1154,7 +1308,7 @@ export default function StarrySkyViewer({
         sunMat.color.setHex(0xfffefa);
         if (sunCoronaSpriteRef.current) {
           const hRatio = Math.max(0.4, Math.min(1.0, (sunCoords.alt + 5) / 45.0));
-          sunCoronaSpriteRef.current.material.opacity = 0.9 * hRatio; 
+          sunCoronaSpriteRef.current.material.opacity = 0.9 * hRatio;
           sunCoronaSpriteRef.current.scale.set(55.0, 55.0, 1.0);
           sunCoronaSpriteRef.current.material.color.setHex(0xffffff);
         }
@@ -1166,46 +1320,58 @@ export default function StarrySkyViewer({
       lightRef.current.position.copy(sunPos).normalize();
     }
 
-    // B. 月亮物理投影位置及月相
+    // B. 主导天体投影（地球→月球 / 月球→地球 / 其他→隐藏）
     const moonPhaseInfo = AstrophenomenaEngine.getMoonPhase(days);
-    const moonDelta = OrbitEngine.getLunarRelativePosition(days, false);
-    const moonLongRad = (Math.atan2(moonDelta.y, moonDelta.x) * 180.0 / Math.PI + lambdaSun) % 360 * Math.PI / 180.0;
-    const moonDecRad = Math.asin(Math.sin(oblRad) * Math.sin(moonLongRad));
-    const moonDec = (moonDecRad * 180.0) / Math.PI;
-    let moonRaRad = Math.atan2(Math.cos(oblRad) * Math.sin(moonLongRad), Math.cos(moonLongRad));
-    let moonRa = (moonRaRad * 12.0) / Math.PI;
-    if (moonRa < 0) moonRa += 24;
+    let moonCoords: { az: number; alt: number } = { az: 0, alt: -10 };
+    let moonRa = 0;
+    let moonDec = 0;
 
-    const moonCoords = getHorizontalCoordinates(moonRa, moonDec, lst, latitude);
-    const moonPos = get3DPositionOnDome(moonCoords.az, moonCoords.alt, 270);
-    
-    if (moonSkyRef.current) {
-      moonSkyRef.current.position.copy(moonPos);
-      moonSkyRef.current.visible = moonCoords.alt > -2;
-      moonSkyRef.current.lookAt(0, 0, 0);
-
-      const eclipses = AstrophenomenaEngine.detectEclipse(days);
-      const moonMat = moonSkyRef.current.material as THREE.MeshStandardMaterial;
-
-      if (eclipses.solarEclipse) {
-        moonMat.color.setHex(0x111111);
-        if (moonHazeSpriteRef.current) {
-          moonHazeSpriteRef.current.material.opacity = 0.0;
-        }
-      } else if (eclipses.lunarEclipse) {
-        moonMat.color.setHex(0xb23315);
-        if (moonHazeSpriteRef.current) {
-          moonHazeSpriteRef.current.material.color.setHex(0xff3311);
-          moonHazeSpriteRef.current.material.opacity = 0.85;
-        }
-      } else {
-        moonMat.color.setHex(0xffffff); 
-        if (moonHazeSpriteRef.current) {
-          moonHazeSpriteRef.current.material.color.setHex(0xdbeafe);
-          const glowFactor = Math.max(0.12, moonPhaseInfo.percent);
-          moonHazeSpriteRef.current.material.opacity = 0.8 * glowFactor;
+    if (observerBodyId === 'earth') {
+      const { ra, dec } = ObserverEngine.getSatellitesInSky(ctx, days)[0] ?? { ra: 0, dec: 0 };
+      moonRa = ra; moonDec = dec;
+      moonCoords = getHorizontalCoordinates(moonRa, moonDec, lst, latitude);
+      const moonPos = get3DPositionOnDome(moonCoords.az, moonCoords.alt, 270);
+      if (moonSkyRef.current) {
+        moonSkyRef.current.position.copy(moonPos);
+        moonSkyRef.current.visible = moonCoords.alt > -2;
+        moonSkyRef.current.lookAt(0, 0, 0);
+        const eclipses = AstrophenomenaEngine.detectEclipse(days);
+        const moonMat = moonSkyRef.current.material as THREE.MeshStandardMaterial;
+        if (eclipses.solarEclipse) {
+          moonMat.color.setHex(0x111111);
+          if (moonHazeSpriteRef.current) moonHazeSpriteRef.current.material.opacity = 0.0;
+        } else if (eclipses.lunarEclipse) {
+          moonMat.color.setHex(0xb23315);
+          if (moonHazeSpriteRef.current) {
+            moonHazeSpriteRef.current.material.color.setHex(0xff3311);
+            moonHazeSpriteRef.current.material.opacity = 0.85;
+          }
+        } else {
+          moonMat.color.setHex(0xffffff);
+          if (moonHazeSpriteRef.current) {
+            moonHazeSpriteRef.current.material.color.setHex(0xdbeafe);
+            const glowFactor = Math.max(0.12, moonPhaseInfo.percent);
+            moonHazeSpriteRef.current.material.opacity = 0.8 * glowFactor;
+          }
         }
       }
+    } else if (observerBodyId === 'moon') {
+      const earthInfo = ObserverEngine.getSatellitesInSky(ctx, days)[0] ?? { ra: 0, dec: 0 };
+      moonRa = earthInfo.ra; moonDec = earthInfo.dec;
+      moonCoords = getHorizontalCoordinates(moonRa, moonDec, lst, latitude);
+      const earthPos = get3DPositionOnDome(moonCoords.az, moonCoords.alt, 270);
+      if (moonSkyRef.current) {
+        moonSkyRef.current.position.copy(earthPos);
+        moonSkyRef.current.visible = moonCoords.alt > -2;
+        moonSkyRef.current.lookAt(0, 0, 0);
+        if (moonHazeSpriteRef.current) {
+          moonHazeSpriteRef.current.position.copy(earthPos);
+          moonHazeSpriteRef.current.visible = moonCoords.alt > -2;
+        }
+      }
+    } else {
+      if (moonSkyRef.current) moonSkyRef.current.visible = false;
+      if (moonHazeSpriteRef.current) moonHazeSpriteRef.current.visible = false;
     }
 
     const eclipseState = AstrophenomenaEngine.detectEclipse(days);
@@ -1283,16 +1449,17 @@ export default function StarrySkyViewer({
       sprite.visible = visible && baseOpacity > 0.02 && isVisibleMag;
     });
 
-    // E. 4颗大行星地心坐标及水平高程、消光计算
+    // E. 行星视位置（多参考系）
+    const planetInfos = ObserverEngine.getPlanetsInSky(ctx, days);
+    const planetInfoMap = new Map(planetInfos.map(p => [p.id, p]));
     PLANETS.forEach(planet => {
       const sprite = planetSpritesRef.current[planet.id];
       if (sprite) {
-        const { ra, dec, distAU } = getGeocentricPlanetCoords(planet.id, days);
-        const planetCoords = getHorizontalCoordinates(ra, dec, lst, latitude);
-        
+        const info = planetInfoMap.get(planet.id);
+        if (!info) { sprite.visible = false; return; }
+        const planetCoords = getHorizontalCoordinates(info.ra, info.dec, lst, latitude);
         let baseOpacity = 0;
         let visible = false;
-        
         if (planetCoords.alt > 0) {
           visible = true;
           let extinction = 1.0;
@@ -1301,14 +1468,27 @@ export default function StarrySkyViewer({
           }
           baseOpacity = (1.0 - skyBrightness) * extinction;
         }
-        
         sprite.userData.az = planetCoords.az;
         sprite.userData.alt = planetCoords.alt;
-        sprite.userData.ra = ra;
-        sprite.userData.dec = dec;
-        sprite.userData.distAU = distAU;
+        sprite.userData.ra = info.ra;
+        sprite.userData.dec = info.dec;
+        sprite.userData.distAU = info.distAU;
         sprite.userData.baseOpacity = baseOpacity;
         sprite.visible = visible && baseOpacity > 0.02;
+      }
+    });
+
+    // H. 卫星精灵位置更新
+    const satInfos = ObserverEngine.getSatellitesInSky(ctx, days);
+    satInfos.forEach(sat => {
+      const sprite = satelliteSpritesRef.current[sat.id];
+      if (sprite) {
+        const satCoords = getHorizontalCoordinates(sat.ra, sat.dec, lst, latitude);
+        const pos = get3DPositionOnDome(satCoords.az, satCoords.alt, 275);
+        sprite.position.copy(pos);
+        sprite.visible = satCoords.alt > -2;
+        sprite.userData.az = satCoords.az;
+        sprite.userData.alt = satCoords.alt;
       }
     });
 
@@ -1395,7 +1575,7 @@ export default function StarrySkyViewer({
       solarEclipse: eclipseState.solarEclipse,
       lunarEclipse: eclipseState.lunarEclipse
     });
-  }, [currentTimestamp, latitude, longitude, showConstellLines, showStarNames, showConstellNames, magLimit]);
+  }, [currentTimestamp, latitude, longitude, observerBodyId, showConstellLines, showStarNames, showConstellNames, magLimit]);
 
   // 渲染帧与高频大气闪烁/抖动渲染循环
   useEffect(() => {
@@ -1600,7 +1780,21 @@ export default function StarrySkyViewer({
           id="landed-astro-telemetry"
         >
           <div className="text-indigo-400 font-semibold border-b border-slate-800 pb-1.5 flex items-center justify-between">
-            <span>🔭 {translations[lang].observingFrom}</span>
+            <span>🔭 {(() => {
+              const bodyNames: Record<string, { zh: string; en: string }> = {
+                earth: { zh: '地球 (Earth)', en: 'Earth' },
+                moon: { zh: '月球 (Moon)', en: 'The Moon' },
+                mars: { zh: '火星 (Mars)', en: 'Mars' },
+                mercury: { zh: '水星 (Mercury)', en: 'Mercury' },
+                venus: { zh: '金星 (Venus)', en: 'Venus' },
+                jupiter: { zh: '木星 (Jupiter)', en: 'Jupiter' },
+                saturn: { zh: '土星 (Saturn)', en: 'Saturn' },
+                uranus: { zh: '天王星 (Uranus)', en: 'Uranus' },
+                neptune: { zh: '海王星 (Neptune)', en: 'Neptune' },
+              };
+              const name = bodyNames[observerBodyId] ?? { zh: observerBodyId, en: observerBodyId };
+              return `${translations[lang].observingFrom} — ${isZh ? name.zh : name.en}`;
+            })()}</span>
             <span className="text-[10px] bg-indigo-950 px-1.5 py-0.5 rounded text-indigo-300 uppercase font-mono">
               LST {skyData.lst.toFixed(2)}h
             </span>
@@ -1613,12 +1807,18 @@ export default function StarrySkyViewer({
                 {skyData.sunAlt > 0 ? `${skyData.sunAlt.toFixed(1)}° (${isZh ? "昼" : "Day"})` : `${skyData.sunAlt.toFixed(1)}° (${isZh ? "夜" : "Night"})`}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">🌙 {translations[lang].moon_name} {translations[lang].zoomLevel}:</span>
-              <span className={skyData.moonAlt > 0 ? "text-cyan-400" : "text-slate-500"}>
-                {skyData.moonAlt.toFixed(1)}°
-              </span>
-            </div>
+            {(() => {
+              const dom = getDominantBodyInfo(observerBodyId);
+              if (!dom) return null;
+              return (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">{dom.icon} {dom.nameZh} {translations[lang].zoomLevel}:</span>
+                  <span className={skyData.moonAlt > 0 ? "text-cyan-400" : "text-slate-500"}>
+                    {skyData.moonAlt.toFixed(1)}°
+                  </span>
+                </div>
+              );
+            })()}
             <div className="flex justify-between border-t border-slate-900 pt-1.5">
               <span className="text-slate-400">🌒 {translations[lang].moonPhase}:</span>
               <span className="text-cyan-300 font-semibold">

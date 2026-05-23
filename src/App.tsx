@@ -15,8 +15,8 @@ import { AstrophenomenaEngine } from './engine/AstrophenomenaEngine';
 import { TimeState, ThemeType } from './types/astronomy';
 import { translations } from './i18n';
 
-// 可登录行星白名单 (除了气态巨行星以外，具有地表陆壳的岩质行星是最佳观测点)
-const LANDABLE_PLANETS = ['earth', 'mercury', 'venus', 'mars', 'moon'];
+// 可登录行星白名单 (所有行星及月球均可作为观测点，气态巨行星按云层顶观测)
+const LANDABLE_PLANETS = ['earth', 'mercury', 'venus', 'mars', 'moon', 'jupiter', 'saturn', 'uranus', 'neptune'];
 
 export default function App() {
   const [lang, setLang] = useState<'zh' | 'en'>('zh');
@@ -50,6 +50,9 @@ export default function App() {
   const [showConstellLines, setShowConstellLines] = useState<boolean>(true);
   const [showStarNames, setShowStarNames] = useState<boolean>(true);
   const [magLimit, setMagLimit] = useState<number>(5.5);
+
+  // 行星/卫星名称标签开关
+  const [showPlanetLabels, setShowPlanetLabels] = useState<boolean>(true);
 
   // 望远镜模式（仅在星空模式下生效）
   const [telescopeActive, setTelescopeActive] = useState<boolean>(false);
@@ -104,10 +107,13 @@ export default function App() {
 
   const handleSelectPlanet = (id: string) => {
     setSelectedPlanetId(id);
-    setFocusTrigger(prev => prev + 1);
     // 强制复位部分状态，并将详情卡重开
     setCrossSectionActive(false);
     setShowPlanetInfo(true);
+  };
+
+  const handleFocusPlanet = () => {
+    setFocusTrigger(prev => prev + 1);
   };
 
   // 根据当前选中主题生成配色样式类
@@ -180,6 +186,9 @@ export default function App() {
           onToggleTelescope={setTelescopeActive}
           selectedPlanetId={selectedPlanetId}
           onSelectPlanet={handleSelectPlanet}
+          onFocusPlanet={handleFocusPlanet}
+          showPlanetLabels={showPlanetLabels}
+          onTogglePlanetLabels={setShowPlanetLabels}
           onJumpDate={(ts) => setTimeState(prev => ({ ...prev, currentTimestamp: ts }))}
           helioX={helioPos.x}
           helioY={helioPos.y}
@@ -227,6 +236,7 @@ export default function App() {
               currentTimestamp={timeState.currentTimestamp}
               latitude={latitude}
               longitude={longitude}
+              observerBodyId={selectedPlanetId}
               lang={lang}
               showConstellLines={showConstellLines}
               showStarNames={showStarNames}
@@ -244,6 +254,8 @@ export default function App() {
               crossSectionActive={crossSectionActive}
               lang={lang}
               showConstellLines={showConstellLines}
+              showPlanetLabels={showPlanetLabels}
+              magLimit={magLimit}
               validationPairKey={validationPairKey}
               setValidationPairKey={setValidationPairKey}
               panelTab={panelTab}

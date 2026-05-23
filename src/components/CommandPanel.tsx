@@ -28,6 +28,9 @@ interface CommandPanelProps {
   onToggleTelescope: (active: boolean) => void;
   selectedPlanetId: string;
   onSelectPlanet: (id: string) => void;
+  onFocusPlanet?: () => void;
+  showPlanetLabels?: boolean;
+  onTogglePlanetLabels?: (show: boolean) => void;
   onJumpDate: (timestamp: number) => void;
   helioX: number;
   helioY: number;
@@ -184,6 +187,9 @@ export default function CommandPanel({
   onToggleTelescope,
   selectedPlanetId,
   onSelectPlanet,
+  onFocusPlanet,
+  showPlanetLabels,
+  onTogglePlanetLabels,
   onJumpDate,
   helioX,
   helioY,
@@ -276,6 +282,7 @@ export default function CommandPanel({
     if (val === 'sun') onSelectPlanet('sun');
     else if (val === 'planet') onSelectPlanet('earth');
     else if (val === 'satellite') onSelectPlanet('moon');
+    onFocusPlanet?.();
   };
 
   const handleLevel2Change = (val: string) => {
@@ -286,10 +293,12 @@ export default function CommandPanel({
     } else {
       onSelectPlanet(val);
     }
+    onFocusPlanet?.();
   };
 
   const handleLevel3Change = (val: string) => {
     onSelectPlanet(val);
+    onFocusPlanet?.();
   };
 
   const handleCalibrationCheck = () => {
@@ -438,6 +447,17 @@ export default function CommandPanel({
             />
             <IconZap className="w-3.5 h-3.5 text-slate-500" />
             <span>{isZh ? '等比速度加速' : 'Proportional Speed'}</span>
+          </label>
+
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="checkbox"
+              checked={!!showPlanetLabels}
+              onChange={(e) => onTogglePlanetLabels?.(e.target.checked)}
+              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <IconEye className="w-3.5 h-3.5 text-slate-500" />
+            <span>{isZh ? '天体名称提示' : 'Celestial Name Hints'}</span>
           </label>
 
           {!useExponentialSpeed && (

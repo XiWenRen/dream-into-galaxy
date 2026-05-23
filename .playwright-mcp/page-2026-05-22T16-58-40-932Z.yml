@@ -1,0 +1,122 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic [ref=e100]:
+      - generic [ref=e101]:
+        - img [ref=e102]
+        - generic [ref=e105]: 控制台
+      - button "收起" [ref=e106] [cursor=pointer]:
+        - img [ref=e107]
+    - generic [ref=e10]:
+      - generic [ref=e110]: 天体
+      - generic [ref=e111]:
+        - combobox [ref=e112] [cursor=pointer]:
+          - option "恒星"
+          - option "行星" [selected]
+          - option "卫星"
+        - combobox [ref=e113] [cursor=pointer]:
+          - option "水星"
+          - option "金星"
+          - option "地球"
+          - option "火星"
+          - option "木星"
+          - option "土星" [selected]
+          - option "天王星"
+          - option "海王星"
+    - generic [ref=e114]:
+      - generic [ref=e115]: 系统主题样式
+      - generic [ref=e116]:
+        - button "space-tech" [ref=e117] [cursor=pointer]
+        - button "cosmic-dark" [ref=e118] [cursor=pointer]
+        - button "neon-hologram" [ref=e119] [cursor=pointer]
+        - button "solar-gold" [ref=e120] [cursor=pointer]
+    - button "ZH / EN" [ref=e121] [cursor=pointer]:
+      - generic [ref=e122]: ZH
+      - generic [ref=e123]: /
+      - generic [ref=e124]: EN
+    - generic [ref=e125]:
+      - button "望远镜" [ref=e164] [cursor=pointer]:
+        - img [ref=e165]
+        - generic [ref=e170]: 望远镜
+      - generic [ref=e171] [cursor=pointer]:
+        - checkbox "星座连线" [checked] [ref=e172]
+        - img [ref=e173]
+        - generic [ref=e176]: 星座连线
+      - generic [ref=e177] [cursor=pointer]:
+        - checkbox "恒星名称" [checked] [ref=e178]
+        - img [ref=e179]
+        - generic [ref=e181]: 恒星名称
+      - generic [ref=e182]:
+        - generic [ref=e183]:
+          - generic [ref=e184]:
+            - img [ref=e185]
+            - text: 星空可见视星等极限
+          - generic [ref=e187]: "5.5"
+        - slider [ref=e188] [cursor=pointer]: "5.5"
+        - generic [ref=e189]:
+          - generic [ref=e190]: 3.0 (仅极亮星)
+          - generic [ref=e191]: 7.5 (全部1万颗星)
+    - button "系统信息" [ref=e145] [cursor=pointer]:
+      - img [ref=e146]
+      - generic [ref=e148]: 系统信息
+    - generic [ref=e150]:
+      - button "CHECK" [ref=e151] [cursor=pointer]:
+        - img [ref=e152]
+        - generic [ref=e155]: CHECK
+      - button "回到现在" [ref=e156] [cursor=pointer]:
+        - img [ref=e157]
+        - generic [ref=e162]: 回到现在
+  - main [ref=e11]:
+    - generic [ref=e192]:
+      - generic:
+        - generic: N 正北 (0°)
+        - generic: "|"
+        - generic: E 正东 (90°)
+        - generic: "|"
+        - generic: S 正南 (180°)
+        - generic: "|"
+        - generic: W 正西 (270°)
+      - generic:
+        - generic:
+          - generic: 🔭 当前观星位置 — 土星 (Saturn)
+          - generic: LST 14.06h
+        - generic:
+          - generic:
+            - generic: "🌞 太阳 (Sun) 缩放级别:"
+            - generic: 51.4° (昼)
+          - generic:
+            - generic: "🌙 月球 (Moon) 缩放级别:"
+            - generic: "-10.0°"
+          - generic:
+            - generic: "🌒 当前月相计算:"
+            - generic: 新月 (朔 - New Moon)
+      - generic: 💡 拖拽360度环顾天空；滚轮缩放视角；右上角🔭切拥望远镜模式；悬停磁吸关注星体并单击选择
+  - generic [ref=e64]:
+    - img [ref=e65]:
+      - generic [ref=e67] [cursor=pointer]:
+        - generic: "-1h"
+      - generic [ref=e69] [cursor=pointer]:
+        - generic: "-1m"
+      - generic [ref=e71] [cursor=pointer]:
+        - generic: "-5x"
+      - generic [ref=e73] [cursor=pointer]:
+        - generic: 1:1
+      - generic [ref=e75] [cursor=pointer]:
+        - generic: 5x
+      - generic [ref=e77] [cursor=pointer]:
+        - generic: 1m
+      - generic [ref=e79] [cursor=pointer]:
+        - generic: 1h
+      - generic [ref=e81] [cursor=pointer]:
+        - generic: 1d
+      - generic [ref=e83] [cursor=pointer]:
+        - generic: 3y
+    - generic [ref=e85]:
+      - generic [ref=e86]:
+        - img [ref=e87]
+        - generic [ref=e90]: 2026-07-20 13:52:57 UTC
+        - button "暂停" [ref=e91] [cursor=pointer]:
+          - img [ref=e92]
+        - button "选择日期" [ref=e95] [cursor=pointer]:
+          - img [ref=e96]
+        - button "UTC" [ref=e98] [cursor=pointer]
+      - generic [ref=e99]: 43,200x

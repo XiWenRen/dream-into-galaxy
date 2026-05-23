@@ -54,3 +54,31 @@ export interface Star {
   color: string;
   nameKey?: string;
 }
+
+// Multi-reference-frame observation types
+export interface ObserverContext {
+  bodyId: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface PlanetSkyInfo {
+  id: string;
+  ra: number;
+  dec: number;
+  distAU: number;
+  angularDiameter: number;
+  magnitude: number;
+  color: number;
+}
+
+export interface SatelliteSkyInfo {
+  id: string;
+  nameZh: string;
+  nameEn: string;
+  ra: number;
+  dec: number;
+  angularDiameter: number;
+  magnitude: number;
+  color: number;
+}

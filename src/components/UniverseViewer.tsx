@@ -9,16 +9,19 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OrbitEngine, CELESTIAL_PHYSICS, PLANET_ORBITAL_DATA } from '../engine/OrbitEngine';
 import { TimeEngine } from '../engine/TimeEngine';
 import { translations } from '../i18n';
+import { STAR_LIST, CONSTELLATIONS } from '../engine/StarDatabase';
 
 interface UniverseViewerProps {
   currentTimestamp: number;
-  useVisualScale: boolean;
+  useVisualScale?: boolean;
   setUseVisualScale?: (val: boolean) => void;
   selectedPlanetId: string;
   onSelectPlanet: (id: string) => void;
   crossSectionActive: boolean;
   lang: 'zh' | 'en';
   showConstellLines?: boolean;
+  showPlanetLabels?: boolean;
+  magLimit?: number;
 
   validationPairKey: string;
   setValidationPairKey: (val: string) => void;
@@ -340,6 +343,8 @@ export default function UniverseViewer({
   crossSectionActive,
   lang,
   showConstellLines = false,
+  showPlanetLabels = true,
+  magLimit = 5.5,
   validationPairKey,
   setValidationPairKey,
   panelTab,
@@ -365,6 +370,8 @@ export default function UniverseViewer({
   const orbitLinesRef = useRef<Record<string, THREE.Line>>({});
   const sunMeshRef = useRef<THREE.Group | null>(null);
   const constellLinesRef = useRef<THREE.LineSegments | null>(null);
+  const domeStarsRef = useRef<THREE.Points | null>(null);
+  const magLimitRef = useRef(magLimit);
 
   const getSunRadius = (): number => {
     if (useVisualScale) {
@@ -429,6 +436,9 @@ export default function UniverseViewer({
   const useExponentialSpeedRef = useRef(useExponentialSpeed);
   const customSpeedPresetRef = useRef(customSpeedPreset);
 
+  const focusPlanetIdRef = useRef<string>('');
+  const isClickSelectionRef = useRef(false);
+
   const lastSelectedPlanetIdRef = useRef<string>('');
   const lastTargetPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
 
@@ -457,6 +467,115 @@ export default function UniverseViewer({
       constellLinesRef.current.visible = !!showConstellLines;
     }
   }, [showConstellLines]);
+
+  // 监听星等限制滑块变化，实现无感平滑局部重绘，防止重构整个 3D 场景 (In-place magLimit Filter Effect)
+  useEffect(() => {
+    magLimitRef.current = magLimit;
+    const domeStars = domeStarsRef.current;
+    if (!domeStars) return;
+
+    const positions = domeStars.geometry.attributes.position.array as Float32Array;
+    const colors = domeStars.geometry.attributes.color.array as Float32Array;
+    const count = STAR_LIST.length;
+
+    const eps = 23.439 * Math.PI / 180;
+    const cosEps = Math.cos(eps);
+    const sinEps = Math.sin(eps);
+    const logMin = Math.log10(1.0);
+    const logMax = Math.log10(10000.0);
+
+    const domeStarPositionsMap = new Map<number, THREE.Vector3>();
+
+    for (let i = 0; i < count; i++) {
+      const star = STAR_LIST[i];
+
+      let d = star.dist;
+      if (d < 1.0) d = 1.0;
+      if (d > 10000.0) d = 10000.0;
+      const logD = Math.log10(d);
+      const dScale = 800 + 1000 * (logD - logMin) / (logMax - logMin);
+
+      const decRad = star.dec * Math.PI / 180;
+      const raRad = star.ra * Math.PI / 12;
+      const cosDec = Math.cos(decRad);
+      const sinDec = Math.sin(decRad);
+      const cosRa = Math.cos(raRad);
+      const sinRa = Math.sin(raRad);
+
+      const vEqX = cosDec * cosRa;
+      const vEqY = cosDec * sinRa;
+      const vEqZ = sinDec;
+
+      const vEcX = vEqX;
+      const vEcY = vEqY * cosEps + vEqZ * sinEps;
+      const vEcZ = -vEqY * sinEps + vEqZ * cosEps;
+
+      const xThree = vEcX * dScale;
+      const yThree = vEcZ * dScale;
+      const zThree = vEcY * dScale;
+
+      const starPos = new THREE.Vector3(xThree, yThree, zThree);
+      domeStarPositionsMap.set(star.id, starPos);
+
+      if (star.mag > magLimit) {
+        positions[i * 3] = 0;
+        positions[i * 3 + 1] = -999999;
+        positions[i * 3 + 2] = 0;
+
+        colors[i * 3] = 0;
+        colors[i * 3 + 1] = 0;
+        colors[i * 3 + 2] = 0;
+      } else {
+        positions[i * 3] = xThree;
+        positions[i * 3 + 1] = yThree;
+        positions[i * 3 + 2] = zThree;
+
+        const r = ((star.color >> 16) & 255) / 255;
+        const g = ((star.color >> 8) & 255) / 255;
+        const b = (star.color & 255) / 255;
+        colors[i * 3] = r;
+        colors[i * 3 + 1] = g;
+        colors[i * 3 + 2] = b;
+      }
+    }
+
+    domeStars.geometry.attributes.position.needsUpdate = true;
+    domeStars.geometry.attributes.color.needsUpdate = true;
+    domeStars.geometry.computeBoundingBox();
+    domeStars.geometry.computeBoundingSphere();
+
+    // 动态同步星座连线，实现与星等阈值的极速联动
+    if (constellLinesRef.current) {
+      const constellationPoints: THREE.Vector3[] = [];
+      for (const constell of CONSTELLATIONS) {
+        for (const edge of constell.seq) {
+          const starA = STAR_LIST.find(s => s.id === edge[0]);
+          const starB = STAR_LIST.find(s => s.id === edge[1]);
+          if (starA && starB && starA.mag <= magLimit && starB.mag <= magLimit) {
+            const posA = domeStarPositionsMap.get(edge[0]);
+            const posB = domeStarPositionsMap.get(edge[1]);
+            if (posA && posB) {
+              constellationPoints.push(posA);
+              constellationPoints.push(posB);
+            }
+          }
+        }
+      }
+      constellLinesRef.current.geometry.dispose();
+      constellLinesRef.current.geometry = new THREE.BufferGeometry().setFromPoints(constellationPoints);
+    }
+  }, [magLimit]);
+
+  useEffect(() => {
+    if (focusTrigger > 0) {
+      const raf = requestAnimationFrame(() => {
+        if (selectedPlanetId) {
+          focusPlanetIdRef.current = selectedPlanetId;
+        }
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [focusTrigger]);
   
   const flareOpacityRef = useRef(1.0);  // 镜头光晕平滑淡入淡出插值机点
 
@@ -520,12 +639,6 @@ export default function UniverseViewer({
   useEffect(() => {
     hoveredLayerRef.current = hoveredLayer;
   }, [hoveredLayer]);
-
-  useEffect(() => {
-    if (constellLinesRef.current) {
-      constellLinesRef.current.visible = !!showConstellLines;
-    }
-  }, [showConstellLines]);
 
   // 真实的 8K/高清晰度(CORS Allowed)太空贴图资源库 (采用 jsdelivr 节点无阻碍高阶 CDN 加速)
   const REAL_TEXTURE_URLS: Record<string, string> = {
@@ -1060,6 +1173,7 @@ export default function UniverseViewer({
     }
 
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.ClampToEdgeWrapping;
     return texture;
@@ -1239,9 +1353,206 @@ export default function UniverseViewer({
     sunPointLight.castShadow = true;
     scene.add(sunPointLight);
 
-    // 5. 真实恒星由 StellarField3D 在真实 3D 坐标中渲染，不再使用虚构球壳背景
+    // 5. 宏观粒子背景： Milky Way (银河系庞大螺旋微粒系统)
+    // 太阳系位于猎户座旋臂 (Orion Arm)，距离银心约 2.6 万光年 (我们设定银心在 gCenterX, gCenterY, gCenterZ 处，将太阳至于银河系的次边缘旋臂中)
+    const starCount = 20000;
+    const starGeometry = new THREE.BufferGeometry();
+    const starPositions = new Float32Array(starCount * 3);
+    const starColors = new Float32Array(starCount * 3);
 
-    // 6. 渲染太阳 (Sun) 独具日冕层与独立光晕
+    const gCenterX = -1100;
+    const gCenterY = -120;
+    const gCenterZ = 700;
+
+    for (let i = 0; i < starCount; i++) {
+      if (i < 5000) {
+        // == 1. 银心核球 (Galactic Bulge) - 温暖金色/暖黄光球核 ==
+        const r = Math.pow(Math.random(), 2.0) * 220; // 紧密聚集在核心
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(Math.random() * 2 - 1);
+
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.cos(phi) * 0.45 + (Math.random() - 0.5) * 15;
+        const z = r * Math.sin(phi) * Math.sin(theta);
+
+        starPositions[i * 3] = x;
+        starPositions[i * 3 + 1] = y;
+        starPositions[i * 3 + 2] = z;
+
+        const ratio = r / 220;
+        starColors[i * 3] = 1.0;                                     // R (暖金色)
+        starColors[i * 3 + 1] = THREE.MathUtils.lerp(0.85, 0.55, ratio); // G
+        starColors[i * 3 + 2] = THREE.MathUtils.lerp(0.6, 0.3, ratio);  // B
+      } else {
+        // == 2. 四大旋臂盘区 (Galactic Disc & 4 Spiral Arms) - 冰蓝色与品紫色青年星团 ==
+        const r = Math.pow(Math.random(), 1.35) * 2000 + 180; // 径向极值扩展至 2200
+        const armIndex = i % 4;
+        const armAngle = armIndex * (Math.PI / 2);
+
+        // 对数螺旋线方程形式： angle = armAngle + Math.log(r) * twist
+        const twist = 3.6;
+        const angle = armAngle + Math.log(r * 0.08) * twist + (Math.random() - 0.5) * 0.38;
+
+        const x = r * Math.cos(angle);
+        const y = (Math.random() - 0.5) * (180 / (r * 0.0015 + 1)); // 边缘极度扁平化
+        const z = r * Math.sin(angle);
+
+        starPositions[i * 3] = x;
+        starPositions[i * 3 + 1] = y;
+        starPositions[i * 3 + 2] = z;
+
+        const ratio = r / 2180;
+        // 旋臂渐变：从内测亮蓝/白，过渡到中段紫红，到外侧寒冷的蓝
+        if (armIndex % 2 === 0) {
+          // 蓝白色/冰蓝色主旋臂
+          starColors[i * 3] = THREE.MathUtils.lerp(0.65, 0.4, ratio);
+          starColors[i * 3 + 1] = THREE.MathUtils.lerp(0.85, 0.65, ratio);
+          starColors[i * 3 + 2] = THREE.MathUtils.lerp(1.0, 0.95, ratio);
+        } else {
+          // 紫粉色/品红次旋臂
+          starColors[i * 3] = THREE.MathUtils.lerp(0.95, 0.55, ratio);
+          starColors[i * 3 + 1] = THREE.MathUtils.lerp(0.65, 0.45, ratio);
+          starColors[i * 3 + 2] = THREE.MathUtils.lerp(0.95, 0.85, ratio);
+        }
+      }
+    }
+    starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    starGeometry.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+
+    const starMaterial = new THREE.PointsMaterial({
+      size: 3.5,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    const milkyWayPoints = new THREE.Points(starGeometry, starMaterial);
+
+    // 银心偏移组：以此在视觉上确立"太阳处于次级边缘游离旋臂猎户臂，而非银河系核心"的终极宇宙学家空间透视！
+    const milkyWayGroup = new THREE.Group();
+    milkyWayGroup.name = 'milky-way-group';
+    milkyWayGroup.position.set(gCenterX, gCenterY, gCenterZ);
+    // 绕银盘适度倾斜，体现太阳系黄道面与银道面约 60° 真实物理夹角
+    milkyWayGroup.rotation.x = (55 * Math.PI) / 180;
+    milkyWayGroup.rotation.z = (25 * Math.PI) / 180;
+
+    milkyWayGroup.add(milkyWayPoints);
+    scene.add(milkyWayGroup);
+
+    // 6. 星空天顶画板星光背景 (模拟真实发光恒星)
+    // Map all 10,000 stars from STAR_LIST to 3D ecliptic coordinates
+    const domeStarCount = STAR_LIST.length;
+    const domeStarPositions = new Float32Array(domeStarCount * 3);
+    const domeStarColors = new Float32Array(domeStarCount * 3);
+    const domeStarPositionsMap = new Map<number, THREE.Vector3>();
+
+    const eps = 23.439 * Math.PI / 180;
+    const cosEps = Math.cos(eps);
+    const sinEps = Math.sin(eps);
+    const logMin = Math.log10(1.0);
+    const logMax = Math.log10(10000.0);
+
+    for (let i = 0; i < domeStarCount; i++) {
+      const star = STAR_LIST[i];
+      let d = star.dist;
+      if (d < 1.0) d = 1.0;
+      if (d > 10000.0) d = 10000.0;
+      const logD = Math.log10(d);
+      const dScale = 800 + 1000 * (logD - logMin) / (logMax - logMin);
+
+      const decRad = star.dec * Math.PI / 180;
+      const raRad = star.ra * Math.PI / 12;
+      const cosDec = Math.cos(decRad);
+      const sinDec = Math.sin(decRad);
+      const cosRa = Math.cos(raRad);
+      const sinRa = Math.sin(raRad);
+
+      const vEqX = cosDec * cosRa;
+      const vEqY = cosDec * sinRa;
+      const vEqZ = sinDec;
+
+      const vEcX = vEqX;
+      const vEcY = vEqY * cosEps + vEqZ * sinEps;
+      const vEcZ = -vEqY * sinEps + vEqZ * cosEps;
+
+      // Map to Three.js coordinates (X, Z, Y) because the codebase maps OrbitEngine standard Y to Three.js Z and Z to Three.js Y
+      const xThree = vEcX * dScale;
+      const yThree = vEcZ * dScale;
+      const zThree = vEcY * dScale;
+
+      if (star.mag > magLimit) {
+        domeStarPositions[i * 3] = 0;
+        domeStarPositions[i * 3 + 1] = -999999;
+        domeStarPositions[i * 3 + 2] = 0;
+        domeStarColors[i * 3] = 0;
+        domeStarColors[i * 3 + 1] = 0;
+        domeStarColors[i * 3 + 2] = 0;
+      } else {
+        domeStarPositions[i * 3] = xThree;
+        domeStarPositions[i * 3 + 1] = yThree;
+        domeStarPositions[i * 3 + 2] = zThree;
+
+        const r = ((star.color >> 16) & 255) / 255;
+        const g = ((star.color >> 8) & 255) / 255;
+        const b = (star.color & 255) / 255;
+        domeStarColors[i * 3] = r;
+        domeStarColors[i * 3 + 1] = g;
+        domeStarColors[i * 3 + 2] = b;
+      }
+
+      domeStarPositionsMap.set(star.id, new THREE.Vector3(xThree, yThree, zThree));
+    }
+
+    const domeGeo = new THREE.BufferGeometry();
+    domeGeo.setAttribute('position', new THREE.BufferAttribute(domeStarPositions, 3));
+    domeGeo.setAttribute('color', new THREE.BufferAttribute(domeStarColors, 3));
+
+    const domeMat = new THREE.PointsMaterial({
+      size: 12.0,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.95,
+      sizeAttenuation: true,
+      map: createUniverseStarTexture(),
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const domeStars = new THREE.Points(domeGeo, domeMat);
+    scene.add(domeStars);
+    domeStarsRef.current = domeStars;
+
+    // Draw 3D constellation guide lines with stereo-parallax using THREE.LineSegments
+    const constellationPoints: THREE.Vector3[] = [];
+    for (const constell of CONSTELLATIONS) {
+      for (const edge of constell.seq) {
+        const starAObj = STAR_LIST.find(s => s.id === edge[0]);
+        const starBObj = STAR_LIST.find(s => s.id === edge[1]);
+        if (starAObj && starBObj && starAObj.mag <= magLimit && starBObj.mag <= magLimit) {
+          const starA = domeStarPositionsMap.get(edge[0]);
+          const starB = domeStarPositionsMap.get(edge[1]);
+          if (starA && starB) {
+            constellationPoints.push(starA);
+            constellationPoints.push(starB);
+          }
+        }
+      }
+    }
+
+    const constellGeo = new THREE.BufferGeometry().setFromPoints(constellationPoints);
+    const constellMat = new THREE.LineBasicMaterial({
+      color: 0x4dabf7, // A nice soft light blue/cyan for constellation guides
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false
+    });
+    const constellationLines = new THREE.LineSegments(constellGeo, constellMat);
+    constellationLines.visible = !!showConstellLines;
+    scene.add(constellationLines);
+    constellLinesRef.current = constellationLines;
+
+    // 7. 渲染太阳 (Sun) 独具日冕层与独立光晕
     const sunGroup = new THREE.Group();
     scene.add(sunGroup);
     sunMeshRef.current = sunGroup;
@@ -1660,11 +1971,14 @@ export default function UniverseViewer({
       const controls = controlsRef.current;
       if (!camera || !controls) return;
 
-      // 如果当前有选中的行星，当拨动滚轮时说明要离开它进行自由太空穿梭
-      if (selectedPlanetIdRef.current) {
-        selectedPlanetIdRef.current = ''; // 同步清除 ref，防止在当帧 animate 中被 target.copy(targetPos) 覆盖
+      // 如果当前有聚焦的行星，当拨动滚轮时说明要离开它进行自由太空穿梭
+      if (focusPlanetIdRef.current) {
+        focusPlanetIdRef.current = ''; // 同步清除 ref，防止在当帧 animate 中被 target.copy(targetPos) 覆盖
         lastSelectedPlanetIdRef.current = ''; // 避免 animate 里的取消选中逻辑重置 target
-        onSelectPlanet(''); // 异步通知父组件更新 React state
+      }
+      if (selectedPlanetIdRef.current) {
+        selectedPlanetIdRef.current = '';
+        onSelectPlanet(''); // 异步通知父组件更新 React state，关闭信息面板
       }
 
       const direction = Math.sign(event.deltaY);
@@ -1713,8 +2027,8 @@ export default function UniverseViewer({
       const viewDir = new THREE.Vector3();
       camera.getWorldDirection(viewDir);
 
-      // 3. 计算位移向量 (deltaY > 0 即向后退，位移为正；deltaY < 0 向前进，位移为负)
-      const moveDelta = direction * speed * 0.8;
+      // 3. 计算位移向量 (deltaY > 0 即向后退，位移为负；deltaY < 0 向前进，位移为正)
+      const moveDelta = -direction * speed * 0.8;
       const moveVec = viewDir.multiplyScalar(moveDelta);
 
       // 4. 将 camera position 和 controls target 同时进行平移
@@ -1742,6 +2056,9 @@ export default function UniverseViewer({
       if (!sceneRef.current || !rendererRef.current || !cameraRef.current || !controlsRef.current) return;
 
       const delta = clock.getDelta();
+
+      // 星系自旋转 (宏观银河旋转动态)
+      milkyWayPoints.rotation.y += 0.007 * delta;
 
       const daysSinceJ2000 = TimeEngine.getDaysSinceJ2000(currentTimestampRef.current);
 
@@ -1793,26 +2110,8 @@ export default function UniverseViewer({
         }
         group.position.copy(finalPos);
 
-        // == 视觉焦点净化：选中某个星体特写时，隐藏其他无关星体及各自公转轨道，避免穿帮与透射重合错误 ==
-        let isVisible = true;
-        const selPlanetId = selectedPlanetIdRef.current;
-        if (selPlanetId !== '' && selPlanetId !== 'sun') {
-          const parentIdOfSelected = getParentPlanetId(selPlanetId);
-          if (config.id === selPlanetId) {
-            isVisible = true;
-          } else if (config.id === parentIdOfSelected) {
-            isVisible = true;
-          } else if (parentIdOfSelected === 'earth' && config.id === 'moon') {
-            isVisible = true;
-          } else {
-            isVisible = false;
-          }
-        }
-        
-        group.visible = isVisible;
         const orbitLine = orbitLinesRef.current[config.id];
         if (orbitLine) {
-          orbitLine.visible = isVisible;
           // 动态缩放月球轨道细圈，保证与被缩放后的月球位置100%完美契合
           if (config.id === 'moon') {
             let targetRelDist = 0.05654;
@@ -2375,23 +2674,23 @@ export default function UniverseViewer({
       setZoomLevelText(`${zoomPct.toFixed(0)}%`);
 
       // 10. 丝滑聚焦/跟随选中星体 & 动态近剪切面比例尺缩放
-      if (selectedPlanetIdRef.current) {
+      if (focusPlanetIdRef.current) {
         let targetGroup: THREE.Object3D | null = null;
-        
+
         // 查找卫星：在所有的行星组中寻找具有对应 nameEn 的卫星
         for (const parentId of Object.keys(planetMeshesRef.current)) {
           const parentGroup = planetMeshesRef.current[parentId];
           if (parentGroup) {
-            const sat = parentGroup.getObjectByName(`satellite-mesh-${selectedPlanetIdRef.current}`);
+            const sat = parentGroup.getObjectByName(`satellite-mesh-${focusPlanetIdRef.current}`);
             if (sat) {
               targetGroup = sat;
               break;
             }
           }
         }
-        
+
         if (!targetGroup) {
-          targetGroup = planetMeshesRef.current[selectedPlanetIdRef.current] || sunMeshRef.current;
+          targetGroup = planetMeshesRef.current[focusPlanetIdRef.current] || sunMeshRef.current;
         }
 
         if (targetGroup) {
@@ -2400,10 +2699,10 @@ export default function UniverseViewer({
 
           // 动态调节 Near 和 MinDistance，防止观察 1:1 精确模式下的微小行星（如 Earth 的 0.00093 半径）时因 Near Plane 穿透而看不到
           let radOfTarget = 0.5;
-          if (selectedPlanetIdRef.current === 'sun') {
+          if (focusPlanetIdRef.current === 'sun') {
             radOfTarget = getSunRadius();
           } else {
-            radOfTarget = getPlanetRadius(selectedPlanetIdRef.current);
+            radOfTarget = getPlanetRadius(focusPlanetIdRef.current);
           }
           const idealNear = Math.max(0.000001, radOfTarget * 0.02);
           if (cameraRef.current.near !== idealNear) {
@@ -2414,15 +2713,15 @@ export default function UniverseViewer({
           controlsRef.current.minDistance = radOfTarget * 1.05;
 
           // 选中星体改变时，重设 controls target 与相机视角位置以实现聚焦跟随
-          if (selectedPlanetIdRef.current !== lastSelectedPlanetIdRef.current) {
+          if (focusPlanetIdRef.current !== lastSelectedPlanetIdRef.current) {
             controlsRef.current.target.copy(targetPos);
-            const isSat = !!getParentPlanetId(selectedPlanetIdRef.current) && !['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','sun','moon'].includes(selectedPlanetIdRef.current.toLowerCase());
-            const offset = selectedPlanetIdRef.current === 'sun' 
-              ? radOfTarget * 3.5 
+            const isSat = !!getParentPlanetId(focusPlanetIdRef.current) && !['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','sun','moon'].includes(focusPlanetIdRef.current.toLowerCase());
+            const offset = focusPlanetIdRef.current === 'sun'
+              ? radOfTarget * 3.5
               : (isSat ? radOfTarget * 3.0 : radOfTarget * 4.2);
 
             cameraRef.current.position.set(targetPos.x, targetPos.y + offset * 0.4, targetPos.z + offset);
-            lastSelectedPlanetIdRef.current = selectedPlanetIdRef.current;
+            lastSelectedPlanetIdRef.current = focusPlanetIdRef.current;
             lastTargetPosRef.current.copy(targetPos);
           } else {
             // 在公转过程中平滑自适应追踪：利用增量(deltaMove)整体移动相机，防范星体高速公转时由于相机静止而直接飞出特写视口
@@ -2446,10 +2745,29 @@ export default function UniverseViewer({
         }
       }
 
+      // 动态调整鼠标拖动速度：距离越近，rotateSpeed 越小
+      if (controlsRef.current && cameraRef.current) {
+        const distToTarget = cameraRef.current.position.distanceTo(controlsRef.current.target);
+        let targetRad = 0.5;
+        if (focusPlanetIdRef.current) {
+          targetRad = focusPlanetIdRef.current === 'sun' ? getSunRadius() : getPlanetRadius(focusPlanetIdRef.current);
+        } else {
+          targetRad = getSunRadius();
+        }
+        controlsRef.current.rotateSpeed = Math.max(0.03, Math.min(1.0, distToTarget / (targetRad * 30)));
+      }
+
       // 11. 更新控制器与渲染新帧
       controlsRef.current.update();
       rendererRef.current.render(sceneRef.current, cameraRef.current);
     };
+
+    // 初始加载时，如果已有选中星体，直接设置 focusPlanetIdRef 触发一次聚焦
+    if (selectedPlanetId) {
+      focusPlanetIdRef.current = selectedPlanetId;
+    }
+    // 重置 lastSelectedPlanetIdRef 以允许 StrictMode 双挂载后的正确聚焦
+    lastSelectedPlanetIdRef.current = '';
 
     animate();
 
@@ -2467,6 +2785,8 @@ export default function UniverseViewer({
         }
       }
       constellLinesRef.current = null;
+      domeStarsRef.current = null;
+      lastSelectedPlanetIdRef.current = '';
     };
   }, [useVisualScale, strictPhysics]);
 
@@ -2528,10 +2848,12 @@ export default function UniverseViewer({
     if (intersects.length > 0) {
       const hit = intersects[0].object;
       if (hit.userData?.isSatellite) {
+        focusPlanetIdRef.current = hit.userData.nameEn;
         onSelectPlanet(hit.userData.nameEn);
       } else {
         const pid = hit.userData?.planetId;
         if (pid) {
+          focusPlanetIdRef.current = pid;
           onSelectPlanet(pid);
         }
       }
@@ -2550,7 +2872,7 @@ export default function UniverseViewer({
       />
 
       {/* 鼠标 Hover 天体悬浮标签Tooltip */}
-      {hoveredPlanetId && hoveredPlanetPos && (
+      {showPlanetLabels && hoveredPlanetId && hoveredPlanetPos && (
         <div 
           className="absolute pointer-events-none z-30 bg-slate-950/90 border border-cyan-500/30 backdrop-blur-md rounded-lg p-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.6)] text-xs text-slate-100 font-sans animate-in fade-in duration-200"
           style={{

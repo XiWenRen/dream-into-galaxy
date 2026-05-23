@@ -65,6 +65,7 @@ export interface TranslationDict {
   magLimitLabel: string;
   magLimitBrightest: string;
   magLimitAll: string;
+  planetLabels: string;
 
   // New immersive cockpit keys
   commandPanel: string;
@@ -245,6 +246,7 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     magLimitLabel: "星空可见视星等极限",
     magLimitBrightest: "3.0 (仅极亮星)",
     magLimitAll: "7.5 (全部1万颗星)",
+    planetLabels: "显示天体名称提示",
     commandPanel: "控制台",
     timeReal: "实时",
     timeReverse: "倒流",
@@ -420,6 +422,7 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     magLimitLabel: "Star Visibility Magnitude Limit",
     magLimitBrightest: "3.0 (Brightest)",
     magLimitAll: "7.5 (All 10k stars)",
+    planetLabels: "Show Celestial Name Hints",
     commandPanel: "Command",
     timeReal: "Real-time",
     timeReverse: "Reverse",
