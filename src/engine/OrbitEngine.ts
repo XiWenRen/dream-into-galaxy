@@ -47,9 +47,9 @@ export class OrbitEngine {
    * 主要计算方法：计算某天体在特定日期相对于太阳 (Heliocentric) 的克卜勒 3D 坐标位
    * @param id 星体ID
    * @param days 距离 J2000.0 历元的日子数
-   * @param useVisualScale 是否进行视觉缩放调整（将长轴非线性映射，方便在屏幕上同时观察内外行星）
+   * @returns 真实物理坐标 (AU)
    */
-  static getHeliocentricPosition(id: string, days: number, useVisualScale = true): { x: number; y: number; z: number } {
+  static getHeliocentricPosition(id: string, days: number): { x: number; y: number; z: number } {
     if (id === 'sun') {
       return { x: 0, y: 0, z: 0 };
     }
@@ -57,8 +57,8 @@ export class OrbitEngine {
     // 针对月球的处理，月球属于地球系统的卫星，单独调用 getLunarPosition
     if (id === 'moon') {
       // 在太阳视角下，月球坐标 = 地球坐标 + 月地相对坐标
-      const earthPos = this.getHeliocentricPosition('earth', days, useVisualScale);
-      const moonRelPos = this.getLunarRelativePosition(days, useVisualScale);
+      const earthPos = this.getHeliocentricPosition('earth', days);
+      const moonRelPos = this.getLunarRelativePosition(days);
       return {
         x: earthPos.x + moonRelPos.x,
         y: earthPos.y + moonRelPos.y,
@@ -80,7 +80,7 @@ export class OrbitEngine {
     const mRad = (M * Math.PI) / 180.0;
 
     // 2. 解克卜勒方程： E - e * sin(E) = M
-    // 使用一阶近似加上牛顿迭代来求解离心近点角 (E) 
+    // 使用一阶近似加上牛顿迭代来求解离心近点角 (E)
     let E = mRad;
     const e = elem.e;
     for (let count = 0; count < 5; count++) {
@@ -88,21 +88,11 @@ export class OrbitEngine {
       E -= deltaE;
     }
 
-    // 3. 计算在轨道平面 (Orbit Plane) 内的直角坐标
+    // 3. 计算在轨道平面 (Orbit Plane) 内的直角坐标（始终使用真实半长轴 AU）
     const a = elem.a;
-    // 视觉非线性压缩尺度的算法：
-    // 如果用真实尺度：15 AU 到 30 AU 的海王星太远了。
-    // 我们如果勾选了视觉比例，则外行星在 3D 下采用 Log 变形
-    let renderA = a;
-    if (useVisualScale) {
-      if (a > 1.2) {
-        // 对1.2AU以上使用渐进压缩，水/金/地 保持原本紧密，外轨道不至于撑破视界
-        renderA = 1.2 + Math.log10(a - 0.2) * 2.5;
-      }
-    }
 
-    const xOrbit = renderA * (Math.cos(E) - e);
-    const yOrbit = renderA * Math.sqrt(1.0 - e * e) * Math.sin(E);
+    const xOrbit = a * (Math.cos(E) - e);
+    const yOrbit = a * Math.sqrt(1.0 - e * e) * Math.sin(E);
 
     // 4. 将轨道平面坐标，结合升交点黄经(Ω), 轨道倾角(i)，近日点角(ω) 变换为黄道坐标系 (Ecliptic Coordinate System)
     const iRad = (elem.I * Math.PI) / 180.0;
@@ -124,15 +114,14 @@ export class OrbitEngine {
   }
 
   /**
-   * 计算月球相对于地球中心的距离与位置
+   * 计算月球相对于地球中心的距离与位置（真实物理坐标）
    * @param days 距 J2000.0 天数
-   * @param useVisualScale 是否视觉放大月地距离以方便肉眼观测 (否则38万公里在天文单位1AU下太微小)
+   * @returns 真实物理相对坐标 (AU)
    */
-  static getLunarRelativePosition(days: number, _useVisualScale = true): { x: number; y: number; z: number } {
+  static getLunarRelativePosition(days: number): { x: number; y: number; z: number } {
     // 月球主要公转根数 (近似周期为 27.322 天)
     // 真实物理半长轴：约 384,400 km = 0.00257 AU
-    // 注意：此函数始终返回真实物理距离（单位 AU）。
-    // 任何视觉缩放应由调用方（如 UniverseViewer）在将 AU 转换为场景单位时处理。
+    // 此函数始终返回真实物理距离（单位 AU），任何渲染缩放由调用方统一处理。
     const moonA = 0.00257;
 
     // 月球升交点黄经和近地点黄经是快速顺时针/逆时针自转移动的，这里给出一个近似快速计算方式：
@@ -193,14 +182,14 @@ export class OrbitEngine {
    */
   static validateOrbitEngine(): { success: boolean; log: string } {
     // 1. 在 Epoch J2000.0 (days = 0)
-    const earthPos = this.getHeliocentricPosition('earth', 0, false);
+    const earthPos = this.getHeliocentricPosition('earth', 0);
     const radius = Math.sqrt(earthPos.x * earthPos.x + earthPos.y * earthPos.y + earthPos.z * earthPos.z);
-    
+
     // 期望：在 epoch J2000 左右，由于偏心率，地日实际距离在 0.983 到 1.017 AU 之间 (因为公转至近日点和远日点之间)
     const validRange = radius >= 0.98 && radius <= 1.02;
 
     const testTime = J2000_TIMESTAMP + 180 * 24 * 3600 * 1000; // 180天后
-    const earthPos180 = this.getHeliocentricPosition('earth', 180, false);
+    const earthPos180 = this.getHeliocentricPosition('earth', 180);
     const radius180 = Math.sqrt(earthPos180.x * earthPos180.x + earthPos180.y * earthPos180.y + earthPos180.z * earthPos180.z);
 
     const checkLog = ` 历元验证指标:

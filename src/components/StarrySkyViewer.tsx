@@ -130,8 +130,8 @@ const get3DPositionOnDome = (az: number, alt: number, radius: number): THREE.Vec
 
 // J2000 Geocentric Planetary Coordinate Solver
 const getGeocentricPlanetCoords = (planetId: string, days: number) => {
-  const pPlanet = OrbitEngine.getHeliocentricPosition(planetId, days, false);
-  const pEarth = OrbitEngine.getHeliocentricPosition('earth', days, false);
+  const pPlanet = OrbitEngine.getHeliocentricPosition(planetId, days);
+  const pEarth = OrbitEngine.getHeliocentricPosition('earth', days);
   
   const dx = pPlanet.x - pEarth.x;
   const dy = pPlanet.y - pEarth.y;
@@ -476,6 +476,7 @@ export default function StarrySkyViewer({
 
   // 三维FOV缩放控制 (3° ~ 65°)
   const fovRef = useRef(65);
+  const preTelescopeFovRef = useRef(65);
   const textureCacheRef = useRef<Record<string, THREE.Texture>>({});
   const observerBodyIdRef = useRef(observerBodyId);
   const satelliteSpritesRef = useRef<Record<string, THREE.Sprite>>({});
@@ -621,6 +622,17 @@ export default function StarrySkyViewer({
     magLimitRef.current = magLimit;
   }, [magLimit]);
 
+  // Telescope mode: save FOV on enter, restore on exit
+  useEffect(() => {
+    if (telescopeActive) {
+      preTelescopeFovRef.current = fovRef.current;
+    } else {
+      if ((window as any).__starrySkySetFov) {
+        (window as any).__starrySkySetFov(preTelescopeFovRef.current);
+      }
+    }
+  }, [telescopeActive]);
+
   const [hoveredCelestial, setHoveredCelestial] = useState<{
     id: string;
     nameZh: string;
@@ -727,6 +739,10 @@ export default function StarrySkyViewer({
       cameraRef.current.updateProjectionMatrix();
       fovRef.current = cameraRef.current.fov;
     };
+    Object.defineProperty(window, '__starrySkyCurrentFov', {
+      get: () => fovRef.current,
+      configurable: true,
+    });
 
     // 4. 环境及平行天体光照
     const ambientLight = new THREE.AmbientLight(0x020617);
@@ -1264,6 +1280,7 @@ export default function StarrySkyViewer({
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener('wheel', handleWheel);
       delete (window as any).__starrySkySetFov;
+      delete (window as any).__starrySkyCurrentFov;
       if (container) {
         container.removeEventListener('pointerdown', onPointerDown as EventListener);
         container.removeEventListener('pointerup', onPointerUp as EventListener);
@@ -1773,10 +1790,50 @@ export default function StarrySkyViewer({
         <span className="text-slate-300">W 正西 (270°)</span>
       </div>
 
+      {/* 右上角：望远镜快速切换按钮 */}
+      <button
+        onClick={() => onTelescopeChange?.(!telescopeActive)}
+        className={`absolute top-4 right-5 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full border backdrop-blur-md transition-all duration-200 cursor-pointer select-none ${
+          telescopeActive
+            ? 'bg-cyan-950/80 border-cyan-500/60 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.35)]'
+            : 'bg-slate-950/70 border-slate-700/60 text-slate-300 hover:border-slate-500 hover:text-slate-200'
+        }`}
+        title={isZh ? '切换望远镜模式' : 'Toggle Telescope Mode'}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M3 7l4-2 10 5-4 2L3 7z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M13 10l3 6"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <path
+            d="M10 11.5l3 6"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            opacity="0.5"
+          />
+          <circle cx="20" cy="6" r="1.5" fill="currentColor" opacity="0.6" />
+        </svg>
+        <span className="text-[11px] font-medium tracking-wide">
+          {telescopeActive ? (isZh ? '退出' : 'Exit') : (isZh ? '望远镜' : 'Scope')}
+        </span>
+        {telescopeActive && (
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee] animate-pulse" />
+        )}
+      </button>
+
       {/* 右上角：实时本地星空物理学坐标信息 */}
       {skyData && (
-        <div 
-          className="absolute top-16 right-5 bg-slate-950/85 p-4 border border-slate-800/80 rounded-xl space-y-2.5 max-w-xs text-xs pointer-events-none select-none z-10 shadow-2xl font-mono"
+        <div
+          className="absolute top-14 right-5 bg-slate-950/85 p-4 border border-slate-800/80 rounded-xl space-y-2.5 max-w-xs text-xs pointer-events-none select-none z-10 shadow-2xl font-mono"
           id="landed-astro-telemetry"
         >
           <div className="text-indigo-400 font-semibold border-b border-slate-800 pb-1.5 flex items-center justify-between">
@@ -1962,8 +2019,8 @@ export default function StarrySkyViewer({
       {/* 底部贴士 */}
       <div className="absolute bottom-5 left-1/2 transform -translate-x-1/2 pointer-events-none bg-slate-950/70 border border-slate-800/60 backdrop-blur-md px-4 py-1.5 rounded-full text-[10px] text-slate-400 text-center select-none z-10 shadow-md">
         {isZh
-          ? '💡 拖拽360度环顾天空；滚轮缩放视角；右上角🔭切拥望远镜模式；悬停磁吸关注星体并单击选择'
-          : '💡 Drag to pan 360° sky. Scroll to zoom FOV. 🔭 Telescope mode top-right. Hover to snap, click to select stars.'}
+          ? '💡 拖拽360度环顾天空；滚轮缩放视角；右上角🔭切换望远镜模式；悬停磁吸关注星体并单击选择'
+          : '💡 Drag to pan 360° sky. Scroll to zoom FOV. 🔭 Telescope toggle top-right. Hover to snap, click to select stars.'}
       </div>
 
       {/* 望远镜覆盖层 — 独立模块 */}

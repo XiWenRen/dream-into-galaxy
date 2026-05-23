@@ -93,7 +93,7 @@ export class ObserverEngine {
    * Apparent position of the Sun as seen from the observer's body.
    */
   static getSolarRADec(ctx: ObserverContext, days: number): { ra: number; dec: number } {
-    const observerPos = OrbitEngine.getHeliocentricPosition(ctx.bodyId, days, false);
+    const observerPos = OrbitEngine.getHeliocentricPosition(ctx.bodyId, days);
     // Sun direction = -observer position vector
     const eq = this.eclipticToEquatorial(-observerPos.x, -observerPos.y, -observerPos.z);
     return this.vectorToRADec(eq.x, eq.y, eq.z);
@@ -103,8 +103,8 @@ export class ObserverEngine {
    * Apparent position of a target planet as seen from the observer's body.
    */
   static getPlanetRADec(ctx: ObserverContext, targetId: string, days: number): PlanetSkyInfo {
-    const observerPos = OrbitEngine.getHeliocentricPosition(ctx.bodyId, days, false);
-    const targetPos = OrbitEngine.getHeliocentricPosition(targetId, days, false);
+    const observerPos = OrbitEngine.getHeliocentricPosition(ctx.bodyId, days);
+    const targetPos = OrbitEngine.getHeliocentricPosition(targetId, days);
     const dx = targetPos.x - observerPos.x;
     const dy = targetPos.y - observerPos.y;
     const dz = targetPos.z - observerPos.z;
@@ -186,7 +186,7 @@ export class ObserverEngine {
   /** Moons orbiting the observer's body (e.g. Jupiter's Galilean moons). */
   private static getParentSatellites(parentId: string, days: number): SatelliteSkyInfo[] {
     const sats = SATELLITES_BY_PARENT[parentId] || [];
-    const parentPos = OrbitEngine.getHeliocentricPosition(parentId, days, false);
+    const parentPos = OrbitEngine.getHeliocentricPosition(parentId, days);
 
     return sats.map((sat) => {
       const rel = getSatelliteHeliocentricPosition(sat, days);
@@ -214,7 +214,7 @@ export class ObserverEngine {
 
   /** The Moon as seen from Earth. */
   private static getMoonFromEarth(days: number): SatelliteSkyInfo {
-    const moonRel = OrbitEngine.getLunarRelativePosition(days, false);
+    const moonRel = OrbitEngine.getLunarRelativePosition(days);
     const eq = this.eclipticToEquatorial(moonRel.x, moonRel.y, moonRel.z);
     const { ra, dec } = this.vectorToRADec(eq.x, eq.y, eq.z);
     const distAU = Math.sqrt(moonRel.x * moonRel.x + moonRel.y * moonRel.y + moonRel.z * moonRel.z);

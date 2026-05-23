@@ -7,14 +7,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OrbitEngine, CELESTIAL_PHYSICS, PLANET_ORBITAL_DATA } from '../engine/OrbitEngine';
+import { ScaleEngine } from '../engine/ScaleEngine';
 import { TimeEngine } from '../engine/TimeEngine';
 import { translations } from '../i18n';
 import { STAR_LIST, CONSTELLATIONS } from '../engine/StarDatabase';
 
 interface UniverseViewerProps {
   currentTimestamp: number;
-  useVisualScale: boolean;
-  setUseVisualScale?: (val: boolean) => void;
+  strictPhysics: boolean;
+  setStrictPhysics?: (val: boolean) => void;
   selectedPlanetId: string;
   onSelectPlanet: (id: string) => void;
   crossSectionActive: boolean;
@@ -190,61 +191,6 @@ export const VALIDATION_PAIRS: ValidationConfig[] = [
   }
 ];
 
-export const getExpectedCount = (key: string, visual: boolean, strict: boolean): { count: number; name: string } => {
-  if (key === 'sun-earth') {
-    if (visual) return { count: 10, name: 'Suns' };
-    if (strict) return { count: 108, name: 'Suns' };
-    return { count: 47, name: 'Suns' };
-  }
-  if (key === 'earth-moon') {
-    if (visual) return { count: 1.3, name: 'Earths' };
-    if (strict) return { count: 30, name: 'Earths' };
-    return { count: 1.3, name: 'Earths' };
-  }
-  if (key === 'mars-phobos') {
-    if (visual) return { count: 0.75, name: 'Mars' };
-    if (strict) return { count: 1.38, name: 'Mars' };
-    return { count: 1.38, name: 'Mars' };
-  }
-  if (key === 'jupiter-io') {
-    if (visual) return { count: 0.82, name: 'Jupiters' };
-    if (strict) return { count: 3.01, name: 'Jupiters' };
-    return { count: 3.01, name: 'Jupiters' };
-  }
-  if (key === 'jupiter-europa') {
-    if (visual) return { count: 1.12, name: 'Jupiters' };
-    if (strict) return { count: 4.80, name: 'Jupiters' };
-    return { count: 4.80, name: 'Jupiters' };
-  }
-  if (key === 'jupiter-ganymede') {
-    if (visual) return { count: 1.47, name: 'Jupiters' };
-    if (strict) return { count: 7.66, name: 'Jupiters' };
-    return { count: 7.66, name: 'Jupiters' };
-  }
-  if (key === 'saturn-titan') {
-    if (visual) return { count: 2.28, name: 'Saturns' };
-    if (strict) return { count: 10.49, name: 'Saturns' };
-    return { count: 10.49, name: 'Saturns' };
-  }
-  if (key === 'saturn-rhea') {
-    if (visual) return { count: 1.85, name: 'Saturns' };
-    if (strict) return { count: 4.53, name: 'Saturns' };
-    return { count: 4.53, name: 'Saturns' };
-  }
-  if (key === 'uranus-titania') {
-    if (visual) return { count: 1.76, name: 'Uranus' };
-    if (strict) return { count: 8.59, name: 'Uranus' };
-    return { count: 8.59, name: 'Uranus' };
-  }
-  if (key === 'neptune-triton') {
-    if (visual) return { count: 1.62, name: 'Neptunes' };
-    if (strict) return { count: 7.20, name: 'Neptunes' };
-    return { count: 7.20, name: 'Neptunes' };
-  }
-  
-  return { count: 108, name: 'Bodies' };
-};
-
 const getParentPlanetId = (id: string): string | null => {
   if (!id) return null;
   const lower = id.toLowerCase();
@@ -319,8 +265,8 @@ const createCloudMaterial = (cloudTex: THREE.Texture) => {
 
 export default function UniverseViewer({
   currentTimestamp,
-  useVisualScale,
-  setUseVisualScale,
+  strictPhysics,
+  setStrictPhysics,
   selectedPlanetId,
   onSelectPlanet,
   crossSectionActive,
@@ -341,60 +287,31 @@ export default function UniverseViewer({
   const magLimitRef = useRef(magLimit);
 
   const getSunRadius = (): number => {
-    if (useVisualScale) {
-      return 1.05;
-    } else if (strictPhysics) {
-      return 22.0 / (2 * 108.0); // 0.10185 (Exactly 108 Suns fill the 22.0 units Sun-Earth AU distance)
-    } else {
-      return 0.232; // Normal high-visibility physical mode
-    }
+    return ScaleEngine.getRadius('sun', strictPhysics);
   };
 
   const getPlanetRadius = (id: string): number => {
-    if (useVisualScale) {
-      // 视觉比例优化下的行星大小配置（高可见度）
-      switch(id) {
-        case 'mercury': return 0.20;
-        case 'venus': return 0.32;
-        case 'earth': return 0.38;
-        case 'moon': return 0.09;
-        case 'mars': return 0.24;
-        case 'jupiter': return 0.85;
-        case 'saturn': return 0.70;
-        case 'uranus': return 0.48;
-        case 'neptune': return 0.45;
-        default: return 0.3;
-      }
-    } else if (strictPhysics) {
-      // 严格 1:1 绝对物理比例 (空间轨道尺度 22.0 与星体尺寸完美对齐！)
-      const baseSunRad = 22.0 / (2 * 108.0); // 0.10185
-      switch(id) {
-        case 'mercury': return baseSunRad * (2439.7 / 696340.0);
-        case 'venus': return baseSunRad * (6051.8 / 696340.0);
-        case 'earth': return baseSunRad * (6371.0 / 696340.0);
-        case 'moon': return baseSunRad * (1737.4 / 696340.0);
-        case 'mars': return baseSunRad * (3389.5 / 696340.0);
-        case 'jupiter': return baseSunRad * (69911.0 / 696340.0);
-        case 'saturn': return baseSunRad * (58232.0 / 696340.0);
-        case 'uranus': return baseSunRad * (25362.0 / 696340.0);
-        case 'neptune': return baseSunRad * (24622.0 / 696340.0);
-        default: return baseSunRad * 0.01;
-      }
-    } else {
-      // 物理模式下的行星可观测放大（防行星缩至分子级别不可见）
-      switch(id) {
-        case 'mercury': return 0.058;
-        case 'venus': return 0.106;
-        case 'earth': return 0.11;
-        case 'moon': return 0.03;
-        case 'mars': return 0.072;
-        case 'jupiter': return 0.54;
-        case 'saturn': return 0.46;
-        case 'uranus': return 0.27;
-        case 'neptune': return 0.26;
-        default: return 0.1;
-      }
-    }
+    return ScaleEngine.getRadius(id, strictPhysics);
+  };
+
+  // 地月轨道显示数值动态计算（统一比例管道，确保UI显示与3D渲染完全一致）
+  const getLunarDisplayValues = () => {
+    const moonOrbitAU = 0.00257;
+    const moonOrbitScene = ScaleEngine.fromAU(moonOrbitAU);
+    const earthStrictRad = ScaleEngine.getStrictRadius('earth');
+    const earthObsRad = ScaleEngine.getObservableRadius('earth');
+    const moonStrictRad = ScaleEngine.getStrictRadius('moon');
+    const moonObsRad = ScaleEngine.getObservableRadius('moon');
+    const orbitRadius = strictPhysics ? moonOrbitScene : moonOrbitScene * (earthObsRad / earthStrictRad);
+    const earthRad = strictPhysics ? earthStrictRad : earthObsRad;
+    const moonRad = strictPhysics ? moonStrictRad : moonObsRad;
+    return {
+      orbitRadius,
+      earthRad,
+      moonRad,
+      ratio: orbitRadius / earthRad,
+      intrusion: (orbitRadius / 22.0) * 100
+    };
   };
 
   const currentTimestampRef = useRef(currentTimestamp);
@@ -433,7 +350,6 @@ export default function UniverseViewer({
   const [packingActive, setPackingActive] = useState<boolean>(false);
   const [packingProgressDone, setPackingProgressDone] = useState<number>(0);
   const [packingMode, setPackingMode] = useState<'physical' | 'visual'>('physical');
-  const [strictPhysics, setStrictPhysics] = useState<boolean>(false);
 
   const packingActiveRef = useRef<boolean>(false);
   const packingProgressDoneRef = useRef<number>(0);
@@ -1507,7 +1423,7 @@ export default function UniverseViewer({
         const samples = 2500;
         for (let j = 0; j <= samples; j++) {
           const daysEquivalent = (j / samples) * (PLANET_ORBITAL_DATA[config.id]?.period || 365);
-          const pos = OrbitEngine.getHeliocentricPosition(config.id, daysEquivalent, useVisualScale);
+          const pos = OrbitEngine.getHeliocentricPosition(config.id, daysEquivalent);
           orbitPoints.push(toThreePos(pos, ORBIT_SCALE));
         }
         const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPoints);
@@ -1524,13 +1440,19 @@ export default function UniverseViewer({
         const orbitPoints: THREE.Vector3[] = [];
         const samples = 1000;
         const iRad = (5.145 * Math.PI) / 180.0; // 5.145 度黄白交角
-        const moonA = 0.00257;
-        const finalA = moonA * 18 * ORBIT_SCALE; // ~1.018 个单位，完美适配 OrbitEngine
+        const moonOrbitAU = 0.00257;
+        let moonOrbitScene = ScaleEngine.fromAU(moonOrbitAU);
+        if (!strictPhysics) {
+          // 可观测模式下，保持月球轨道与地球大小的视觉比例
+          const earthStrictRad = ScaleEngine.getStrictRadius('earth');
+          const earthObsRad = ScaleEngine.getObservableRadius('earth');
+          moonOrbitScene *= (earthObsRad / earthStrictRad);
+        }
         for (let j = 0; j <= samples; j++) {
           const theta = (j / samples) * Math.PI * 2;
-          const x = finalA * Math.cos(theta);
-          const y = finalA * Math.sin(theta) * Math.cos(iRad);
-          const z = finalA * Math.sin(theta) * Math.sin(iRad);
+          const x = moonOrbitScene * Math.cos(theta);
+          const y = moonOrbitScene * Math.sin(theta) * Math.cos(iRad);
+          const z = moonOrbitScene * Math.sin(theta) * Math.sin(iRad);
           orbitPoints.push(new THREE.Vector3(x, z, y)); // Map horizontally: X = x, Y = z, Z = y
         }
         const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPoints);
@@ -1590,7 +1512,7 @@ export default function UniverseViewer({
       // 绘制公转可见卫星 / 探测器 (Sub-moons and Space Probes)
       const moons = SATELLITE_DATA[config.id] || [];
       moons.forEach(m => {
-        const distRatio = m.realDistance !== undefined ? m.realDistance : m.distance;
+        const distRatio = (strictPhysics && m.realDistance !== undefined) ? m.realDistance : m.distance;
         const orbitRadius = config.radius * distRatio;
 
         // 1. 卫星轨迹轨道细圈线 (Orbit Rings) - Added to tiltGroup
@@ -1891,34 +1813,27 @@ export default function UniverseViewer({
         const group = planetMeshesRef.current[config.id];
         if (!group) return;
 
-        // 获取3D轨道物理世界坐标，配合 ORBIT_SCALE 因子进行整体公转位置摆布
+        // 获取3D轨道物理世界坐标，统一通过 ORBIT_SCALE 转换为场景单位
         let finalPos: THREE.Vector3;
         if (config.id === 'moon') {
-          const earthPosRaw = OrbitEngine.getHeliocentricPosition('earth', daysSinceJ2000, useVisualScale);
-          const moonRelPosRaw = OrbitEngine.getLunarRelativePosition(daysSinceJ2000, false); // ALWAYS use physical relative position in AU
-          
-          let targetRelDist = 0.05654;
-          if (useVisualScale) {
-            // Earth radius: 0.38. We place Moon at exactly 2.6 Earth radii for beautiful, compact, non-overlapping close-ups without expanding the orbit to intersect other bodies
-            targetRelDist = 0.38 * 2.6;
-          } else if (!strictPhysics) {
-            // Normal Physical Mode: Earth radius is 0.11. To maintain identical localized space, we use 2.6 Earth radii
-            targetRelDist = 0.11 * 2.6;
-          } else {
-            // Strict physical 1:1 mode: keeps Moon at its real physical distance ratio of 60.3 Earth radii
-            const baseSunRad = 22.0 / (2 * 108.0);
-            const earthStrictRad = baseSunRad * (6371.0 / 696340.0);
-            targetRelDist = earthStrictRad * 60.31;
-          }
-          
-          // Normalize physical position vector and scale it to targetRelDist
-          const moonRelPos = toThreePos(moonRelPosRaw, 1.0);
-          moonRelPos.normalize().multiplyScalar(targetRelDist);
-          
+          const earthPosRaw = OrbitEngine.getHeliocentricPosition('earth', daysSinceJ2000);
+          const moonRelPosRaw = OrbitEngine.getLunarRelativePosition(daysSinceJ2000);
+
+          // 统一坐标管道：真实 AU → 场景单位
           const earthPos = toThreePos(earthPosRaw, ORBIT_SCALE);
+          const moonRelPos = toThreePos(moonRelPosRaw, ORBIT_SCALE);
+
+          // 可观测模式下，放大局部轨道以保持与星体大小的视觉比例
+          if (!strictPhysicsRef.current) {
+            const earthStrictRad = ScaleEngine.getStrictRadius('earth');
+            const earthObsRad = ScaleEngine.getObservableRadius('earth');
+            const scaleFactor = earthObsRad / earthStrictRad;
+            moonRelPos.multiplyScalar(scaleFactor);
+          }
+
           finalPos = earthPos.clone().add(moonRelPos);
         } else {
-          const rawPos = OrbitEngine.getHeliocentricPosition(config.id, daysSinceJ2000, useVisualScale);
+          const rawPos = OrbitEngine.getHeliocentricPosition(config.id, daysSinceJ2000);
           finalPos = toThreePos(rawPos, ORBIT_SCALE);
         }
         group.position.copy(finalPos);
@@ -1943,22 +1858,6 @@ export default function UniverseViewer({
         const orbitLine = orbitLinesRef.current[config.id];
         if (orbitLine) {
           orbitLine.visible = isVisible;
-          // 动态缩放月球轨道细圈，保证与被缩放后的月球位置100%完美契合
-          if (config.id === 'moon') {
-            let targetRelDist = 0.05654;
-            if (useVisualScale) {
-              targetRelDist = 0.38 * 2.6;
-            } else if (!strictPhysics) {
-              targetRelDist = 0.11 * 2.6;
-            } else {
-              const baseSunRad = 22.0 / (2 * 108.0);
-              const earthStrictRad = baseSunRad * (6371.0 / 696340.0);
-              targetRelDist = earthStrictRad * 60.31;
-            }
-            // Because original geometry radius is 0.00257 * 18 * 22 = 1.01772 units
-            const baseCircleRadius = 0.00257 * 18 * 22;
-            orbitLine.scale.setScalar(targetRelDist / baseCircleRadius);
-          }
         }
 
         const tiltGroup = group.getObjectByName('planet-tilt-root') as THREE.Group;
@@ -2548,9 +2447,29 @@ export default function UniverseViewer({
           if (selectedPlanetIdRef.current !== lastSelectedPlanetIdRef.current) {
             controlsRef.current.target.copy(targetPos);
             const isSat = !!getParentPlanetId(selectedPlanetIdRef.current) && !['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','sun','moon'].includes(selectedPlanetIdRef.current.toLowerCase());
-            const offset = selectedPlanetIdRef.current === 'sun' 
-              ? radOfTarget * 3.5 
-              : (isSat ? radOfTarget * 3.0 : radOfTarget * 4.2);
+            let offset: number;
+            if (strictPhysicsRef.current) {
+              // 物理1:1模式：相机距离基于轨道尺度，确保能看到太阳和轨道全貌
+              const orbitDistances: Record<string, number> = {
+                'mercury': 0.39, 'venus': 0.72, 'earth': 1.0, 'mars': 1.52,
+                'jupiter': 5.2, 'saturn': 9.58, 'uranus': 19.22, 'neptune': 30.05,
+                'moon': 0.00257
+              };
+              if (selectedPlanetIdRef.current === 'sun') {
+                offset = 8; // 从太阳看，能看到地球轨道内侧
+              } else {
+                const orbitAU = orbitDistances[selectedPlanetIdRef.current] || 1.0;
+                const orbitScene = ScaleEngine.fromAU(orbitAU);
+                // 相机距离为轨道距离的25%~40%，确保能看到太阳和轨道
+                const orbitFactor = isSat ? 0.15 : (selectedPlanetIdRef.current === 'jupiter' || selectedPlanetIdRef.current === 'saturn' ? 0.2 : 0.35);
+                offset = Math.max(orbitScene * orbitFactor, radOfTarget * 4.2);
+              }
+            } else {
+              // 可观测模式：保持原有基于天体半径的聚焦逻辑
+              offset = selectedPlanetIdRef.current === 'sun'
+                ? radOfTarget * 3.5
+                : (isSat ? radOfTarget * 3.0 : radOfTarget * 4.2);
+            }
 
             cameraRef.current.position.set(targetPos.x, targetPos.y + offset * 0.4, targetPos.z + offset);
             lastSelectedPlanetIdRef.current = selectedPlanetIdRef.current;
@@ -2597,7 +2516,7 @@ export default function UniverseViewer({
       }
       constellLinesRef.current = null;
     };
-  }, [useVisualScale, strictPhysics]);
+  }, [strictPhysics]);
 
   // 监听星等限制滑块变化，实现无感平滑局部重绘，防止重构整个 3D 场景 (In-place magLimit Filter Effect)
   useEffect(() => {
@@ -2916,23 +2835,28 @@ export default function UniverseViewer({
                 <div className="flex justify-between">
                   <span>{lang === 'zh' ? '月球公转轨道半径' : 'Lunar Orbit Radius'}:</span>
                   <span className="font-mono text-cyan-300">
-                    {useVisualScale 
-                      ? '0.988 units (2.6x R_earth)' 
-                      : (!strictPhysics 
-                          ? '0.286 units (2.6x R_earth)'
-                          : '0.0562 units (60.31x R_earth)')}
+                    {(() => {
+                      const v = getLunarDisplayValues();
+                      return `${v.orbitRadius.toFixed(strictPhysics ? 4 : 3)} units (${v.ratio.toFixed(2)}x R_earth)`;
+                    })()}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>{lang === 'zh' ? '地球赤道物理半径' : 'Earth Polar Radius'}:</span>
                   <span className="font-mono text-slate-300">
-                    {useVisualScale ? '0.380 units' : (!strictPhysics ? '0.110 units' : '0.00093 units')}
+                    {(() => {
+                      const v = getLunarDisplayValues();
+                      return `${v.earthRad.toFixed(strictPhysics ? 5 : 3)} units`;
+                    })()}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>{lang === 'zh' ? '月球赤道物理半径' : 'Moon Polar Radius'}:</span>
                   <span className="font-mono text-slate-300">
-                    {useVisualScale ? '0.090 units' : (!strictPhysics ? '0.030 units' : '0.00025 units')}
+                    {(() => {
+                      const v = getLunarDisplayValues();
+                      return `${v.moonRad.toFixed(strictPhysics ? 5 : 3)} units`;
+                    })()}
                   </span>
                 </div>
                 <p className="text-[9px] text-slate-500 leading-snug pt-1 border-t border-slate-800/30">
@@ -2957,7 +2881,10 @@ export default function UniverseViewer({
                 <div className="flex justify-between">
                   <span>{lang === 'zh' ? '月球公转最大外延' : 'Max Lunar Path Extent'}:</span>
                   <span className="font-mono text-cyan-300">
-                    {useVisualScale ? '0.988 units' : (!strictPhysics ? '0.286 units' : '0.0562 units')}
+                    {(() => {
+                      const v = getLunarDisplayValues();
+                      return `${v.orbitRadius.toFixed(strictPhysics ? 4 : 3)} units`;
+                    })()}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -2967,7 +2894,10 @@ export default function UniverseViewer({
                 <div className="flex justify-between">
                   <span>{lang === 'zh' ? '相对轨道干涉指数' : 'Orbit Intrusion Interf.'}:</span>
                   <span className="font-mono text-emerald-400">
-                    {useVisualScale ? '4.49%' : (!strictPhysics ? '1.30%' : '0.25%')} &lt; 10% ({lang === 'zh' ? '完美安全' : 'PASS'})
+                    {(() => {
+                      const v = getLunarDisplayValues();
+                      return `${v.intrusion.toFixed(2)}%`;
+                    })()} &lt; 10% ({lang === 'zh' ? '完美安全' : 'PASS'})
                   </span>
                 </div>
                 <p className="text-[9px] text-slate-500 leading-snug pt-1 border-t border-slate-800/30">
@@ -2996,7 +2926,7 @@ export default function UniverseViewer({
                 <div className="flex justify-between">
                   <span>{lang === 'zh' ? '日海距离 (30.07 AU)' : 'Sun-Neptune Space'}:</span>
                   <span className="font-mono text-slate-300">
-                    {useVisualScale ? '118.80 units (对数压缩)' : '661.54 units (100% True)'}
+                    {'661.54 units (100% True)'}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -3052,61 +2982,39 @@ export default function UniverseViewer({
               </div>
             </div>
 
-            {/* 1. 如果是视觉优化比例，显示提示引导进行 1:1 严格比例体验 */}
-            {useVisualScale && (
-              <div className="p-2.5 bg-amber-500/10 rounded-lg border border-amber-500/20 text-[10px] text-slate-300 space-y-1.5 font-sans">
-                <p className="font-bold text-amber-400 flex items-center space-x-1">
-                  <span>⚠️</span>
-                  <span>{lang === 'zh' ? '已启用「轨道视觉优化」' : 'Orbit Visual Optimization On'}</span>
-                </p>
-<p className="leading-snug text-slate-400 font-sans">
-                  {lang === 'zh' 
-                    ? '为了方便观察，系统默认对天体模型进行了极大幅度的非等比例放大。此时地日距离仅能放下 10 个对应比例的太阳。' 
-                    : 'For observer details, celestial models are majorly zoomed up. Only ~10 scaled Suns could fit this warped space.'}
-                </p>
-                <p className="leading-snug text-amber-300/90 font-medium">
-                  {lang === 'zh'
-                    ? '💡 提示：前往左下角关闭「视觉比例优化」来解锁 1:1 绝对天体物理比例验证！'
-                    : '💡 Tip: Toggle off "Optimize Scale" in the bottom-left map UI to test strict 1:1 scale alignment!'}
-                </p>
+            {/* 天体尺寸比例尺选择 */}
+            <div className="flex flex-col space-y-2 bg-slate-900/40 p-2.5 rounded-lg border border-slate-800/60">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center space-x-1">
+                <span className="w-1 h-3 rounded bg-amber-400 inline-block" />
+                <span>{lang === 'zh' ? '体模型尺寸比例尺' : 'Celestial Body Size Scale'}</span>
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setStrictPhysics(true)}
+                  className={`py-1.5 px-2 rounded-md border text-left transition-all cursor-pointer ${
+                    strictPhysics
+                      ? 'bg-amber-500/15 border-amber-500/50 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                      : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
+                  }`}
+                >
+                  <div className="text-[10px] font-bold">{lang === 'zh' ? '物理 1:1 绝对同尺' : 'Strict 1:1 True'}</div>
+                  <div className="text-[8px] opacity-75 mt-0.5 leading-snug">{lang === 'zh' ? '太阳与轨道完美对齐' : 'Sun fits space exactly'}</div>
+                  <div className="text-[8px] font-mono mt-0.5 text-amber-400/80">{lang === 'zh' ? '正好放 108 个' : 'Packs 108 Suns'}</div>
+                </button>
+                <button
+                  onClick={() => setStrictPhysics(false)}
+                  className={`py-1.5 px-2 rounded-md border text-left transition-all cursor-pointer ${
+                    !strictPhysics
+                      ? 'bg-amber-500/15 border-amber-500/50 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                      : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
+                  }`}
+                >
+                  <div className="text-[10px] font-bold">{lang === 'zh' ? '可观测放大星体' : 'Magnified Star'}</div>
+                  <div className="text-[8px] opacity-75 mt-0.5 leading-snug">{lang === 'zh' ? '大比例，易交互点击' : 'Bigger celestial views'}</div>
+                  <div className="text-[8px] font-mono mt-0.5 text-amber-400/80">{lang === 'zh' ? '可堆叠 47 个' : 'Packs 47 Suns'}</div>
+                </button>
               </div>
-            )}
-
-            {/* 2. 在真物理模式下，展示绝对物理 1:1 的高阶配置 */}
-            {!useVisualScale && (
-              <div className="flex flex-col space-y-2 bg-slate-900/40 p-2.5 rounded-lg border border-slate-800/60">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center space-x-1">
-                  <span className="w-1 h-3 rounded bg-amber-400 inline-block" />
-                  <span>{lang === 'zh' ? '体模型尺寸比例尺' : 'Celestial Body Size Scale'}</span>
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setStrictPhysics(true)}
-                    className={`py-1.5 px-2 rounded-md border text-left transition-all cursor-pointer ${
-                      strictPhysics
-                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
-                        : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
-                    }`}
-                  >
-                    <div className="text-[10px] font-bold">{lang === 'zh' ? '物理 1:1 绝对同尺' : 'Strict 1:1 True'}</div>
-                    <div className="text-[8px] opacity-75 mt-0.5 leading-snug">{lang === 'zh' ? '太阳与轨道完美对齐' : 'Sun fits space exactly'}</div>
-                    <div className="text-[8px] font-mono mt-0.5 text-amber-400/80">{lang === 'zh' ? '正好放 108 个' : 'Packs 108 Suns'}</div>
-                  </button>
-                  <button
-                    onClick={() => setStrictPhysics(false)}
-                    className={`py-1.5 px-2 rounded-md border text-left transition-all cursor-pointer ${
-                      !strictPhysics
-                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
-                        : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
-                    }`}
-                  >
-                    <div className="text-[10px] font-bold">{lang === 'zh' ? '可观测放大星体' : 'Magnified Star'}</div>
-                    <div className="text-[8px] opacity-75 mt-0.5 leading-snug">{lang === 'zh' ? '大比例，易交互点击' : 'Bigger celestial views'}</div>
-                    <div className="text-[8px] font-mono mt-0.5 text-amber-400/80">{lang === 'zh' ? '可堆叠 47 个' : 'Packs 47 Suns'}</div>
-                  </button>
-                </div>
-              </div>
-            )}
+            </div>
 
             {/* 比例尺对照调节器 */}
             <div className="flex flex-col space-y-1.5">
@@ -3118,7 +3026,6 @@ export default function UniverseViewer({
                   onClick={() => {
                     setPackingMode('physical');
                     setStrictPhysics(true);
-                    setUseVisualScale?.(false);
                   }}
                   className={`py-1.5 px-2 rounded-md text-[10px] font-medium border transition-all text-center cursor-pointer ${
                     packingMode === 'physical'
@@ -3147,8 +3054,8 @@ export default function UniverseViewer({
                   <div className="font-bold">{lang === 'zh' ? '自适应星体比例' : 'Matched Star Scale'}</div>
                   <div className="text-[9px] opacity-75">
                     {lang === 'zh' 
-                      ? `排满 ${useVisualScale ? 10 : (strictPhysics ? 108 : 47)} 个大太阳` 
-                      : `Pack ${useVisualScale ? 10 : (strictPhysics ? 108 : 47)} Suns`
+                      ? `排满 ${strictPhysics ? 108 : 47} 个大太阳` 
+                      : `Pack ${strictPhysics ? 108 : 47} Suns`
                     }
                   </div>
                 </button>

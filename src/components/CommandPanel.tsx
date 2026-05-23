@@ -6,8 +6,9 @@
 import React, { useState } from 'react';
 import { translations } from '../i18n';
 import { OrbitEngine } from '../engine/OrbitEngine';
+import { ScaleEngine } from '../engine/ScaleEngine';
 import { ThemeType } from '../types/astronomy';
-import { SATELLITE_DATA, VALIDATION_PAIRS, getExpectedCount } from './UniverseViewer';
+import { SATELLITE_DATA, VALIDATION_PAIRS } from './UniverseViewer';
 import SystemPanel from './SystemPanel';
 
 interface CommandPanelProps {
@@ -16,8 +17,6 @@ interface CommandPanelProps {
   landed: boolean;
   theme: ThemeType;
   onChangeTheme: (theme: ThemeType) => void;
-  useVisualScale: boolean;
-  onToggleVisualScale: (val: boolean) => void;
   showConstellLines: boolean;
   onToggleConstellLines: (show: boolean) => void;
   showStarNames: boolean;
@@ -175,8 +174,6 @@ export default function CommandPanel({
   landed,
   theme,
   onChangeTheme,
-  useVisualScale,
-  onToggleVisualScale,
   showConstellLines,
   onToggleConstellLines,
   showStarNames,
@@ -225,57 +222,20 @@ export default function CommandPanel({
   const resolved = resolveHierarchy(selectedPlanetId);
 
   const getSunRadius = (): number => {
-    if (useVisualScale) {
-      return 1.05;
-    } else if (strictPhysics) {
-      return 22.0 / (2 * 108.0);
-    } else {
-      return 0.232;
-    }
+    return ScaleEngine.getRadius('sun', strictPhysics);
   };
 
   const getPlanetRadius = (id: string): number => {
-    if (useVisualScale) {
-      switch(id) {
-        case 'mercury': return 0.20;
-        case 'venus': return 0.32;
-        case 'earth': return 0.38;
-        case 'moon': return 0.09;
-        case 'mars': return 0.24;
-        case 'jupiter': return 0.85;
-        case 'saturn': return 0.70;
-        case 'uranus': return 0.48;
-        case 'neptune': return 0.45;
-        default: return 0.3;
-      }
-    } else if (strictPhysics) {
-      const baseSunRad = 22.0 / (2 * 108.0);
-      switch(id) {
-        case 'mercury': return baseSunRad * (2439.7 / 696340.0);
-        case 'venus': return baseSunRad * (6051.8 / 696340.0);
-        case 'earth': return baseSunRad * (6371.0 / 696340.0);
-        case 'moon': return baseSunRad * (1737.4 / 696340.0);
-        case 'mars': return baseSunRad * (3389.5 / 696340.0);
-        case 'jupiter': return baseSunRad * (69911.0 / 696340.0);
-        case 'saturn': return baseSunRad * (58232.0 / 696340.0);
-        case 'uranus': return baseSunRad * (25362.0 / 696340.0);
-        case 'neptune': return baseSunRad * (24622.0 / 696340.0);
-        default: return baseSunRad * 0.01;
-      }
-    } else {
-      switch(id) {
-        case 'mercury': return 0.058;
-        case 'venus': return 0.106;
-        case 'earth': return 0.11;
-        case 'moon': return 0.03;
-        case 'mars': return 0.072;
-        case 'jupiter': return 0.54;
-        case 'saturn': return 0.46;
-        case 'uranus': return 0.27;
-        case 'neptune': return 0.26;
-        default: return 0.1;
-      }
-    }
+    return ScaleEngine.getRadius(id, strictPhysics);
+  };
+
+  const getLunarOrbitRadius = (): number => {
+    const moonOrbitAU = 0.00257;
+    const moonOrbitScene = ScaleEngine.fromAU(moonOrbitAU);
+    if (strictPhysics) return moonOrbitScene;
+    const earthStrictRad = ScaleEngine.getStrictRadius('earth');
+    const earthObsRad = ScaleEngine.getObservableRadius('earth');
+    return moonOrbitScene * (earthObsRad / earthStrictRad);
   };
 
   const handleLevel1Change = (val: string) => {
@@ -427,17 +387,6 @@ export default function CommandPanel({
       {!landed ? (
         /* Universe mode controls */
         <div className="flex flex-col space-y-2.5">
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={useVisualScale}
-              onChange={(e) => onToggleVisualScale(e.target.checked)}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
-            />
-            <IconMaximize className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '视觉比例优化' : 'Visual Scale'}</span>
-          </label>
-
           <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
             <input
               type="checkbox"
@@ -666,21 +615,19 @@ export default function CommandPanel({
                       <div className="flex justify-between">
                         <span>{isZh ? '月球公转轨道半径' : 'Lunar Orbit Radius'}:</span>
                         <span className="font-mono text-cyan-300">
-                          {useVisualScale
-                            ? `${(getPlanetRadius('earth') * 2.6).toFixed(3)} units (2.6x R_earth)`
-                            : `${(getPlanetRadius('earth') * 60.31).toFixed(3)} units (60.31x R_earth)`}
+                          {`${getLunarOrbitRadius().toFixed(3)} units (${(getLunarOrbitRadius() / getPlanetRadius('earth')).toFixed(2)}x R_earth)`}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span>{isZh ? '地球赤道物理半径' : 'Earth Radius'}:</span>
                         <span className="font-mono text-slate-300">
-                          {useVisualScale ? '0.380 units' : (!strictPhysics ? '0.110 units' : '0.00093 units')}
+                          {`${getPlanetRadius('earth').toFixed(3)} units`}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span>{isZh ? '月球赤道物理半径' : 'Moon Radius'}:</span>
                         <span className="font-mono text-slate-300">
-                          {useVisualScale ? '0.090 units' : (!strictPhysics ? '0.030 units' : '0.00025 units')}
+                          {`${getPlanetRadius('moon').toFixed(3)} units`}
                         </span>
                       </div>
                     </div>
@@ -700,9 +647,7 @@ export default function CommandPanel({
                       <div className="flex justify-between">
                         <span>{isZh ? '月球公转最大外延' : 'Max Lunar Path'}:</span>
                         <span className="font-mono text-cyan-300">
-                          {useVisualScale
-                            ? `${(getPlanetRadius('earth') * 2.6).toFixed(3)} units`
-                            : `${(getPlanetRadius('earth') * 60.31).toFixed(3)} units`}
+                          {`${getLunarOrbitRadius().toFixed(3)} units`}
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -712,9 +657,7 @@ export default function CommandPanel({
                       <div className="flex justify-between">
                         <span>{isZh ? '相对轨道干涉指数' : 'Orbit Intrusion'}:</span>
                         <span className="font-mono text-emerald-400">
-                          {useVisualScale
-                            ? `${((getPlanetRadius('earth') * 2.6 / 22.0) * 100).toFixed(2)}%`
-                            : `${((getPlanetRadius('earth') * 60.31 / 22.0) * 100).toFixed(2)}%`} &lt; 10%
+                          {`${((getLunarOrbitRadius() / 22.0) * 100).toFixed(2)}%`} &lt; 10%
                         </span>
                       </div>
                     </div>
@@ -738,7 +681,7 @@ export default function CommandPanel({
                       <div className="flex justify-between">
                         <span>{isZh ? '日海距离 (30.07 AU)' : 'Sun-Neptune Space'}:</span>
                         <span className="font-mono text-slate-300">
-                          {useVisualScale ? '118.80 units' : '661.54 units'}
+                          {'661.54 units'}
                         </span>
                       </div>
                     </div>
@@ -783,58 +726,37 @@ export default function CommandPanel({
                     </div>
                   </div>
 
-                  {/* 1. 如果是视觉优化比例，显示提示引导进行 1:1 严格比例体验 */}
-                  {useVisualScale && (
-                    <div className="p-2 bg-amber-500/10 rounded-lg border border-amber-500/20 text-[9px] text-slate-300 space-y-1 font-sans">
-                      <p className="font-bold text-amber-400">
-                        {isZh ? '⚠️ 已启用「轨道视觉优化」' : '⚠️ Orbit Visual Optimization On'}
-                      </p>
-                      <p className="leading-snug text-slate-400">
-                        {isZh 
-                          ? '为了方便观察，系统对天体进行了大幅度放大。' 
-                          : 'Bodies are magnified for observability.'}
-                      </p>
-                      <p className="leading-snug text-amber-300/90 font-medium">
-                        {isZh
-                          ? '💡 提示：在上方关闭「视觉比例优化」来解锁 1:1 绝对天体物理比例验证！'
-                          : '💡 Tip: Toggle off "Visual Scale" above to test strict 1:1 scale!'}
-                      </p>
+                  {/* 天体物理模型尺寸比例尺选择 */}
+                  <div className="flex flex-col space-y-1 bg-slate-900/40 p-2 rounded-lg border border-slate-800/50">
+                    <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400 flex items-center space-x-1">
+                      <span className="w-1 h-2 rounded bg-amber-400 inline-block" />
+                      <span>{isZh ? '天体物理模型尺寸比例尺' : 'Celestial Dimensions'}</span>
+                    </span>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        onClick={() => onToggleStrictPhysics(true)}
+                        className={`py-1 px-1.5 rounded border text-left transition-all cursor-pointer ${
+                          strictPhysics
+                            ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                            : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
+                        }`}
+                      >
+                        <div className="text-[9px] font-bold">{isZh ? '物理 1:1 绝对' : 'Strict 1:1'}</div>
+                        <div className="text-[8px] opacity-75 mt-0.5 leading-tight">{isZh ? '太阳放 108 个' : 'Packs 108 Suns'}</div>
+                      </button>
+                      <button
+                        onClick={() => onToggleStrictPhysics(false)}
+                        className={`py-1 px-1.5 rounded border text-left transition-all cursor-pointer ${
+                          !strictPhysics
+                            ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                            : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
+                        }`}
+                      >
+                        <div className="text-[9px] font-bold">{isZh ? '可观测放大' : 'Magnified'}</div>
+                        <div className="text-[8px] opacity-75 mt-0.5 leading-tight">{isZh ? '太阳放 47 个' : 'Packs 47 Suns'}</div>
+                      </button>
                     </div>
-                  )}
-
-                  {/* 2. 在真物理模式下，展示绝对物理 1:1 的高阶配置 */}
-                  {!useVisualScale && (
-                    <div className="flex flex-col space-y-1 bg-slate-900/40 p-2 rounded-lg border border-slate-800/50">
-                      <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400 flex items-center space-x-1">
-                        <span className="w-1 h-2 rounded bg-amber-400 inline-block" />
-                        <span>{isZh ? '天体物理模型尺寸比例尺' : 'Celestial Dimensions'}</span>
-                      </span>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <button
-                          onClick={() => onToggleStrictPhysics(true)}
-                          className={`py-1 px-1.5 rounded border text-left transition-all cursor-pointer ${
-                            strictPhysics
-                              ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
-                              : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
-                          }`}
-                        >
-                          <div className="text-[9px] font-bold">{isZh ? '物理 1:1 绝对' : 'Strict 1:1'}</div>
-                          <div className="text-[8px] opacity-75 mt-0.5 leading-tight">{isZh ? '太阳放 108 个' : 'Packs 108 Suns'}</div>
-                        </button>
-                        <button
-                          onClick={() => onToggleStrictPhysics(false)}
-                          className={`py-1 px-1.5 rounded border text-left transition-all cursor-pointer ${
-                            !strictPhysics
-                              ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
-                              : 'bg-transparent border-slate-800 text-slate-400 hover:border-slate-700/80'
-                          }`}
-                        >
-                          <div className="text-[9px] font-bold">{isZh ? '可观测放大' : 'Magnified'}</div>
-                          <div className="text-[8px] opacity-75 mt-0.5 leading-tight">{isZh ? '太阳放 47 个' : 'Packs 47 Suns'}</div>
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  </div>
 
                   {/* 比例尺对照调节器 */}
                   <div className="flex flex-col space-y-1">
@@ -846,7 +768,6 @@ export default function CommandPanel({
                         onClick={() => {
                           onChangePackingMode('physical');
                           onToggleStrictPhysics(true);
-                          onToggleVisualScale(false);
                         }}
                         className={`py-1 px-1.5 rounded text-[9px] font-medium border transition-all text-center cursor-pointer ${
                           packingMode === 'physical'
@@ -870,8 +791,8 @@ export default function CommandPanel({
                         <div className="font-bold">{isZh ? '自适应星体' : 'Matched Scale'}</div>
                         <div className="text-[8px] opacity-75">
                           {isZh 
-                            ? `排 ${useVisualScale ? 10 : (strictPhysics ? 108 : 47)} 个` 
-                            : `${useVisualScale ? 10 : (strictPhysics ? 108 : 47)} Suns`
+                            ? `排 ${strictPhysics ? 108 : 47} 个` 
+                            : `${strictPhysics ? 108 : 47} Suns`
                           }
                         </div>
                       </button>

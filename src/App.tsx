@@ -23,8 +23,6 @@ export default function App() {
   const [selectedPlanetId, setSelectedPlanetId] = useState<string>('earth');
   const [crossSectionActive, setCrossSectionActive] = useState<boolean>(false);
   const [showPlanetInfo, setShowPlanetInfo] = useState<boolean>(true);
-  const [useVisualScale, setUseVisualScale] = useState<boolean>(true);
-
   // 自定义主题
   const [theme, setTheme] = useState<ThemeType>('space-tech');
 
@@ -33,7 +31,7 @@ export default function App() {
   const [packingActive, setPackingActive] = useState<boolean>(false);
   const [packingProgressDone, setPackingProgressDone] = useState<number>(0);
   const [packingMode, setPackingMode] = useState<'physical' | 'visual'>('physical');
-  const [strictPhysics, setStrictPhysics] = useState<boolean>(false);
+  const [strictPhysics, setStrictPhysics] = useState<boolean>(true);
   const [validationPairKey, setValidationPairKey] = useState<string>('sun-earth');
   const [focusTrigger, setFocusTrigger] = useState<number>(0);
 
@@ -94,7 +92,7 @@ export default function App() {
   const solarTermData = AstrophenomenaEngine.getCurrentSolarTerm(daysSinceJ2000);
 
   // 3. 计算选定行星的实时日地直角坐标 (Heliocentric Coordinates at current J2000 days epoch)
-  const helioPos = OrbitEngine.getHeliocentricPosition(selectedPlanetId, daysSinceJ2000, false);
+  const helioPos = OrbitEngine.getHeliocentricPosition(selectedPlanetId, daysSinceJ2000);
 
   // 4. 执行无极缩放与登录事件
   const handleToggleLanding = () => {
@@ -174,8 +172,6 @@ export default function App() {
           landed={landed}
           theme={theme}
           onChangeTheme={setTheme}
-          useVisualScale={useVisualScale}
-          onToggleVisualScale={setUseVisualScale}
           showConstellLines={showConstellLines}
           onToggleConstellLines={setShowConstellLines}
           showStarNames={showStarNames}
@@ -247,30 +243,14 @@ export default function App() {
           ) : (
             <UniverseViewer
               currentTimestamp={timeState.currentTimestamp}
-              useVisualScale={useVisualScale}
-              setUseVisualScale={setUseVisualScale}
               selectedPlanetId={selectedPlanetId}
               onSelectPlanet={handleSelectPlanet}
               crossSectionActive={crossSectionActive}
               lang={lang}
               showConstellLines={showConstellLines}
-              showPlanetLabels={showPlanetLabels}
               magLimit={magLimit}
-              validationPairKey={validationPairKey}
-              setValidationPairKey={setValidationPairKey}
-              panelTab={panelTab}
-              setPanelTab={setPanelTab}
-              packingActive={packingActive}
-              setPackingActive={setPackingActive}
-              packingProgressDone={packingProgressDone}
-              setPackingProgressDone={setPackingProgressDone}
-              packingMode={packingMode}
-              setPackingMode={setPackingMode}
               strictPhysics={strictPhysics}
               setStrictPhysics={setStrictPhysics}
-              focusTrigger={focusTrigger}
-              useExponentialSpeed={useExponentialSpeed}
-              customSpeedPreset={customSpeedPreset}
             />
           )}
         </div>

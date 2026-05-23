@@ -47,7 +47,7 @@ export class AstrophenomenaEngine {
    */
   static getSolarLongitude(days: number): number {
     // 获取地球相对于太阳的坐标
-    const earthPos = OrbitEngine.getHeliocentricPosition('earth', days, false);
+    const earthPos = OrbitEngine.getHeliocentricPosition('earth', days);
     
     // 太阳相对于地球的坐标向量是 (-x, -y, -z)
     const sunX = -earthPos.x;
@@ -95,9 +95,9 @@ export class AstrophenomenaEngine {
    */
   static detectEclipse(days: number): { solarEclipse: boolean; lunarEclipse: boolean; earthToSunDist: number; earthToMoonDist: number; angleDegrees: number } {
     // 1. 获取不需要任何缩放的纯天文真实物理坐标
-    const earthPos = OrbitEngine.getHeliocentricPosition('earth', days, false);
+    const earthPos = OrbitEngine.getHeliocentricPosition('earth', days);
     // 月地相对距离 (真实坐标)
-    const moonRel = OrbitEngine.getLunarRelativePosition(days, false);
+    const moonRel = OrbitEngine.getLunarRelativePosition(days);
 
     // 2. 地日向量、地月向量
     // 地日向量 (起自地球，指向太阳)
@@ -140,8 +140,8 @@ export class AstrophenomenaEngine {
    */
   static getMoonPhase(days: number): { phaseIndex: number; nameKey: string; percent: number } {
     // 获取无缩放真实物理位置
-    const earthPos = OrbitEngine.getHeliocentricPosition('earth', days, false);
-    const moonRel = OrbitEngine.getLunarRelativePosition(days, false);
+    const earthPos = OrbitEngine.getHeliocentricPosition('earth', days);
+    const moonRel = OrbitEngine.getLunarRelativePosition(days);
 
     // 计算地球在太阳黄道面上的倾斜影子向量
     const es = { x: -earthPos.x, y: -earthPos.y, z: -earthPos.z };
