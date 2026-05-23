@@ -352,14 +352,14 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     term_desc: "24节气基于太阳 ecliptic 视黄经（Sun's ecliptic longitude）进行严密数学代数划分。从春分（赤道升交点0°）起，太阳每沿黄道运行15°即完成一个新节气的转换。它是古人对地球轨道公转状态的精确归纳，与农业天气、昼夜长短完全统一关系。",
 
     // Moon phases in Chinese
-    phase_new: "新月 (朔 - New Moon)",
-    phase_waxing_crescent: "峨眉月 (Waxing Crescent)",
-    phase_first_quarter: "上弦月 (First Quarter)",
-    phase_waxing_gibbous: "盈凸月 (Waxing Gibbous)",
-    phase_full: "满月 (望 - Full Moon)",
-    phase_waning_gibbous: "亏凸月 (Waning Gibbous)",
-    phase_last_quarter: "下弦月 (Last Quarter)",
-    phase_waning_crescent: "残月 (Waning Crescent)",
+    phase_new: "新月",
+    phase_waxing_crescent: "峨眉月",
+    phase_first_quarter: "上弦月",
+    phase_waxing_gibbous: "盈凸月",
+    phase_full: "满月",
+    phase_waning_gibbous: "亏凸月",
+    phase_last_quarter: "下弦月",
+    phase_waning_crescent: "残月",
   },
   en: {
     title: "Cosmic Odyssey",

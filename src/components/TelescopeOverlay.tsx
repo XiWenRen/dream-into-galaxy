@@ -280,7 +280,7 @@ function ZoomDial({ cx, cy, radius: dialOuterR, currentFov, onFovChange, lang }:
     e.preventDefault();
     e.stopPropagation();
     const mag = 65 / currentFov;
-    const zoomFactor = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+    const zoomFactor = e.deltaY > 0 ? 1 / 1.15 : 1.15;
     const newMag = Math.max(1, Math.min(216.7, mag * zoomFactor));
     const newFov = 65 / newMag;
     onFovChange(parseFloat(newFov.toFixed(3)));

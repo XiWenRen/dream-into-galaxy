@@ -17,6 +17,8 @@ interface PlanetInfoPanelProps {
   landed?: boolean;
   onToggleLanding?: () => void;
   isLandable?: boolean;
+  textureOffset?: { u: number; v: number };
+  onChangeTextureOffset?: (offset: { u: number; v: number }) => void;
 }
 
 interface SatellitePhysics {
@@ -94,6 +96,8 @@ export default function PlanetInfoPanel({
   landed = false,
   onToggleLanding,
   isLandable = false,
+  textureOffset = { u: 0, v: 0 },
+  onChangeTextureOffset,
 }: PlanetInfoPanelProps) {
   if (!planetId) return null;
 
@@ -365,6 +369,77 @@ export default function PlanetInfoPanel({
           </div>
         )}
       </div>
+
+      {/* 贴图 UV 偏移校准工具 */}
+      {onChangeTextureOffset && (!isSatellite || planetId.toLowerCase() === 'moon') && (
+        <div className="border-t border-white/10 pt-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[10px] font-bold text-white/40 uppercase tracking-widest font-mono">
+              🎨 {isZh ? '贴图偏移校准' : 'Texture Offset'}
+            </h3>
+            <span className="text-[9px] text-cyan-500/60 font-mono">UV OFFSET</span>
+          </div>
+
+          <div className="space-y-2.5">
+            {/* U offset slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] font-mono">
+                <span className="text-white/50">U (horizontal)</span>
+                <span className="text-cyan-400">{textureOffset.u.toFixed(2)}</span>
+              </div>
+              <input
+                type="range"
+                min={-0.5}
+                max={0.5}
+                step={0.01}
+                value={textureOffset.u}
+                onChange={(e) =>
+                  onChangeTextureOffset({ ...textureOffset, u: parseFloat(e.target.value) })
+                }
+                className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400"
+              />
+            </div>
+
+            {/* V offset slider */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] font-mono">
+                <span className="text-white/50">V (vertical)</span>
+                <span className="text-cyan-400">{textureOffset.v.toFixed(2)}</span>
+              </div>
+              <input
+                type="range"
+                min={-0.5}
+                max={0.5}
+                step={0.01}
+                value={textureOffset.v}
+                onChange={(e) =>
+                  onChangeTextureOffset({ ...textureOffset, v: parseFloat(e.target.value) })
+                }
+                className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={async () => {
+              const payload = JSON.stringify({ planetId, u: textureOffset.u, v: textureOffset.v });
+              try {
+                await navigator.clipboard.writeText(payload);
+                alert(isZh ? `已复制: ${payload}` : `Copied: ${payload}`);
+              } catch {
+                alert(isZh ? '复制失败，请手动复制' : 'Copy failed, please copy manually');
+              }
+            }}
+            className="w-full flex items-center justify-center space-x-1.5 py-2 rounded-lg text-[11px] font-semibold cursor-pointer border border-cyan-500/30 bg-cyan-950/20 text-cyan-400 hover:bg-cyan-950/40 hover:border-cyan-500/50 active:scale-95 transition-all"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            <span>{isZh ? '复制结果' : 'Copy Result'}</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

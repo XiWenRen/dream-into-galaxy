@@ -59,9 +59,12 @@ export default function App() {
   // 轨道计算时间基础状态 (默认 43200x 倍速 = 1秒过去12小时，方便直接看出星体位移)
   const [timeState, setTimeState] = useState<TimeState>({
     currentTimestamp: Date.now(),
-    speedMultiplier: 43200,
+    speedMultiplier: 1,
     isPaused: false
   });
+
+  // 贴图便宜位置调试 (用于行星面板上交互式校准纹理偏移)
+  const [textureOffsets, setTextureOffsets] = useState<Record<string, { u: number; v: number }>>({});
 
   // 处理无极缩放 (Stepless Transition Animation Effect)
   const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
@@ -174,7 +177,10 @@ export default function App() {
           theme={theme}
           onChangeTheme={setTheme}
           showConstellLines={showConstellLines}
-          onToggleConstellLines={setShowConstellLines}
+          onToggleConstellLines={(show) => {
+            setShowConstellLines(show);
+            if (!show) setShowConstellNames(false);
+          }}
           showStarNames={showStarNames}
           onToggleStarNames={setShowStarNames}
           showConstellNames={showConstellNames}
@@ -231,19 +237,35 @@ export default function App() {
         {/* 主要操盘画布：占满100%父容器空间 */}
         <div className="w-full h-full absolute inset-0 z-0" id="simulator-viewport-housing">
           {landed ? (
-            <StarrySkyViewer
-              currentTimestamp={timeState.currentTimestamp}
-              latitude={latitude}
-              longitude={longitude}
-              observerBodyId={selectedPlanetId}
-              lang={lang}
-              showConstellLines={showConstellLines}
-              showStarNames={showStarNames}
-              showConstellNames={showConstellNames}
-              magLimit={magLimit}
-              telescopeActive={telescopeActive}
-              onTelescopeChange={setTelescopeActive}
-            />
+            <>
+              {/* 右上角退出星空模式按钮 */}
+              <button
+                onClick={() => setLanded(false)}
+                className="absolute top-5 right-5 z-30 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer border border-red-500/40 bg-red-950/30 text-red-400 hover:bg-red-950/45 tracking-wider uppercase transition-all duration-300 hover:scale-105 active:scale-95"
+                id="btn-exit-starry-sky"
+                title={lang === 'zh' ? '退出星空模式' : 'Exit Starry Sky'}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                </svg>
+                <span>{lang === 'zh' ? '退出观测' : 'EXIT OBSERVER'}</span>
+              </button>
+              <StarrySkyViewer
+                currentTimestamp={timeState.currentTimestamp}
+                latitude={latitude}
+                longitude={longitude}
+                observerBodyId={selectedPlanetId}
+                lang={lang}
+                showConstellLines={showConstellLines}
+                showStarNames={showStarNames}
+                showConstellNames={showConstellNames}
+                magLimit={magLimit}
+                telescopeActive={telescopeActive}
+                onTelescopeChange={setTelescopeActive}
+                textureOffsets={textureOffsets}
+                onChangeTextureOffset={(id, offset) => setTextureOffsets(prev => ({ ...prev, [id]: offset }))}
+              />
+            </>
           ) : (
             <UniverseViewer
               currentTimestamp={timeState.currentTimestamp}
@@ -255,6 +277,7 @@ export default function App() {
               magLimit={magLimit}
               strictPhysics={strictPhysics}
               setStrictPhysics={setStrictPhysics}
+              textureOffsets={textureOffsets}
             />
           )}
         </div>
@@ -271,6 +294,8 @@ export default function App() {
               landed={landed}
               onToggleLanding={handleToggleLanding}
               isLandable={LANDABLE_PLANETS.includes(selectedPlanetId)}
+              textureOffset={textureOffsets[selectedPlanetId] ?? { u: 0, v: 0 }}
+              onChangeTextureOffset={(offset) => setTextureOffsets(prev => ({ ...prev, [selectedPlanetId]: offset }))}
             />
           </div>
         )}
