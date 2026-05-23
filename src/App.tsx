@@ -47,6 +47,7 @@ export default function App() {
   // 国定星空星座辅助标记开关
   const [showConstellLines, setShowConstellLines] = useState<boolean>(true);
   const [showStarNames, setShowStarNames] = useState<boolean>(true);
+  const [showConstellNames, setShowConstellNames] = useState<boolean>(true);
   const [magLimit, setMagLimit] = useState<number>(5.5);
 
   // 行星/卫星名称标签开关
@@ -176,6 +177,8 @@ export default function App() {
           onToggleConstellLines={setShowConstellLines}
           showStarNames={showStarNames}
           onToggleStarNames={setShowStarNames}
+          showConstellNames={showConstellNames}
+          onToggleConstellNames={setShowConstellNames}
           magLimit={magLimit}
           onChangeMagLimit={setMagLimit}
           telescopeActive={telescopeActive}
@@ -236,6 +239,7 @@ export default function App() {
               lang={lang}
               showConstellLines={showConstellLines}
               showStarNames={showStarNames}
+              showConstellNames={showConstellNames}
               magLimit={magLimit}
               telescopeActive={telescopeActive}
               onTelescopeChange={setTelescopeActive}

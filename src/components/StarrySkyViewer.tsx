@@ -12,6 +12,12 @@ import { AstrophenomenaEngine } from '../engine/AstrophenomenaEngine';
 import { ObserverEngine } from '../engine/ObserverEngine';
 import { translations } from '../i18n';
 import { STAR_LIST, CONSTELLATIONS, BRIGHT_STAR_COUNT, DetailedStar } from '../engine/StarDatabase';
+import { EXTRA_STARS, EXTRA_CONSTELLATIONS } from '../engine/ExtraStarsDatabase';
+
+// 建立 star id 到 star 数据的统一映射（用于 EXTRA_CONSTELLATIONS 连线查找）
+const ALL_STARS_MAP = new Map<number, DetailedStar>();
+STAR_LIST.forEach(s => ALL_STARS_MAP.set(s.id, s));
+EXTRA_STARS.forEach(s => ALL_STARS_MAP.set(s.id, s));
 import { loadHipparcosCatalog, bvToRgb } from '../engine/HipparcosLoader';
 import TelescopeOverlay from './TelescopeOverlay';
 
@@ -456,9 +462,12 @@ export default function StarrySkyViewer({
   const constellLinesRef = useRef<THREE.LineSegments | null>(null);
   const constellLabelGroupRef = useRef<THREE.Group | null>(null);
   const constellLabelSpritesRef = useRef<THREE.Sprite[]>([]);
+  const extraConstellLabelGroupRef = useRef<THREE.Group | null>(null);
+  const extraConstellLabelSpritesRef = useRef<THREE.Sprite[]>([]);
 
   // 10,000星和行星渲染引用
   const starSpritesRef = useRef<THREE.Sprite[]>([]);
+  const extraStarSpritesRef = useRef<THREE.Sprite[]>([]);
   const planetSpritesRef = useRef<Record<string, THREE.Sprite>>({});
   const backgroundPointsRef = useRef<THREE.Points | null>(null);
 
@@ -616,6 +625,17 @@ export default function StarrySkyViewer({
       mat.needsUpdate = true;
       sprite.scale.set(width * 0.06, height * 0.06, 1);
     });
+    extraConstellLabelSpritesRef.current.forEach((sprite, idx) => {
+      const c = EXTRA_CONSTELLATIONS[idx];
+      if (!c) return;
+      const labelName = lang === 'zh' ? c.nameZh : c.nameEn;
+      const { texture, width, height } = createConstellationLabelTexture(labelName);
+      const mat = sprite.material as THREE.SpriteMaterial;
+      if (mat.map) mat.map.dispose();
+      mat.map = texture;
+      mat.needsUpdate = true;
+      sprite.scale.set(width * 0.06, height * 0.06, 1);
+    });
   }, [lang]);
 
   useEffect(() => {
@@ -679,6 +699,8 @@ export default function StarrySkyViewer({
     lunarEclipse: boolean;
   } | null>(null);
 
+  const [compassHeading, setCompassHeading] = useState<number>(0); // 0=北, 顺时针
+
   const isZh = lang === 'zh';
 
   useEffect(() => {
@@ -725,7 +747,10 @@ export default function StarrySkyViewer({
       e.stopPropagation();
       if (!cameraRef.current) return;
       const cam = cameraRef.current;
-      const newFov = Math.max(3.0, Math.min(65.0, cam.fov + e.deltaY * 0.04));
+      const mag = 65 / cam.fov;
+      const zoomFactor = e.deltaY > 0 ? 1.1 : 1 / 1.1;
+      const newMag = Math.max(1, Math.min(216.7, mag * zoomFactor));
+      const newFov = 65 / newMag;
       cam.fov = newFov;
       cam.updateProjectionMatrix();
       fovRef.current = newFov;
@@ -807,6 +832,34 @@ export default function StarrySkyViewer({
       starSprites.push(sprite);
     });
     starSpritesRef.current = starSprites;
+
+    // A2. 额外星座恒星 Sprite 创建 (ExtraStarsDatabase)
+    const extraStarSprites: THREE.Sprite[] = [];
+    EXTRA_STARS.forEach(star => {
+      const baseScale = Math.max(0.6, (5.0 - star.mag) * 0.9);
+      const mat = new THREE.SpriteMaterial({
+        map: brightStarTex,
+        color: new THREE.Color(star.color),
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.set(baseScale, baseScale, 1.0);
+      sprite.userData = {
+        id: star.id,
+        name: star.nameKey,
+        ra: star.ra,
+        dec: star.dec,
+        mag: star.mag,
+        radius: 285,
+        type: 'extraStar',
+        starData: star
+      };
+      starsGroup.add(sprite);
+      extraStarSprites.push(sprite);
+    });
+    extraStarSpritesRef.current = extraStarSprites;
 
     // B. 4大行星 Sprite 创建
     const planetSprites: Record<string, THREE.Sprite> = {};
@@ -909,6 +962,21 @@ export default function StarrySkyViewer({
     });
     constellLabelSpritesRef.current = labelSprites;
 
+    // EXTRA_CONSTELLATIONS 名称标签
+    const extraLabelGroup = new THREE.Group();
+    starsGroup.add(extraLabelGroup);
+    extraConstellLabelGroupRef.current = extraLabelGroup;
+    const extraLabelSprites: THREE.Sprite[] = [];
+    EXTRA_CONSTELLATIONS.forEach((c) => {
+      const labelName = langRef.current === 'zh' ? c.nameZh : c.nameEn;
+      const sprite = createConstellationLabelSprite(labelName);
+      sprite.visible = false;
+      sprite.userData = { constellId: c.id, nameZh: c.nameZh, nameEn: c.nameEn };
+      extraLabelGroup.add(sprite);
+      extraLabelSprites.push(sprite);
+    });
+    extraConstellLabelSpritesRef.current = extraLabelSprites;
+
     // 7. 太阳系两大顶流 (Sun 及 Moon) 在天幕投影
     const sunGeom = new THREE.SphereGeometry(9.5, 32, 32);
     const sunMat = new THREE.MeshBasicMaterial({ color: 0xfffefa });
@@ -981,6 +1049,7 @@ export default function StarrySkyViewer({
 
       const allTargets: Array<THREE.Sprite | THREE.Mesh> = [
         ...starSpritesRef.current.filter(s => s.visible),
+        ...extraStarSpritesRef.current.filter(s => s.visible),
         ...(Object.values(planetSpritesRef.current) as THREE.Sprite[]).filter(s => s.visible),
         ...(sunSkyRef.current?.visible ? [sunSkyRef.current] : []),
         ...(moonSkyRef.current?.visible ? [moonSkyRef.current] : []),
@@ -1021,6 +1090,9 @@ export default function StarrySkyViewer({
 
       const targets: THREE.Object3D[] = [];
       starSpritesRef.current.forEach(sprite => {
+        if (sprite.visible) targets.push(sprite);
+      });
+      extraStarSpritesRef.current.forEach(sprite => {
         if (sprite.visible) targets.push(sprite);
       });
       (Object.values(planetSpritesRef.current) as THREE.Sprite[]).forEach(sprite => {
@@ -1088,15 +1160,16 @@ export default function StarrySkyViewer({
             extraZh: '地心距离: ' + distAU.toFixed(3) + ' AU | 仰角: ' + alt.toFixed(1) + '°',
             extraEn: 'Geocentric Dist: ' + distAU.toFixed(3) + ' AU | Alt: ' + alt.toFixed(1) + '°'
           });
-        } else if (hit.userData.type === 'star') {
+        } else if (hit.userData.type === 'star' || hit.userData.type === 'extraStar') {
           const starData = hit.userData.starData;
           const { info } = getStarInfo(starData, langRef.current);
+          const isExtra = hit.userData.type === 'extraStar';
           setHoveredCelestial({
             id: 'star-' + starData.id,
             nameZh: starData.nameZh,
             nameEn: starData.nameEn,
-            typeZh: '亮恒星精选 / ' + starData.constellZh,
-            typeEn: 'Bright Star / ' + starData.constellEn,
+            typeZh: (isExtra ? '恒星 / ' : '亮恒星精选 / ') + starData.constellZh,
+            typeEn: (isExtra ? 'Star / ' : 'Bright Star / ') + starData.constellEn,
             infoZh: info,
             infoEn: info,
             extraZh: '视星等: ' + starData.mag + ' | 赤经: ' + starData.ra.toFixed(1) + 'h | 赤纬: ' + starData.dec + '°',
@@ -1151,6 +1224,9 @@ export default function StarrySkyViewer({
 
       const targets: THREE.Object3D[] = [];
       starSpritesRef.current.forEach(sprite => {
+        if (sprite.visible) targets.push(sprite);
+      });
+      extraStarSpritesRef.current.forEach(sprite => {
         if (sprite.visible) targets.push(sprite);
       });
       (Object.values(planetSpritesRef.current) as THREE.Sprite[]).forEach(sprite => {
@@ -1235,15 +1311,16 @@ export default function StarrySkyViewer({
             extraDetailsZh: '地心距离: ' + distAU.toFixed(3) + ' AU | 仰角: ' + alt.toFixed(1) + '° | 方位: ' + az.toFixed(1) + '°',
             extraDetailsEn: 'Geocentric Dist: ' + distAU.toFixed(3) + ' AU | Alt: ' + alt.toFixed(1) + '° | Az: ' + az.toFixed(1) + '°'
           });
-        } else if (hit.userData.type === 'star') {
+        } else if (hit.userData.type === 'star' || hit.userData.type === 'extraStar') {
           const starData = hit.userData.starData;
           const { info, expanded } = getStarInfo(starData, langRef.current);
+          const isExtra = hit.userData.type === 'extraStar';
           setSelectedCelestial({
             id: 'star-' + starData.id,
             nameZh: starData.nameZh,
-            nameEn: starData.nameEn + ' (' + starData.nameEn + ')',
-            typeZh: '夜空亮星精选 / ' + starData.constellZh,
-            typeEn: 'Bright Star / ' + starData.constellEn,
+            nameEn: starData.nameEn + (isExtra ? '' : ' (' + starData.nameEn + ')'),
+            typeZh: (isExtra ? '恒星 / ' : '夜空亮星精选 / ') + starData.constellZh,
+            typeEn: (isExtra ? 'Star / ' : 'Bright Star / ') + starData.constellEn,
             mag: starData.mag,
             ra: starData.ra,
             dec: starData.dec,
@@ -1466,6 +1543,33 @@ export default function StarrySkyViewer({
       sprite.visible = visible && baseOpacity > 0.02 && isVisibleMag;
     });
 
+    // D2. 额外星座恒星地平线截断及低空大气消光计算
+    extraStarSpritesRef.current.forEach(sprite => {
+      const ra = sprite.userData.ra;
+      const dec = sprite.userData.dec;
+      const starCoords = getHorizontalCoordinates(ra, dec, lst, latitude);
+
+      let baseOpacity = 0;
+      let visible = false;
+
+      if (starCoords.alt > 0) {
+        visible = true;
+        let extinction = 1.0;
+        if (starCoords.alt < 12) {
+          extinction = Math.sin(starCoords.alt * Math.PI / 180.0) / Math.sin(12.0 * Math.PI / 180.0);
+        }
+        baseOpacity = (1.0 - skyBrightness) * extinction;
+      }
+
+      sprite.userData.az = starCoords.az;
+      sprite.userData.alt = starCoords.alt;
+      sprite.userData.baseOpacity = baseOpacity;
+
+      const mag = sprite.userData.mag;
+      const isVisibleMag = mag <= magLimit;
+      sprite.visible = visible && baseOpacity > 0.02 && isVisibleMag;
+    });
+
     // E. 行星视位置（多参考系）
     const planetInfos = ObserverEngine.getPlanetsInSky(ctx, days);
     const planetInfoMap = new Map(planetInfos.map(p => [p.id, p]));
@@ -1509,10 +1613,11 @@ export default function StarrySkyViewer({
       }
     });
 
-    // F. 星座连线三维天穹投影更新
+    // F. 星座连线三维天穹投影更新（含 EXTRA_CONSTELLATIONS）
     if (constellLinesRef.current) {
       const linePoints: THREE.Vector3[] = [];
       if (showConstellLines) {
+        // 原始亮星星座连线
         CONSTELLATIONS.forEach(constell => {
           for (let j = 0; j < constell.seq.length; j++) {
             const pair = constell.seq[j];
@@ -1522,10 +1627,30 @@ export default function StarrySkyViewer({
               if (starA.mag <= magLimit && starB.mag <= magLimit) {
                 const hA = getHorizontalCoordinates(starA.ra, starA.dec, lst, latitude);
                 const hB = getHorizontalCoordinates(starB.ra, starB.dec, lst, latitude);
-                
+
                 if (hA.alt > 0 && hB.alt > 0) {
-                  const posA = get3DPositionOnDome(hA.az, hA.alt, 283); 
-                  const posB = get3DPositionOnDome(hB.az, hB.alt, 283); 
+                  const posA = get3DPositionOnDome(hA.az, hA.alt, 283);
+                  const posB = get3DPositionOnDome(hB.az, hB.alt, 283);
+                  linePoints.push(posA, posB);
+                }
+              }
+            }
+          }
+        });
+        // 额外88星座连线（使用 star id 查找）
+        EXTRA_CONSTELLATIONS.forEach(constell => {
+          for (let j = 0; j < constell.seq.length; j++) {
+            const pair = constell.seq[j];
+            const starA = ALL_STARS_MAP.get(pair[0]);
+            const starB = ALL_STARS_MAP.get(pair[1]);
+            if (starA && starB) {
+              if (starA.mag <= magLimit && starB.mag <= magLimit) {
+                const hA = getHorizontalCoordinates(starA.ra, starA.dec, lst, latitude);
+                const hB = getHorizontalCoordinates(starB.ra, starB.dec, lst, latitude);
+
+                if (hA.alt > 0 && hB.alt > 0) {
+                  const posA = get3DPositionOnDome(hA.az, hA.alt, 283);
+                  const posB = get3DPositionOnDome(hB.az, hB.alt, 283);
                   linePoints.push(posA, posB);
                 }
               }
@@ -1542,7 +1667,7 @@ export default function StarrySkyViewer({
       constellLinesRef.current.visible = showConstellLines && linePoints.length > 0;
     }
 
-    // G. 星座名称标签位置更新
+    // G. 星座名称标签位置更新 (原始星座)
     if (constellLabelSpritesRef.current.length > 0) {
       constellLabelSpritesRef.current.forEach((sprite, idx) => {
         const constell = CONSTELLATIONS[idx];
@@ -1555,6 +1680,40 @@ export default function StarrySkyViewer({
         let sumAz = 0, sumAlt = 0, visibleCount = 0;
         uniqueStarIndices.forEach(starIdx => {
           const star = STAR_LIST[starIdx];
+          if (!star || star.mag > magLimit) return;
+          const h = getHorizontalCoordinates(star.ra, star.dec, lst, latitude);
+          if (h.alt > 0) {
+            sumAz += h.az;
+            sumAlt += h.alt;
+            visibleCount++;
+          }
+        });
+        if (visibleCount >= 2) {
+          const avgAz = sumAz / visibleCount;
+          const avgAlt = sumAlt / visibleCount;
+          const pos = get3DPositionOnDome(avgAz, avgAlt, 288);
+          sprite.position.copy(pos);
+          sprite.visible = showConstellNames;
+          sprite.material.opacity = 0.7 * Math.max(0, 1 - skyBrightness);
+        } else {
+          sprite.visible = false;
+        }
+      });
+    }
+
+    // G2. EXTRA_CONSTELLATIONS 名称标签位置更新
+    if (extraConstellLabelSpritesRef.current.length > 0) {
+      extraConstellLabelSpritesRef.current.forEach((sprite, idx) => {
+        const constell = EXTRA_CONSTELLATIONS[idx];
+        if (!constell) return;
+        const uniqueStarIds = new Set<number>();
+        constell.seq.forEach(pair => {
+          uniqueStarIds.add(pair[0]);
+          uniqueStarIds.add(pair[1]);
+        });
+        let sumAz = 0, sumAlt = 0, visibleCount = 0;
+        uniqueStarIds.forEach(starId => {
+          const star = ALL_STARS_MAP.get(starId);
           if (!star || star.mag > magLimit) return;
           const h = getHorizontalCoordinates(star.ra, star.dec, lst, latitude);
           if (h.alt > 0) {
@@ -1607,6 +1766,13 @@ export default function StarrySkyViewer({
           controlsRef.current.rotateSpeed = -0.4 * (fovRef.current / 65.0);
         }
 
+        // 实时计算方位角航向 (Azimuth heading)
+        const dir = new THREE.Vector3();
+        cameraRef.current.getWorldDirection(dir);
+        // 坐标系: Z指向北, X指向东
+        const heading = (Math.atan2(dir.x, -dir.z) * 180 / Math.PI + 360) % 360;
+        setCompassHeading(heading);
+
         // 1. 夜间月光平行光强度强力锁定
         if (lightRef.current) {
           const sunAlt = sunAltRef.current;
@@ -1618,16 +1784,34 @@ export default function StarrySkyViewer({
           }
         }
 
-        // 2. 亮恒星位置与透明度更新（无闪烁/抖动）
+        // 2. 亮恒星位置与透明度更新（无闪烁/抖动），视星等亮度加权
         starSpritesRef.current.forEach((sprite) => {
           if (sprite.visible) {
             const az = sprite.userData.az;
             const alt = sprite.userData.alt;
             const radius = sprite.userData.radius;
             const baseOpacity = sprite.userData.baseOpacity ?? 1.0;
+            const mag = sprite.userData.mag ?? 5.0;
+            // 视星等亮度因子: 1等星最亮，每增1等亮度约1/2.512
+            const magFactor = Math.max(0.06, Math.min(1.0, Math.pow(2.512, -(mag - 1.0)) * 2.5));
             const pos = get3DPositionOnDome(az, alt, radius);
             sprite.position.copy(pos);
-            sprite.material.opacity = baseOpacity;
+            sprite.material.opacity = baseOpacity * magFactor;
+          }
+        });
+
+        // 2b. 额外星座恒星位置与透明度更新
+        extraStarSpritesRef.current.forEach((sprite) => {
+          if (sprite.visible) {
+            const az = sprite.userData.az;
+            const alt = sprite.userData.alt;
+            const radius = sprite.userData.radius;
+            const baseOpacity = sprite.userData.baseOpacity ?? 1.0;
+            const mag = sprite.userData.mag ?? 5.0;
+            const magFactor = Math.max(0.06, Math.min(1.0, Math.pow(2.512, -(mag - 1.0)) * 2.5));
+            const pos = get3DPositionOnDome(az, alt, radius);
+            sprite.position.copy(pos);
+            sprite.material.opacity = baseOpacity * magFactor;
           }
         });
 
@@ -1779,15 +1963,24 @@ export default function StarrySkyViewer({
         </svg>
       )}
 
-      {/* 方位角指示器 */}
-      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-slate-950/85 px-4 py-2 border border-slate-800/80 rounded-full flex items-center space-x-6 text-[11px] font-mono pointer-events-none select-none z-10 shadow-lg">
-        <span className="text-emerald-400 font-bold">N 正北 (0°)</span>
+      {/* 方位角指示器 — 实时航向 */}
+      <div className={`absolute top-4 left-1/2 transform -translate-x-1/2 bg-slate-950/85 px-5 py-2 border border-slate-800/80 rounded-full flex items-center space-x-4 text-[11px] font-mono pointer-events-none select-none shadow-lg ${telescopeActive ? 'z-[35]' : 'z-10'}`}>
+        <span className={`font-bold transition-colors ${Math.abs(compassHeading) < 15 || Math.abs(compassHeading - 360) < 15 ? 'text-emerald-400' : 'text-slate-400'}`}>N</span>
         <span className="text-slate-500">|</span>
-        <span className="text-slate-300">E 正东 (90°)</span>
+        <span className="text-cyan-300 font-bold text-sm min-w-[3ch] text-center">{compassHeading.toFixed(0)}°</span>
+        <span className="text-slate-500 text-[10px]">{
+          (() => {
+            const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+            const idx = Math.round(compassHeading / 22.5) % 16;
+            return dirs[idx];
+          })()
+        }</span>
         <span className="text-slate-500">|</span>
-        <span className="text-slate-300">S 正南 (180°)</span>
+        <span className={`font-bold transition-colors ${Math.abs(compassHeading - 90) < 15 ? 'text-emerald-400' : 'text-slate-400'}`}>E</span>
         <span className="text-slate-500">|</span>
-        <span className="text-slate-300">W 正西 (270°)</span>
+        <span className={`font-bold transition-colors ${Math.abs(compassHeading - 180) < 15 ? 'text-emerald-400' : 'text-slate-400'}`}>S</span>
+        <span className="text-slate-500">|</span>
+        <span className={`font-bold transition-colors ${Math.abs(compassHeading - 270) < 15 ? 'text-emerald-400' : 'text-slate-400'}`}>W</span>
       </div>
 
       {/* 右上角：望远镜快速切换按钮 */}
@@ -1934,8 +2127,8 @@ export default function StarrySkyViewer({
 
       {/* 选定星体详细物理与神话传说卡片 */}
       {selectedCelestial && (
-        <div 
-          className="absolute top-16 left-5 w-80 max-h-[80vh] overflow-y-auto bg-slate-950/95 border border-indigo-500/30 backdrop-blur-md rounded-xl p-4 text-slate-200 z-20 flex flex-col space-y-3.5 shadow-[0_12px_40px_rgba(0,0,0,0.85)] font-sans animate-in slide-in-from-left-6 duration-300"
+        <div
+          className="absolute top-16 right-5 w-80 max-h-[80vh] overflow-y-auto bg-slate-950/95 border border-indigo-500/30 backdrop-blur-md rounded-xl p-4 text-slate-200 z-[35] flex flex-col space-y-3.5 shadow-[0_12px_40px_rgba(0,0,0,0.85)] font-sans animate-in slide-in-from-right-6 duration-300"
           id="starry-sky-celestial-detail-card"
         >
           {/* 顶栏 */}
@@ -2032,6 +2225,7 @@ export default function StarrySkyViewer({
             (window as any).__starrySkySetFov(fov);
           }
         }}
+        onClose={() => onTelescopeChange?.(false)}
         lang={lang}
       />
     </div>

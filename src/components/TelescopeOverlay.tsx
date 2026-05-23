@@ -6,6 +6,7 @@ interface TelescopeOverlayProps {
   active: boolean;
   currentFov: number;
   onFovChange: (fov: number) => void;
+  onClose?: () => void;
   lang: 'zh' | 'en';
 }
 
@@ -189,12 +190,263 @@ function Crosshair({ size }: CrosshairProps) {
   );
 }
 
+// ─── Zoom Dial (circular magnification ring) ─────────────────────────────────
+
+interface ZoomDialProps {
+  cx: number;
+  cy: number;
+  radius: number;
+  currentFov: number;
+  onFovChange: (fov: number) => void;
+  lang: 'zh' | 'en';
+}
+
+const DIAL_CONFIG = {
+  arcStart: 210,
+  arcSpan: 240,
+  innerRadiusRatio: 0.92,
+  tickCount: 48,
+  majorTickStep: 3,
+};
+
+function ZoomDial({ cx, cy, radius: dialOuterR, currentFov, onFovChange, lang }: ZoomDialProps) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [hoveredPreset, setHoveredPreset] = useState<string | null>(null);
+  const dialRef = useRef<SVGGElement>(null);
+  const isDraggingRef = useRef(false);
+  const dragStateRef = useRef({ startT: 0, lastAngle: 0, totalDelta: 0 });
+
+  const { arcStart, arcSpan, innerRadiusRatio } = DIAL_CONFIG;
+  const dialR = dialOuterR * innerRadiusRatio;
+  const currentT = fovToSlider(currentFov);
+  const indicatorAngleDeg = arcStart - currentT * arcSpan;
+
+  const degToRad = (deg: number) => (deg * Math.PI) / 180;
+  const pt = (r: number, deg: number) => ({
+    x: cx + r * Math.cos(degToRad(deg)),
+    y: cy + r * Math.sin(degToRad(deg)),
+  });
+
+  const getAngleFromScreen = (clientX: number, clientY: number): number => {
+    const rect = dialRef.current?.ownerSVGElement?.getBoundingClientRect();
+    if (!rect) return 0;
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    let deg = (Math.atan2(clientY - centerY, clientX - centerX) * 180) / Math.PI;
+    return ((deg % 360) + 360) % 360;
+  };
+
+  useEffect(() => {
+    isDraggingRef.current = isDragging;
+  }, [isDragging]);
+
+  useEffect(() => {
+    const handleMove = (e: PointerEvent) => {
+      if (!isDraggingRef.current) return;
+      const angle = getAngleFromScreen(e.clientX, e.clientY);
+      let delta = angle - dragStateRef.current.lastAngle;
+      while (delta > 180) delta -= 360;
+      while (delta < -180) delta += 360;
+      dragStateRef.current.totalDelta += delta;
+      dragStateRef.current.lastAngle = angle;
+
+      const deltaT = -dragStateRef.current.totalDelta / arcSpan;
+      const newT = Math.max(0, Math.min(1, dragStateRef.current.startT + deltaT));
+      onFovChange(parseFloat(sliderToFov(newT).toFixed(3)));
+    };
+
+    const handleUp = () => {
+      setIsDragging(false);
+      isDraggingRef.current = false;
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+  }, [onFovChange, arcSpan]);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const angle = getAngleFromScreen(e.clientX, e.clientY);
+    dragStateRef.current = { startT: currentT, lastAngle: angle, totalDelta: 0 };
+    setIsDragging(true);
+    isDraggingRef.current = true;
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const mag = 65 / currentFov;
+    const zoomFactor = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+    const newMag = Math.max(1, Math.min(216.7, mag * zoomFactor));
+    const newFov = 65 / newMag;
+    onFovChange(parseFloat(newFov.toFixed(3)));
+  };
+
+  const handlePresetClick = (preset: TelescopePreset) => {
+    onFovChange(preset.fov);
+  };
+
+  const startPt = pt(dialR, arcStart);
+  const endPt = pt(dialR, arcStart - arcSpan);
+  const arcPath = `M ${startPt.x.toFixed(1)} ${startPt.y.toFixed(1)} A ${dialR.toFixed(1)} ${dialR.toFixed(1)} 0 1 0 ${endPt.x.toFixed(1)} ${endPt.y.toFixed(1)}`;
+
+  const activePresetIdx = findActivePresetIndex(currentFov);
+  const activePreset = activePresetIdx >= 0 ? TELESCOPE_PRESETS[activePresetIdx] : null;
+
+  return (
+    <g
+      ref={dialRef}
+      onPointerDown={handlePointerDown}
+      onWheel={handleWheel}
+      style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+    >
+      <circle cx={cx} cy={cy} r={dialR} fill="none" stroke="transparent" strokeWidth={30} />
+      <path d={arcPath} fill="none" stroke="rgba(6,182,212,0.12)" strokeWidth={1.5} />
+
+      {Array.from({ length: DIAL_CONFIG.tickCount + 1 }, (_, i) => {
+        const t = i / DIAL_CONFIG.tickCount;
+        const angle = arcStart - t * arcSpan;
+        const isMajor = i % DIAL_CONFIG.majorTickStep === 0;
+        const len = isMajor ? 8 : 5;
+        const p1 = pt(dialR, angle);
+        const p2 = pt(dialR - len, angle);
+        return (
+          <line
+            key={i}
+            x1={p1.x}
+            y1={p1.y}
+            x2={p2.x}
+            y2={p2.y}
+            stroke={isMajor ? 'rgba(6,182,212,0.35)' : 'rgba(6,182,212,0.15)'}
+            strokeWidth={isMajor ? 1.2 : 0.8}
+          />
+        );
+      })}
+
+      {TELESCOPE_PRESETS.map((preset) => {
+        const t = fovToSlider(preset.fov);
+        const angle = arcStart - t * arcSpan;
+        const isActive = activePreset?.id === preset.id;
+        const isHovered = hoveredPreset === preset.id;
+        const pMark = pt(dialR, angle);
+        const pLabel = pt(dialR - 22, angle);
+        const pSub = pt(dialR - 32, angle);
+        const pTickEnd = pt(dialR - 12, angle);
+
+        return (
+          <g
+            key={preset.id}
+            onClick={() => handlePresetClick(preset)}
+            onMouseEnter={() => setHoveredPreset(preset.id)}
+            onMouseLeave={() => setHoveredPreset(null)}
+            style={{ cursor: 'pointer' }}
+          >
+            {(isActive || isHovered) && (
+              <circle
+                cx={pMark.x}
+                cy={pMark.y}
+                r={5}
+                fill="none"
+                stroke={isActive ? 'rgba(6,182,212,0.6)' : 'rgba(6,182,212,0.3)'}
+                strokeWidth={1.5}
+              />
+            )}
+            <line
+              x1={pMark.x}
+              y1={pMark.y}
+              x2={pTickEnd.x}
+              y2={pTickEnd.y}
+              stroke={isActive ? 'rgba(6,182,212,0.9)' : 'rgba(6,182,212,0.5)'}
+              strokeWidth={isActive ? 2 : 1.2}
+            />
+            <text
+              x={pLabel.x}
+              y={pLabel.y}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fill={isActive ? 'rgba(6,182,212,1)' : isHovered ? 'rgba(6,182,212,0.75)' : 'rgba(6,182,212,0.45)'}
+              fontSize={isActive ? 12 : 10}
+              fontFamily="JetBrains Mono, monospace"
+              fontWeight={isActive ? 700 : 500}
+              style={{ transition: 'all 0.2s ease', pointerEvents: 'none' }}
+            >
+              {preset.magnification}×
+            </text>
+            <text
+              x={pSub.x}
+              y={pSub.y + 10}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fill={isActive ? 'rgba(6,182,212,0.55)' : 'rgba(6,182,212,0.25)'}
+              fontSize={7}
+              fontFamily="JetBrains Mono, monospace"
+              style={{ pointerEvents: 'none' }}
+            >
+              {preset.fov >= 1 ? `${preset.fov}°` : `${(preset.fov * 60).toFixed(0)}′`}
+            </text>
+          </g>
+        );
+      })}
+
+      {(() => {
+        const s = pt(dialR, arcStart);
+        const e = pt(dialR, indicatorAngleDeg);
+        const diff = ((indicatorAngleDeg - arcStart) % 360 + 360) % 360;
+        const largeArc = diff > 180 ? 1 : 0;
+        return (
+          <path
+            d={`M ${s.x.toFixed(1)} ${s.y.toFixed(1)} A ${dialR.toFixed(1)} ${dialR.toFixed(1)} 0 ${largeArc} 1 ${e.x.toFixed(1)} ${e.y.toFixed(1)}`}
+            fill="none"
+            stroke="rgba(6,182,212,0.2)"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            style={{ filter: 'drop-shadow(0 0 6px rgba(6,182,212,0.35))' }}
+          />
+        );
+      })()}
+
+      {(() => {
+        const p = pt(dialR, indicatorAngleDeg);
+        const rad = degToRad(indicatorAngleDeg);
+        const size = isDragging ? 9 : 6;
+        const p1 = { x: p.x + size * Math.cos(rad), y: p.y + size * Math.sin(rad) };
+        const p2 = { x: p.x + size * 0.4 * Math.cos(rad + Math.PI / 2), y: p.y + size * 0.4 * Math.sin(rad + Math.PI / 2) };
+        const p3 = { x: p.x + size * 0.4 * Math.cos(rad - Math.PI / 2), y: p.y + size * 0.4 * Math.sin(rad - Math.PI / 2) };
+        return (
+          <polygon
+            points={`${p1.x.toFixed(1)},${p1.y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)} ${p3.x.toFixed(1)},${p3.y.toFixed(1)}`}
+            fill="rgba(6,182,212,0.95)"
+            style={{ filter: 'drop-shadow(0 0 5px rgba(6,182,212,0.9))', transition: 'all 0.15s ease' }}
+          />
+        );
+      })()}
+
+      <text
+        x={cx}
+        y={cy + dialOuterR * 0.68}
+        textAnchor="middle"
+        fill="rgba(6,182,212,0.2)"
+        fontSize={9}
+        fontFamily="JetBrains Mono, monospace"
+        style={{ pointerEvents: 'none' }}
+      >
+        {lang === 'zh' ? '拖拽或滚轮缩放' : 'Drag or scroll to zoom'}
+      </text>
+    </g>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function TelescopeOverlay({
   active,
   currentFov,
   onFovChange,
+  onClose,
   lang,
 }: TelescopeOverlayProps) {
   const [vpSize, setVpSize] = useState({ w: window.innerWidth, h: window.innerHeight });
@@ -221,24 +473,14 @@ export default function TelescopeOverlay({
     [onFovChange]
   );
 
-  const handleSliderChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const t = parseFloat(e.target.value);
-      onFovChange(parseFloat(sliderToFov(t).toFixed(2)));
-    },
-    [onFovChange]
-  );
-
   if (!active) return null;
 
   const { w, h } = vpSize;
-  const radius = Math.min(w, h) * 0.42;
+  const radius = Math.min(w, h) * 0.38;
   const diameter = radius * 2;
 
   const activePresetIdx = findActivePresetIndex(currentFov);
   const activePreset = activePresetIdx >= 0 ? TELESCOPE_PRESETS[activePresetIdx] : null;
-
-  const sliderVal = fovToSlider(currentFov);
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
@@ -316,6 +558,74 @@ export default function TelescopeOverlay({
       {/* ── Crosshair reticle ── */}
       <Crosshair size={diameter} />
 
+      {/* ── Zoom Dial ── */}
+      <svg
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          overflow: 'visible',
+          zIndex: 31,
+        }}
+      >
+        <ZoomDial
+          cx={w / 2}
+          cy={h / 2}
+          radius={radius}
+          currentFov={currentFov}
+          onFovChange={onFovChange}
+          lang={lang}
+        />
+      </svg>
+
+      {/* ── Close button — top-right of eyepiece ── */}
+      {onClose && (
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            top: `calc(50% - ${radius * 0.95}px)`,
+            right: `calc(50% - ${radius * 0.75}px)`,
+            zIndex: 32,
+            pointerEvents: 'auto',
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            background: 'rgba(2,6,23,0.85)',
+            border: '1px solid rgba(6,182,212,0.35)',
+            color: 'rgba(6,182,212,0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            fontSize: 16,
+            fontWeight: 700,
+            lineHeight: 1,
+            padding: 0,
+            backdropFilter: 'blur(8px)',
+          }}
+          onMouseEnter={(e) => {
+            const btn = e.currentTarget;
+            btn.style.borderColor = 'rgba(6,182,212,0.7)';
+            btn.style.color = 'rgba(6,182,212,1)';
+            btn.style.boxShadow = '0 0 12px rgba(6,182,212,0.4)';
+          }}
+          onMouseLeave={(e) => {
+            const btn = e.currentTarget;
+            btn.style.borderColor = 'rgba(6,182,212,0.35)';
+            btn.style.color = 'rgba(6,182,212,0.85)';
+            btn.style.boxShadow = 'none';
+          }}
+          title={lang === 'zh' ? '退出望远镜' : 'Exit Telescope'}
+        >
+          ✕
+        </button>
+      )}
+
       {/* ── FOV label inside eyepiece (top) ── */}
       <div
         style={{
@@ -380,365 +690,6 @@ export default function TelescopeOverlay({
         </span>
       </div>
 
-      {/* ══════════════════════════════════════════════════════
-           CONTROL PANEL — pointer-events-auto
-         ══════════════════════════════════════════════════════ */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 28,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          pointerEvents: 'auto',
-          minWidth: 420,
-          maxWidth: '95vw',
-        }}
-      >
-        <div
-          style={{
-            background: 'rgba(2,6,23,0.92)',
-            border: '1px solid rgba(6,182,212,0.22)',
-            borderRadius: 16,
-            backdropFilter: 'blur(18px)',
-            WebkitBackdropFilter: 'blur(18px)',
-            padding: '16px 20px 14px',
-            boxShadow:
-              '0 8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(6,182,212,0.08), inset 0 1px 0 rgba(255,255,255,0.04)',
-          }}
-        >
-          {/* Header row */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'baseline',
-              justifyContent: 'space-between',
-              marginBottom: 12,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {/* Telescope icon */}
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M3 7l4-2 10 5-4 2L3 7z"
-                  stroke="rgba(6,182,212,0.8)"
-                  strokeWidth="1.5"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M13 10l3 6"
-                  stroke="rgba(6,182,212,0.8)"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M10 11.5l3 6"
-                  stroke="rgba(6,182,212,0.5)"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-                <circle cx="20" cy="6" r="1.5" fill="rgba(6,182,212,0.6)" />
-              </svg>
-              <span
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: 'rgba(6,182,212,0.90)',
-                  letterSpacing: '0.12em',
-                  textTransform: 'uppercase',
-                  fontFamily: 'monospace',
-                }}
-              >
-                {lang === 'zh' ? '望远镜模式' : 'Telescope Mode'}
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-              <span
-                style={{
-                  fontSize: 11,
-                  color: 'rgba(148,163,184,0.6)',
-                  fontFamily: 'monospace',
-                }}
-              >
-                {activePreset
-                  ? lang === 'zh'
-                    ? activePreset.descZh
-                    : activePreset.descEn
-                  : lang === 'zh'
-                  ? '自定义'
-                  : 'Custom'}
-              </span>
-              <span
-                style={{
-                  fontSize: 18,
-                  fontWeight: 800,
-                  color: 'rgba(6,182,212,1)',
-                  fontFamily: 'monospace',
-                  lineHeight: 1.1,
-                }}
-              >
-                {activePreset
-                  ? lang === 'zh'
-                    ? activePreset.labelZh
-                    : activePreset.labelEn
-                  : `${(65 / currentFov).toFixed(0)}×`}
-              </span>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div
-            style={{
-              height: 1,
-              background:
-                'linear-gradient(90deg, transparent, rgba(6,182,212,0.25) 30%, rgba(6,182,212,0.25) 70%, transparent)',
-              marginBottom: 12,
-            }}
-          />
-
-          {/* Preset buttons */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 8,
-              marginBottom: 14,
-            }}
-          >
-            {TELESCOPE_PRESETS.map((preset) => {
-              const isActive = Math.abs(preset.fov - currentFov) <= 0.2;
-              return (
-                <button
-                  key={preset.id}
-                  onClick={() => handlePresetClick(preset)}
-                  style={{
-                    background: isActive
-                      ? 'linear-gradient(135deg, rgba(6,182,212,0.22) 0%, rgba(6,182,212,0.10) 100%)'
-                      : 'rgba(15,23,42,0.80)',
-                    border: isActive
-                      ? '1px solid rgba(6,182,212,0.65)'
-                      : '1px solid rgba(71,85,105,0.40)',
-                    borderRadius: 10,
-                    padding: '9px 6px',
-                    cursor: 'pointer',
-                    transition: 'all 0.18s ease',
-                    boxShadow: isActive
-                      ? '0 0 16px rgba(6,182,212,0.35), 0 0 6px rgba(6,182,212,0.20), inset 0 1px 0 rgba(6,182,212,0.15)'
-                      : '0 2px 8px rgba(0,0,0,0.3)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: 3,
-                    outline: 'none',
-                    position: 'relative',
-                    overflow: 'hidden',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      (e.currentTarget as HTMLButtonElement).style.borderColor =
-                        'rgba(6,182,212,0.35)';
-                      (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                        '0 0 10px rgba(6,182,212,0.15)';
-                      (e.currentTarget as HTMLButtonElement).style.background =
-                        'rgba(6,182,212,0.08)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      (e.currentTarget as HTMLButtonElement).style.borderColor =
-                        'rgba(71,85,105,0.40)';
-                      (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                        '0 2px 8px rgba(0,0,0,0.3)';
-                      (e.currentTarget as HTMLButtonElement).style.background =
-                        'rgba(15,23,42,0.80)';
-                    }
-                  }}
-                >
-                  {/* Active shimmer bar */}
-                  {isActive && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        height: 2,
-                        background:
-                          'linear-gradient(90deg, transparent, rgba(6,182,212,0.8), transparent)',
-                        borderRadius: '10px 10px 0 0',
-                      }}
-                    />
-                  )}
-
-                  {/* Magnification badge */}
-                  <span
-                    style={{
-                      fontSize: 15,
-                      fontWeight: 800,
-                      fontFamily: 'monospace',
-                      color: isActive
-                        ? 'rgba(6,182,212,1)'
-                        : 'rgba(148,163,184,0.80)',
-                      letterSpacing: '-0.02em',
-                      lineHeight: 1,
-                    }}
-                  >
-                    {preset.magnification}×
-                  </span>
-
-                  {/* Label */}
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 500,
-                      color: isActive
-                        ? 'rgba(6,182,212,0.80)'
-                        : 'rgba(100,116,139,0.90)',
-                      letterSpacing: '0.03em',
-                      textAlign: 'center',
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    {lang === 'zh' ? preset.labelZh : preset.labelEn}
-                  </span>
-
-                  {/* FOV sub-label */}
-                  <span
-                    style={{
-                      fontSize: 9,
-                      color: isActive
-                        ? 'rgba(6,182,212,0.55)'
-                        : 'rgba(71,85,105,0.80)',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {preset.fov >= 1
-                      ? `${preset.fov}°`
-                      : `${(preset.fov * 60).toFixed(0)}′`}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Custom slider row */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
-          >
-            <span
-              style={{
-                fontSize: 10,
-                color: 'rgba(100,116,139,0.70)',
-                fontFamily: 'monospace',
-                whiteSpace: 'nowrap',
-                letterSpacing: '0.05em',
-              }}
-            >
-              {lang === 'zh' ? '自定义 FOV' : 'Custom FOV'}
-            </span>
-
-            <div style={{ flex: 1, position: 'relative', height: 20 }}>
-              {/* Custom track background */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: 0,
-                  right: 0,
-                  height: 4,
-                  transform: 'translateY(-50%)',
-                  borderRadius: 4,
-                  background:
-                    'linear-gradient(90deg, rgba(6,182,212,0.70), rgba(6,182,212,0.15) 80%, rgba(71,85,105,0.30))',
-                  pointerEvents: 'none',
-                }}
-              />
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: 0,
-                  width: `${sliderVal * 100}%`,
-                  height: 4,
-                  transform: 'translateY(-50%)',
-                  borderRadius: 4,
-                  background: 'rgba(6,182,212,0.90)',
-                  pointerEvents: 'none',
-                  boxShadow: '0 0 8px rgba(6,182,212,0.6)',
-                }}
-              />
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.001}
-                value={sliderVal}
-                onChange={handleSliderChange}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '100%',
-                  opacity: 0,
-                  cursor: 'pointer',
-                  margin: 0,
-                  padding: 0,
-                }}
-              />
-            </div>
-
-            {/* Current FOV readout */}
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: 'rgba(6,182,212,0.85)',
-                fontFamily: 'monospace',
-                minWidth: 44,
-                textAlign: 'right',
-              }}
-            >
-              {currentFov >= 1
-                ? `${currentFov.toFixed(1)}°`
-                : `${(currentFov * 60).toFixed(0)}′`}
-            </span>
-          </div>
-
-          {/* Zoom direction hints */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginTop: 4,
-              paddingLeft: 70,
-              paddingRight: 52,
-            }}
-          >
-            <span
-              style={{
-                fontSize: 9,
-                color: 'rgba(71,85,105,0.60)',
-                fontFamily: 'monospace',
-              }}
-            >
-              {lang === 'zh' ? '← 广角' : '← Wide'}
-            </span>
-            <span
-              style={{
-                fontSize: 9,
-                color: 'rgba(71,85,105,0.60)',
-                fontFamily: 'monospace',
-              }}
-            >
-              {lang === 'zh' ? '窄角 →' : 'Narrow →'}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

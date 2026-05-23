@@ -21,6 +21,8 @@ interface CommandPanelProps {
   onToggleConstellLines: (show: boolean) => void;
   showStarNames: boolean;
   onToggleStarNames: (show: boolean) => void;
+  showConstellNames?: boolean;
+  onToggleConstellNames?: (show: boolean) => void;
   magLimit: number;
   onChangeMagLimit: (limit: number) => void;
   telescopeActive: boolean;
@@ -178,6 +180,8 @@ export default function CommandPanel({
   onToggleConstellLines,
   showStarNames,
   onToggleStarNames,
+  showConstellNames,
+  onToggleConstellNames,
   magLimit,
   onChangeMagLimit,
   telescopeActive,
@@ -470,6 +474,18 @@ export default function CommandPanel({
             />
             <IconStar className="w-3.5 h-3.5 text-slate-500" />
             <span>{isZh ? '恒星名称' : 'Star Names'}</span>
+          </label>
+
+          {/* Constellation names */}
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="checkbox"
+              checked={!!showConstellNames}
+              onChange={(e) => onToggleConstellNames?.(e.target.checked)}
+              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <IconEye className="w-3.5 h-3.5 text-slate-500" />
+            <span>{isZh ? '星座名称' : 'Constellation Names'}</span>
           </label>
 
           {/* Mag limit slider */}

@@ -284,6 +284,7 @@ export default function UniverseViewer({
   const sunMeshRef = useRef<THREE.Group | null>(null);
   const constellLinesRef = useRef<THREE.LineSegments | null>(null);
   const domeStarsRef = useRef<THREE.Points | null>(null);
+  const galaxySpriteRef = useRef<THREE.Sprite | null>(null);
   const magLimitRef = useRef(magLimit);
 
   const getSunRadius = (): number => {
@@ -343,7 +344,7 @@ export default function UniverseViewer({
 
   // 用于计算镜头光晕 (Lens Flare) 的屏幕投影坐标
   const [sunScreenPos, setSunScreenPos] = useState<{ x: number; y: number; visible: boolean; scale: number; opacity: number } | null>(null);
-  const [zoomLevelText, setZoomLevelText] = useState<string>('0%');
+  const [zoomLevelText, setZoomLevelText] = useState<string>('1.00 AU');
 
   // == 日地距离几何排列验证系统 (Sun-Earth Distance Validation Simulation System) ==
   const [panelTab, setPanelTab] = useState<'packing' | 'audit'>('audit');
@@ -414,20 +415,20 @@ export default function UniverseViewer({
     }
   }, [showConstellLines]);
 
-  // 真实的 8K/高清晰度(CORS Allowed)太空贴图资源库 (采用 jsdelivr 节点无阻碍高阶 CDN 加速)
+  // 本地纹理资源库 (public/textures/ 目录，通过根路径引用)
   const REAL_TEXTURE_URLS: Record<string, string> = {
-    sun: 'https://cdn.jsdelivr.net/gh/johan-m-o/Solar-System-3D@master/assets/images/sun.jpg',
-    mercury: 'https://cdn.jsdelivr.net/gh/johan-m-o/Solar-System-3D@master/assets/images/mercury.jpg',
-    venus: 'https://cdn.jsdelivr.net/gh/johan-m-o/Solar-System-3D@master/assets/images/venus.jpg',
-    earth: 'https://cdn.jsdelivr.net/gh/johan-m-o/Solar-System-3D@master/assets/images/earth.jpg',
-    moon: 'https://cdn.jsdelivr.net/gh/johan-m-o/Solar-System-3D@master/assets/images/moon.jpg',
-    mars: 'https://cdn.jsdelivr.net/gh/johan-m-o/Solar-System-3D@master/assets/images/mars.jpg',
-    jupiter: 'https://cdn.jsdelivr.net/gh/johan-m-o/Solar-System-3D@master/assets/images/jupiter.jpg',
-    saturn: 'https://cdn.jsdelivr.net/gh/johan-m-o/Solar-System-3D@master/assets/images/saturn.jpg',
-    uranus: 'https://cdn.jsdelivr.net/gh/johan-m-o/Solar-System-3D@master/assets/images/uranus.jpg',
-    neptune: 'https://cdn.jsdelivr.net/gh/johan-m-o/Solar-System-3D@master/assets/images/neptune.jpg',
-    earth_clouds: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/textures/planets/earth_clouds_1024.png',
-    earth_specular: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/textures/planets/earth_specular_2048.jpg',
+    sun: '/textures/8k_sun.jpg',
+    mercury: '/textures/8k_mercury.jpg',
+    venus: '/textures/8k_venus_surface.jpg',
+    earth: '/textures/8k_earth_daymap.jpg',
+    moon: '/textures/8k_moon.jpg',
+    mars: '/textures/8k_mars.jpg',
+    jupiter: '/textures/8k_jupiter.jpg',
+    saturn: '/textures/8k_saturn.jpg',
+    uranus: '/textures/2k_uranus.jpg',
+    neptune: '/textures/2k_neptune.jpg',
+    earth_clouds: '/textures/8k_earth_clouds.jpg',
+    earth_specular: '/textures/2k_earth_specular_map.jpg',
   };
 
   const textureCacheRef = useRef<Record<string, THREE.Texture>>({});
@@ -444,7 +445,6 @@ export default function UniverseViewer({
     const realUrl = REAL_TEXTURE_URLS[id];
     if (realUrl) {
       const loader = new THREE.TextureLoader();
-      loader.setCrossOrigin('anonymous');
       loader.load(
         realUrl,
         (loadedTex) => {
@@ -1084,10 +1084,26 @@ export default function UniverseViewer({
     scene.add(packingGroup);
     packingGroupRef.current = packingGroup;
 
+    // 银河系全景背景 Sprite（穿梭到银河系外尺度时显示）
+    const galaxyTex = new THREE.TextureLoader().load('/textures/milky_way_galaxy.png');
+    galaxyTex.colorSpace = THREE.SRGBColorSpace;
+    const galaxyMat = new THREE.SpriteMaterial({
+      map: galaxyTex,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const galaxySprite = new THREE.Sprite(galaxyMat);
+    galaxySprite.scale.set(400000, 400000, 1);
+    galaxySprite.position.set(0, 0, 0);
+    scene.add(galaxySprite);
+    galaxySpriteRef.current = galaxySprite;
+
     const width = container.clientWidth || window.innerWidth || 800;
     const height = container.clientHeight || window.innerHeight || 600;
-    // 增加远剪裁面为 2500，防止真实尺度轨道下的海王星(660单位)或拉远视图被裁剪
-    const camera = new THREE.PerspectiveCamera(50, width / height, 0.05, 2500);
+    // 增加远剪裁面为 500000，以支持真实光年尺度的恒星渲染
+    const camera = new THREE.PerspectiveCamera(50, width / height, 0.05, 500000);
     camera.position.set(0, 25, 35);
     cameraRef.current = camera;
 
@@ -1112,7 +1128,7 @@ export default function UniverseViewer({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.maxDistance = 1800;
+    controls.maxDistance = 500000;
     controls.minDistance = 0.5;
     controlsRef.current = controls;
 
@@ -1126,94 +1142,7 @@ export default function UniverseViewer({
     sunPointLight.castShadow = true;
     scene.add(sunPointLight);
 
-    // 5. 宏观粒子背景： Milky Way (银河系庞大螺旋微粒系统)
-    // 太阳系位于猎户座旋臂 (Orion Arm)，距离银心约 2.6 万光年 (我们设定银心在 gCenterX, gCenterY, gCenterZ 处，将太阳至于银河系的次边缘旋臂中)
-    const starCount = 20000;
-    const starGeometry = new THREE.BufferGeometry();
-    const starPositions = new Float32Array(starCount * 3);
-    const starColors = new Float32Array(starCount * 3);
-
-    const gCenterX = -1100;
-    const gCenterY = -120;
-    const gCenterZ = 700;
-
-    for (let i = 0; i < starCount; i++) {
-      if (i < 5000) {
-        // == 1. 银心核球 (Galactic Bulge) - 温暖金色/暖黄光球核 ==
-        const r = Math.pow(Math.random(), 2.0) * 220; // 紧密聚集在核心
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(Math.random() * 2 - 1);
-
-        const x = r * Math.sin(phi) * Math.cos(theta);
-        const y = r * Math.cos(phi) * 0.45 + (Math.random() - 0.5) * 15;
-        const z = r * Math.sin(phi) * Math.sin(theta);
-
-        starPositions[i * 3] = x;
-        starPositions[i * 3 + 1] = y;
-        starPositions[i * 3 + 2] = z;
-
-        const ratio = r / 220;
-        starColors[i * 3] = 1.0;                                     // R (暖金色)
-        starColors[i * 3 + 1] = THREE.MathUtils.lerp(0.85, 0.55, ratio); // G
-        starColors[i * 3 + 2] = THREE.MathUtils.lerp(0.6, 0.3, ratio);  // B
-      } else {
-        // == 2. 四大旋臂盘区 (Galactic Disc & 4 Spiral Arms) - 冰蓝色与品紫色青年星团 ==
-        const r = Math.pow(Math.random(), 1.35) * 2000 + 180; // 径向极值扩展至 2200 
-        const armIndex = i % 4;
-        const armAngle = armIndex * (Math.PI / 2);
-        
-        // 对数螺旋线方程形式： angle = armAngle + Math.log(r) * twist
-        const twist = 3.6;
-        const angle = armAngle + Math.log(r * 0.08) * twist + (Math.random() - 0.5) * 0.38;
-
-        const x = r * Math.cos(angle);
-        const y = (Math.random() - 0.5) * (180 / (r * 0.0015 + 1)); // 边缘极度扁平化
-        const z = r * Math.sin(angle);
-
-        starPositions[i * 3] = x;
-        starPositions[i * 3 + 1] = y;
-        starPositions[i * 3 + 2] = z;
-
-        const ratio = r / 2180;
-        // 旋臂渐变：从内测亮蓝/白，过渡到中段紫红，到外侧寒冷的蓝
-        if (armIndex % 2 === 0) {
-          // 蓝白色/冰蓝色主旋臂
-          starColors[i * 3] = THREE.MathUtils.lerp(0.65, 0.4, ratio);
-          starColors[i * 3 + 1] = THREE.MathUtils.lerp(0.85, 0.65, ratio);
-          starColors[i * 3 + 2] = THREE.MathUtils.lerp(1.0, 0.95, ratio);
-        } else {
-          // 紫粉色/品红次旋臂
-          starColors[i * 3] = THREE.MathUtils.lerp(0.95, 0.55, ratio);
-          starColors[i * 3 + 1] = THREE.MathUtils.lerp(0.65, 0.45, ratio);
-          starColors[i * 3 + 2] = THREE.MathUtils.lerp(0.95, 0.85, ratio);
-        }
-      }
-    }
-    starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-    starGeometry.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
-
-    const starMaterial = new THREE.PointsMaterial({
-      size: 0.22,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.7,
-      blending: THREE.AdditiveBlending
-    });
-
-    const milkyWayPoints = new THREE.Points(starGeometry, starMaterial);
-    
-    // 银心偏移组：以此在视觉上确立“太阳处于次级边缘游离旋臂猎户臂，而非银河系核心”的终极宇宙学家空间透视！
-    const milkyWayGroup = new THREE.Group();
-    milkyWayGroup.name = 'milky-way-group';
-    milkyWayGroup.position.set(gCenterX, gCenterY, gCenterZ);
-    // 绕银盘适度倾斜，体现太阳系黄道面与银道面约 60° 真实物理夹角
-    milkyWayGroup.rotation.x = (55 * Math.PI) / 180;
-    milkyWayGroup.rotation.z = (25 * Math.PI) / 180;
-    
-    milkyWayGroup.add(milkyWayPoints);
-    scene.add(milkyWayGroup);
-
-    // 6. 星空天顶画板星光背景 (模拟真实发光恒星)
+    // 5. 星空天顶画板星光背景 (使用星表真实恒星数据在3D空间中以标准尺度渲染)
     // Map all 10,000 stars from STAR_LIST to 3D ecliptic coordinates
     const domeStarCount = STAR_LIST.length;
     const domeStarPositions = new Float32Array(domeStarCount * 3);
@@ -1223,16 +1152,11 @@ export default function UniverseViewer({
     const eps = 23.439 * Math.PI / 180;
     const cosEps = Math.cos(eps);
     const sinEps = Math.sin(eps);
-    const logMin = Math.log10(1.0);
-    const logMax = Math.log10(10000.0);
+    const LY_TO_SCENE = 1000; // 1光年 = 1000场景单位
 
     for (let i = 0; i < domeStarCount; i++) {
       const star = STAR_LIST[i];
-      let d = star.dist;
-      if (d < 1.0) d = 1.0;
-      if (d > 10000.0) d = 10000.0;
-      const logD = Math.log10(d);
-      const dScale = 800 + 1000 * (logD - logMin) / (logMax - logMin);
+      const dScene = star.dist * LY_TO_SCENE;
 
       const decRad = star.dec * Math.PI / 180;
       const raRad = star.ra * Math.PI / 12;
@@ -1250,9 +1174,9 @@ export default function UniverseViewer({
       const vEcZ = -vEqY * sinEps + vEqZ * cosEps;
 
       // Map to Three.js coordinates (X, Z, Y) because the codebase maps OrbitEngine standard Y to Three.js Z and Z to Three.js Y
-      const xThree = vEcX * dScale;
-      const yThree = vEcZ * dScale;
-      const zThree = vEcY * dScale;
+      const xThree = vEcX * dScene;
+      const yThree = vEcZ * dScene;
+      const zThree = vEcY * dScene;
 
       if (star.mag > magLimitRef.current) {
         domeStarPositions[i * 3] = 0;
@@ -1282,7 +1206,7 @@ export default function UniverseViewer({
     domeGeo.setAttribute('color', new THREE.BufferAttribute(domeStarColors, 3));
 
     const domeMat = new THREE.PointsMaterial({
-      size: 5.0,
+      size: 2.0, // 调小一点，因为真实距离下星星不会那么大
       vertexColors: true,
       transparent: true,
       opacity: 0.9,
@@ -1791,9 +1715,6 @@ export default function UniverseViewer({
       if (!sceneRef.current || !rendererRef.current || !cameraRef.current || !controlsRef.current) return;
 
       const delta = clock.getDelta();
-
-      // 星系自旋转 (宏观银河旋转动态)
-      milkyWayPoints.rotation.y += 0.007 * delta;
 
       const daysSinceJ2000 = TimeEngine.getDaysSinceJ2000(currentTimestampRef.current);
 
@@ -2400,9 +2321,39 @@ export default function UniverseViewer({
         opacity: flareOpacityRef.current
       });
 
-      // 计算当前相机距离中心太阳的距离百分比，对应展示在底部的缩放水平
-      const zoomPct = Math.min(100, Math.max(1, (1 / (distToSun / 30)) * 100));
-      setZoomLevelText(`${zoomPct.toFixed(0)}%`);
+      // 计算当前相机距离中心太阳的实际距离，展示在底部
+      const distAU = distToSun / 22.0;
+      let distText: string;
+      if (distAU < 10) {
+        distText = `${distAU.toFixed(2)} AU`;
+      } else if (distAU < 63241) {
+        distText = `${distAU.toFixed(1)} AU`;
+      } else {
+        const distLY = distAU / 63241;
+        distText = `${distLY.toFixed(2)} ly`;
+      }
+      setZoomLevelText(distText);
+
+      // 银河系全景背景：根据相机到太阳的距离动态显示/隐藏
+      if (galaxySpriteRef.current) {
+        const distLY = distAU / 63241;
+        let galaxyOpacity = 0;
+        if (distLY < 100) {
+          galaxyOpacity = 0;
+        } else if (distLY < 500) {
+          galaxyOpacity = (distLY - 100) / 400 * 0.85;
+        } else {
+          galaxyOpacity = 0.85;
+        }
+        // 平滑过渡
+        galaxySpriteRef.current.material.opacity = THREE.MathUtils.lerp(
+          galaxySpriteRef.current.material.opacity,
+          galaxyOpacity,
+          0.05
+        );
+        // 银河系始终面向相机
+        galaxySpriteRef.current.lookAt(cameraRef.current.position);
+      }
 
       // 10. 丝滑聚焦/跟随选中星体 & 动态近剪切面比例尺缩放
       if (selectedPlanetIdRef.current) {
