@@ -22,6 +22,7 @@ export default function App() {
   const [lang, setLang] = useState<'zh' | 'en'>('zh');
   const [selectedPlanetId, setSelectedPlanetId] = useState<string>('earth');
   const [crossSectionActive, setCrossSectionActive] = useState<boolean>(false);
+  const [cloudsVisible, setCloudsVisible] = useState<boolean>(true);
   const [showPlanetInfo, setShowPlanetInfo] = useState<boolean>(true);
   // 自定义主题
   const [theme, setTheme] = useState<ThemeType>('space-tech');
@@ -198,6 +199,10 @@ export default function App() {
           helioX={helioPos.x}
           helioY={helioPos.y}
           helioZ={helioPos.z}
+          latitude={latitude}
+          longitude={longitude}
+          onChangeLatitude={setLatitude}
+          onChangeLongitude={setLongitude}
           validationPairKey={validationPairKey}
           onChangeValidationPairKey={setValidationPairKey}
           panelTab={panelTab}
@@ -272,6 +277,7 @@ export default function App() {
               selectedPlanetId={selectedPlanetId}
               onSelectPlanet={handleSelectPlanet}
               crossSectionActive={crossSectionActive}
+              cloudsVisible={cloudsVisible}
               lang={lang}
               showConstellLines={showConstellLines}
               magLimit={magLimit}
@@ -288,7 +294,12 @@ export default function App() {
             <PlanetInfoPanel
               planetId={selectedPlanetId}
               crossSectionActive={crossSectionActive}
-              onToggleCrossSection={setCrossSectionActive}
+              onToggleCrossSection={(active) => {
+                setCrossSectionActive(active);
+                if (active) setCloudsVisible(false);
+              }}
+              cloudsVisible={cloudsVisible}
+              onToggleClouds={() => setCloudsVisible(v => !v)}
               lang={lang}
               onClose={() => setShowPlanetInfo(false)}
               landed={landed}

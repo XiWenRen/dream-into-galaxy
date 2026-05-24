@@ -234,7 +234,7 @@ const createProceduralMoonTexture = (): THREE.Texture => {
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
   // 校准：SphereGeometry +z 面对应 u=0.25，将纹理向右平移 0.25 使正面(u=0.5)对准 +z
   texture.offset.x = 0.25;
   return texture;
@@ -586,7 +586,7 @@ export default function StarrySkyViewer({
             if (observerBodyIdRef.current === 'earth' && moonSkyRef.current) {
               const off = textureOffsetsRef.current['moon'] ?? { u: 0, v: 0 };
               tex.wrapS = THREE.RepeatWrapping;
-              tex.wrapT = THREE.RepeatWrapping;
+              tex.wrapT = THREE.ClampToEdgeWrapping;
               tex.minFilter = THREE.LinearFilter;
               tex.offset.x = 0.25 + off.u;
               tex.offset.y = off.v;
@@ -594,6 +594,11 @@ export default function StarrySkyViewer({
               (moonSkyRef.current.material as THREE.MeshStandardMaterial).needsUpdate = true;
             }
           });
+          // 重置光晕为月球白色
+          if (moonHazeSpriteRef.current) {
+            moonHazeSpriteRef.current.position.set(0, 0, 0);
+            moonHazeSpriteRef.current.material.color.setHex(0xffffff);
+          }
         } else if (observerBodyId === 'moon') {
           moonSky.scale.setScalar(4.0);
           moonMat.color.setHex(0xffffff);
@@ -603,7 +608,7 @@ export default function StarrySkyViewer({
             if (observerBodyIdRef.current === 'moon' && moonSkyRef.current) {
               const off = textureOffsetsRef.current['earth'] ?? { u: 0, v: 0 };
               tex.wrapS = THREE.RepeatWrapping;
-              tex.wrapT = THREE.RepeatWrapping;
+              tex.wrapT = THREE.ClampToEdgeWrapping;
               tex.minFilter = THREE.LinearFilter;
               tex.offset.x = 0.25 + off.u;
               tex.offset.y = off.v;
@@ -611,6 +616,12 @@ export default function StarrySkyViewer({
               (moonSkyRef.current.material as THREE.MeshStandardMaterial).needsUpdate = true;
             }
           });
+          // 地球蓝晕光（从月球看地球）
+          if (moonHazeSpriteRef.current) {
+            moonHazeSpriteRef.current.position.set(0, 0, 0);
+            moonHazeSpriteRef.current.material.color.setHex(0x88bbff);
+            moonHazeSpriteRef.current.material.opacity = 0.6;
+          }
         }
       } else {
         moonSky.visible = false;
@@ -1515,7 +1526,6 @@ export default function StarrySkyViewer({
         const celestialNorth = new THREE.Vector3(0, Math.sin(latRad), Math.cos(latRad));
         setTidallyLockedOrientation(moonSkyRef.current, cameraRef.current?.position ?? new THREE.Vector3(0, 0, 0.1), celestialNorth);
         if (moonHazeSpriteRef.current) {
-          moonHazeSpriteRef.current.position.copy(earthPos);
           moonHazeSpriteRef.current.visible = moonCoords.alt > -2;
         }
       }
@@ -2247,10 +2257,10 @@ export default function StarrySkyViewer({
               </div>
 
               <div className="space-y-2.5">
-                {/* U offset slider */}
+                {/* U offset slider — 仅校准经度方向 */}
                 <div className="space-y-1">
                   <div className="flex justify-between text-[10px] font-mono">
-                    <span className="text-white/50">U (horizontal)</span>
+                    <span className="text-white/50">U (longitude)</span>
                     <span className="text-cyan-400">{(textureOffsets[selectedCelestial.id]?.u ?? 0).toFixed(2)}</span>
                   </div>
                   <input
@@ -2260,28 +2270,7 @@ export default function StarrySkyViewer({
                     step={0.01}
                     value={textureOffsets[selectedCelestial.id]?.u ?? 0}
                     onChange={(e) => {
-                      const off = textureOffsets[selectedCelestial.id] ?? { u: 0, v: 0 };
-                      onChangeTextureOffset(selectedCelestial.id, { ...off, u: parseFloat(e.target.value) });
-                    }}
-                    className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400"
-                  />
-                </div>
-
-                {/* V offset slider */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[10px] font-mono">
-                    <span className="text-white/50">V (vertical)</span>
-                    <span className="text-cyan-400">{(textureOffsets[selectedCelestial.id]?.v ?? 0).toFixed(2)}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={-0.5}
-                    max={0.5}
-                    step={0.01}
-                    value={textureOffsets[selectedCelestial.id]?.v ?? 0}
-                    onChange={(e) => {
-                      const off = textureOffsets[selectedCelestial.id] ?? { u: 0, v: 0 };
-                      onChangeTextureOffset(selectedCelestial.id, { ...off, v: parseFloat(e.target.value) });
+                      onChangeTextureOffset(selectedCelestial.id, { u: parseFloat(e.target.value), v: 0 });
                     }}
                     className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400"
                   />
@@ -2291,7 +2280,7 @@ export default function StarrySkyViewer({
               <button
                 onClick={async () => {
                   const off = textureOffsets[selectedCelestial.id] ?? { u: 0, v: 0 };
-                  const payload = JSON.stringify({ planetId: selectedCelestial.id, u: off.u, v: off.v });
+                  const payload = JSON.stringify({ planetId: selectedCelestial.id, u: off.u });
                   try {
                     await navigator.clipboard.writeText(payload);
                     alert(isZh ? `已复制: ${payload}` : `Copied: ${payload}`);

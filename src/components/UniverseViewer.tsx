@@ -93,7 +93,9 @@ function createHipparcosPoints(data: ReturnType<typeof buildHipparcosEclipticFie
       void main() {
         vColor = color;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size * uPixelRatio * (800.0 / -mvPosition.z);
+        // size 已编码视星等亮度；远距离时不应再随距离过度衰减（视星等已含距离信息）
+        float proximityBoost = max(1.0, 2000.0 / -mvPosition.z);
+        gl_PointSize = size * uPixelRatio * proximityBoost;
         gl_Position = projectionMatrix * mvPosition;
       }
     `,
@@ -130,6 +132,7 @@ interface UniverseViewerProps {
   showConstellLines?: boolean;
   magLimit?: number;
   textureOffsets?: Record<string, { u: number; v: number }>;
+  cloudsVisible?: boolean;
 }
 
 export interface SatelliteDef {
@@ -388,7 +391,8 @@ export default function UniverseViewer({
   lang,
   showConstellLines = false,
   magLimit = 5.5,
-  textureOffsets = {}
+  textureOffsets = {},
+  cloudsVisible = true,
 }: UniverseViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -404,6 +408,7 @@ export default function UniverseViewer({
   const hipparcosRef = useRef<THREE.Points | null>(null);
   const hipparcosCatalogRef = useRef<HipparcosStar[] | null>(null);
   const magLimitRef = useRef(magLimit);
+  const textureOffsetsRef = useRef<Record<string, { u: number; v: number }>>(textureOffsets);
 
   const getSunRadius = (): number => {
     return ScaleEngine.getRadius('sun', strictPhysics);
@@ -436,6 +441,7 @@ export default function UniverseViewer({
   const currentTimestampRef = useRef(currentTimestamp);
   const selectedPlanetIdRef = useRef(selectedPlanetId);
   const crossSectionActiveRef = useRef(crossSectionActive);
+  const cloudsVisibleRef = useRef(cloudsVisible);
 
   const lastSelectedPlanetIdRef = useRef<string>('');
   const lastTargetPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
@@ -451,6 +457,10 @@ export default function UniverseViewer({
   useEffect(() => {
     crossSectionActiveRef.current = crossSectionActive;
   }, [crossSectionActive]);
+
+  useEffect(() => {
+    cloudsVisibleRef.current = cloudsVisible;
+  }, [cloudsVisible]);
 
   useEffect(() => {
     if (constellLinesRef.current) {
@@ -547,7 +557,7 @@ export default function UniverseViewer({
     neptune: '/textures/2k_neptune.jpg',
     earth_clouds: '/textures/8k_earth_clouds.jpg',
     earth_specular: '/textures/2k_earth_specular_map.jpg',
-    earth_nightmap: '/textures/2k_earth_nightmap.png',
+    earth_nightmap: '/textures/8k_earth_nightmap.jpg',
   };
 
   const textureCacheRef = useRef<Record<string, THREE.Texture>>({});
@@ -569,13 +579,8 @@ export default function UniverseViewer({
         (loadedTex) => {
           loadedTex.colorSpace = THREE.SRGBColorSpace;
           
-          if (id === 'earth_clouds') {
-            loadedTex.wrapS = THREE.RepeatWrapping;
-            loadedTex.wrapT = THREE.ClampToEdgeWrapping;
-          } else {
-            loadedTex.wrapS = THREE.ClampToEdgeWrapping;
-            loadedTex.wrapT = THREE.ClampToEdgeWrapping;
-          }
+          loadedTex.wrapS = THREE.RepeatWrapping;
+          loadedTex.wrapT = THREE.RepeatWrapping;
 
           // 核心高稳定性渐进绘制：将网络下载的真彩位图精确绘制在已有 Canvas 上，安全跨越 WebGL 内部切换局限
           const img = loadedTex.image;
@@ -1067,7 +1072,7 @@ export default function UniverseViewer({
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
     return texture;
   };
 
@@ -1203,27 +1208,37 @@ export default function UniverseViewer({
     scene.add(packingGroup);
     packingGroupRef.current = packingGroup;
 
-    // 银河系全景背景：3D 薄盘 Mesh，有实际银道面倾角
-    // 银北极 NGP 在黄道坐标中约 λ=96.38°, β=29.81°，银盘面垂直于此方向
+    // 黄赤交角常量（后续 domeStars 和银心方向共用）
+    const eps = 23.439 * Math.PI / 180;
+    const cosEps = Math.cos(eps);
+    const sinEps = Math.sin(eps);
+
+    // 银河系全景背景：equirectangular 全景图映射到球面，相机位于球心
+    // 使用 NASA APOD 高清全景图：https://apod.nasa.gov/apod/image/0911/mwpan_mellinger_big.jpg
     const galaxyTex = new THREE.TextureLoader().load('/textures/milky_way_galaxy.png');
     galaxyTex.colorSpace = THREE.SRGBColorSpace;
-    const galaxyGeo = new THREE.CircleGeometry(200000, 64);
+    const galaxyGeo = new THREE.SphereGeometry(190000, 64, 32);
     const galaxyMat = new THREE.MeshBasicMaterial({
       map: galaxyTex,
       transparent: true,
       opacity: 0,
-      side: THREE.DoubleSide,
+      side: THREE.BackSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     });
     const galaxyMesh = new THREE.Mesh(galaxyGeo, galaxyMat);
-    galaxyMesh.position.set(0, 0, 0);
-    const galacticPole = new THREE.Vector3(
-      Math.cos(29.81 * Math.PI / 180) * Math.cos(96.38 * Math.PI / 180),
-      Math.sin(29.81 * Math.PI / 180),
-      Math.cos(29.81 * Math.PI / 180) * Math.sin(96.38 * Math.PI / 180)
-    ).normalize();
-    galaxyMesh.lookAt(galacticPole);
+
+    // equirectangular 纹理默认北极朝上(Y+)，银心需对准人马座方向
+    // 银心赤道坐标：RA=17h45.6m, Dec=-29°00'
+    const raGC = (17 + 45.6 / 60) * 15; // 转换为角度
+    // 全景图通常 0° 经度对应 -Z 或 +X，需旋转使银心对准正确方位
+    // 银心方向在全景图中的经度位置：RA 265° 对应 u≈0.74
+    // 通过绕 Y 轴旋转对齐银心到相机前方（当相机朝向银心时看到图片中心）
+    galaxyMesh.rotation.y = (270 - raGC) * Math.PI / 180;
+    // 银道面倾斜约 60° 相对天球赤道，翻转纹理使银道面呈正确倾角
+    galaxyMesh.rotation.z = Math.PI;
+    galaxyMesh.rotation.x = (90 - 29.81) * Math.PI / 180; // 银北极倾角
+
     scene.add(galaxyMesh);
     galaxySpriteRef.current = galaxyMesh;
 
@@ -1255,14 +1270,17 @@ export default function UniverseViewer({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    // maxDistance ≈ 10 ly (220k / 22 / 63241)，刚好看到银河系全貌
-    controls.maxDistance = 220000;
+    // maxDistance ≈ 90.9k AU / 1.44 ly (2M / 22)，足够看到银河系全貌
+    controls.maxDistance = 2000000;
     controls.minDistance = 0.5;
     controlsRef.current = controls;
 
     // 4. 环境光 + 核心太阳光源点光源 (直面展示星体暗面与照亮面)
-    const ambientLight = new THREE.AmbientLight(0x0e0e16);
+    const ambientLight = new THREE.AmbientLight(0x1a1a2e);
     scene.add(ambientLight);
+    // 微弱的半球光填充背阳面，避免全黑
+    const hemiLight = new THREE.HemisphereLight(0x1a1a2e, 0x080810, 0.4);
+    scene.add(hemiLight);
 
     // 增大光照直照范围至 2500
     const sunPointLight = new THREE.PointLight(0xffffff, 2.5, 2500, 0.1);
@@ -1276,10 +1294,6 @@ export default function UniverseViewer({
     const domeStarPositions = new Float32Array(domeStarCount * 3);
     const domeStarColors = new Float32Array(domeStarCount * 3);
     const domeStarPositionsMap = new Map<number, THREE.Vector3>();
-
-    const eps = 23.439 * Math.PI / 180;
-    const cosEps = Math.cos(eps);
-    const sinEps = Math.sin(eps);
 
     for (let i = 0; i < domeStarCount; i++) {
       const star = ALL_STARS[i];
@@ -1333,7 +1347,7 @@ export default function UniverseViewer({
     domeGeo.setAttribute('color', new THREE.BufferAttribute(domeStarColors, 3));
 
     const domeMat = new THREE.PointsMaterial({
-      size: 4.0,
+      size: 6.0,
       vertexColors: true,
       transparent: true,
       opacity: 1.0,
@@ -1899,27 +1913,7 @@ export default function UniverseViewer({
         }
         group.position.copy(finalPos);
 
-        // == 视觉焦点净化：选中某个星体特写时，隐藏其他无关星体及各自公转轨道，避免穿帮与透射重合错误 ==
-        let isVisible = true;
-        const selPlanetId = selectedPlanetIdRef.current;
-        if (selPlanetId !== '' && selPlanetId !== 'sun') {
-          const parentIdOfSelected = getParentPlanetId(selPlanetId);
-          if (config.id === selPlanetId) {
-            isVisible = true;
-          } else if (config.id === parentIdOfSelected) {
-            isVisible = true;
-          } else if (parentIdOfSelected === 'earth' && config.id === 'moon') {
-            isVisible = true;
-          } else {
-            isVisible = false;
-          }
-        }
-        
-        group.visible = isVisible;
-        const orbitLine = orbitLinesRef.current[config.id];
-        if (orbitLine) {
-          orbitLine.visible = isVisible;
-        }
+        // 所有星体常驻显示，不随选中而隐藏
 
         const tiltGroup = group.getObjectByName('planet-tilt-root') as THREE.Group;
         if (!tiltGroup) return;
@@ -1931,8 +1925,13 @@ export default function UniverseViewer({
         const isCrossSection = isSelected && crossSectionActiveRef.current;
 
         if (needsRebuild) {
-          // 清除历史子星体
-          const olds = tiltGroup.children.filter(ch => ch.name === 'planet-body-root' || ch.name === 'cross-section-root');
+          // 清除历史子星体（包括地球云层，防止模式切换后残留同名mesh）
+          const olds = tiltGroup.children.filter(ch =>
+            ch.name === 'planet-body-root' ||
+            ch.name === 'cross-section-root' ||
+            ch.name === 'planet-earth-clouds-1' ||
+            ch.name === 'planet-earth-clouds-2'
+          );
           olds.forEach(o => tiltGroup.remove(o));
 
           const r = config.radius;
@@ -1941,55 +1940,73 @@ export default function UniverseViewer({
           const nightTex = config.id === 'earth' ? getPlanetTexture('earth_nightmap') : null;
 
           if (isCrossSection) {
-            // == 剖面模式开启：多层双复合级联渲染层，展现地心、地幔、地壳以至大气结构 ==
-            // 巧思设计：只切开北半球 1/4 (270度扇面)，而整个南半球保持密封完整，彻底预防穿帮并满足科学美感！
+            // == 剖面模式：带层间分隔、内部照明与鲜明配色的多层结构展示 ==
             const crossGroup = new THREE.Group();
             crossGroup.name = 'cross-section-root';
 
-            // 1. 最核心日地核层 (Inner Core)
-            const coreGroupObj = new THREE.Group();
-            coreGroupObj.name = 'inner-body-core';
-            
-            const coreGeoS = new THREE.SphereGeometry(r * 0.4, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-            const coreGeoN = new THREE.SphereGeometry(r * 0.4, 32, 16, 0, Math.PI * 1.5, 0, Math.PI / 2);
-            
-            const coreMat = new THREE.MeshBasicMaterial({
-              color: config.id === 'sun' ? 0xffffff : 0xff3e00,
+            // 各行星剖面配色配置（core=核心 mantle=地幔 atm=大气）
+            const crossPalette: Record<string, { core: number; mantle: number; atm: number; coreEmissive?: number; mantleEmissive?: number }> = {
+              earth:   { core: 0xffd700, mantle: 0xc2381a, atm: 0x8ab6ff, coreEmissive: 0xff6600, mantleEmissive: 0x551100 },
+              sun:     { core: 0xffffff, mantle: 0xffaa00, atm: 0xff8800, coreEmissive: 0xffaa00, mantleEmissive: 0xff4400 },
+              moon:    { core: 0x777777, mantle: 0x554433, atm: 0x999999 },
+              mercury: { core: 0x999999, mantle: 0x776655, atm: 0xaaaaaa },
+              venus:   { core: 0xddddcc, mantle: 0xbb9955, atm: 0xffcc44, mantleEmissive: 0x221100 },
+              mars:    { core: 0x882211, mantle: 0xcc5522, atm: 0xffaa88, mantleEmissive: 0x441100 },
+              jupiter: { core: 0xddddcc, mantle: 0xc4956a, atm: 0xd4a574 },
+              saturn:  { core: 0xddddcc, mantle: 0xc4a574, atm: 0xe0c090 },
+              uranus:  { core: 0xccddcc, mantle: 0x88bbcc, atm: 0x66aacc },
+              neptune: { core: 0xccccdd, mantle: 0x4466bb, atm: 0x3366aa },
+            };
+            const pc = crossPalette[config.id] || crossPalette.earth;
+
+            // 辅助：创建半球剖面对（南半球完整 + 北半球 270度）
+            const createHemispherePair = (radius: number, mat: THREE.Material, namePrefix: string) => {
+              const g = new THREE.Group();
+              g.name = namePrefix;
+              const geoS = new THREE.SphereGeometry(radius, 48, 24, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+              const geoN = new THREE.SphereGeometry(radius, 48, 24, 0, Math.PI * 1.5, 0, Math.PI / 2);
+              const meshS = new THREE.Mesh(geoS, mat);
+              const meshN = new THREE.Mesh(geoN, mat);
+              meshS.name = namePrefix + '-south';
+              meshN.name = namePrefix + '-north';
+              g.add(meshS, meshN);
+              return g;
+            };
+
+            // 辅助：创建层间分隔薄壳
+            const createBoundary = (radius: number, color: number, opacity: number, name: string) => {
+              const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide });
+              return createHemispherePair(radius, mat, name);
+            };
+
+            // 1. 核心层（自发光铁镍核）
+            const coreMat = new THREE.MeshStandardMaterial({
+              color: pc.core,
+              emissive: pc.coreEmissive || 0x000000,
+              emissiveIntensity: pc.coreEmissive ? 0.6 : 0,
+              roughness: 0.3,
+              metalness: 0.8,
               side: THREE.DoubleSide
             });
-            const coreMeshS = new THREE.Mesh(coreGeoS, coreMat);
-            const coreMeshN = new THREE.Mesh(coreGeoN, coreMat);
-            coreMeshS.name = 'inner-body-core-south';
-            coreMeshN.name = 'inner-body-core-north';
-            coreGroupObj.add(coreMeshS, coreMeshN);
-            crossGroup.add(coreGroupObj);
+            crossGroup.add(createHemispherePair(r * 0.4, coreMat, 'inner-body-core'));
 
-            // 2. 内部对流幔层 (Mantle)
-            const mantleGroupObj = new THREE.Group();
-            mantleGroupObj.name = 'inner-body-mantle';
-            
-            const mantleGeoS = new THREE.SphereGeometry(r * 0.74, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-            const mantleGeoN = new THREE.SphereGeometry(r * 0.74, 32, 16, 0, Math.PI * 1.5, 0, Math.PI / 2);
-            
+            // 核心-地幔分隔壳
+            crossGroup.add(createBoundary(r * 0.402, 0x1a0800, 0.7, 'inner-boundary-core'));
+
+            // 2. 地幔层（粘稠岩浆质感）
             const mantleMat = new THREE.MeshStandardMaterial({
-              color: config.id === 'sun' ? 0xff7e00 : 0xe06600,
-              roughness: 0.9,
+              color: pc.mantle,
+              emissive: pc.mantleEmissive || 0x000000,
+              emissiveIntensity: pc.mantleEmissive ? 0.2 : 0,
+              roughness: 0.85,
               side: THREE.DoubleSide
             });
-            const mantleMeshS = new THREE.Mesh(mantleGeoS, mantleMat);
-            const mantleMeshN = new THREE.Mesh(mantleGeoN, mantleMat);
-            mantleMeshS.name = 'inner-body-mantle-south';
-            mantleMeshN.name = 'inner-body-mantle-north';
-            mantleGroupObj.add(mantleMeshS, mantleMeshN);
-            crossGroup.add(mantleGroupObj);
+            crossGroup.add(createHemispherePair(r * 0.74, mantleMat, 'inner-body-mantle'));
 
-            // 3. 真实地貌硬地表壳 (Crust)
-            const crustGroupObj = new THREE.Group();
-            crustGroupObj.name = 'inner-body-crust';
-            
-            const crustGeoS = new THREE.SphereGeometry(r, 64, 32, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-            const crustGeoN = new THREE.SphereGeometry(r, 64, 32, 0, Math.PI * 1.5, 0, Math.PI / 2);
-            
+            // 地幔-地壳分隔壳
+            crossGroup.add(createBoundary(r * 0.742, 0x1a0800, 0.7, 'inner-boundary-mantle'));
+
+            // 3. 地壳层（保留真彩纹理）
             const crustMat = new THREE.MeshStandardMaterial({
               map: tex,
               bumpMap: tex,
@@ -1997,61 +2014,39 @@ export default function UniverseViewer({
               roughness: 0.7,
               side: THREE.DoubleSide
             });
-            const crustMeshS = new THREE.Mesh(crustGeoS, crustMat);
-            const crustMeshN = new THREE.Mesh(crustGeoN, crustMat);
-            crustMeshS.name = 'inner-body-crust-south';
-            crustMeshN.name = 'inner-body-crust-north';
-            crustGroupObj.add(crustMeshS, crustMeshN);
-            crossGroup.add(crustGroupObj);
+            crossGroup.add(createHemispherePair(r, crustMat, 'inner-body-crust'));
 
-            // 4. 包围式大气结构 (Atmosphere Envelope)
+            // 4. 大气层（增强可见度）
             const hasAtmosphere = ['earth', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'].includes(config.id);
             if (hasAtmosphere) {
-              const atmGroupObj = new THREE.Group();
-              atmGroupObj.name = 'inner-body-atmosphere';
-
-              const atmColor = config.id === 'earth' ? 0x8ab6ff : (config.id === 'venus' ? 0xffcc44 : 0x2288ff);
-              const atmGeoS = new THREE.SphereGeometry(r * 1.08, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-              const atmGeoN = new THREE.SphereGeometry(r * 1.08, 32, 16, 0, Math.PI * 1.5, 0, Math.PI / 2);
-              
               const atmMat = new THREE.MeshBasicMaterial({
-                color: atmColor,
+                color: pc.atm,
                 transparent: true,
-                opacity: 0.18,
-                side: THREE.DoubleSide
+                opacity: 0.4,
+                side: THREE.DoubleSide,
+                depthWrite: false
               });
-              const atmMeshS = new THREE.Mesh(atmGeoS, atmMat);
-              const atmMeshN = new THREE.Mesh(atmGeoN, atmMat);
-              atmMeshS.name = 'inner-body-atmosphere-south';
-              atmMeshN.name = 'inner-body-atmosphere-north';
-              atmGroupObj.add(atmMeshS, atmMeshN);
-              crossGroup.add(atmGroupObj);
+              crossGroup.add(createHemispherePair(r * 1.08, atmMat, 'inner-body-atmosphere'));
             }
 
-            // 5. 地球夜晚城市灯光切割套件
+            // 5. 地球夜晚灯光
             if (config.id === 'earth' && nightTex) {
-              const nightGroupObj = new THREE.Group();
-              nightGroupObj.name = 'planet-earth-night-lights';
-
-              const nightGeoS = new THREE.SphereGeometry(r * 1.005, 64, 32, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-              const nightGeoN = new THREE.SphereGeometry(r * 1.005, 64, 32, 0, Math.PI * 1.5, 0, Math.PI / 2);
-
-              const nightMat = createNightLightsMaterial(nightTex);
-              const nightMeshS = new THREE.Mesh(nightGeoS, nightMat);
-              const nightMeshN = new THREE.Mesh(nightGeoN, nightMat);
-              nightMeshS.name = 'planet-earth-night-lights-south';
-              nightMeshN.name = 'planet-earth-night-lights-north';
-              nightGroupObj.add(nightMeshS, nightMeshN);
-              crossGroup.add(nightGroupObj);
+              crossGroup.add(createHemispherePair(r * 1.005, createNightLightsMaterial(nightTex), 'planet-earth-night-lights'));
             }
 
-            // 增加行星内部剖切结构的 X-Y-Z 坐标轴模型，比星体表面长 2.2 倍以便穿出并直观展示
+            // 6. 内部补光：让剖面内部纹理与层次清晰可见
+            const innerLight = new THREE.PointLight(0xffffff, 1.5, r * 4, 0.3);
+            innerLight.position.set(0, r * 0.2, 0);
+            innerLight.name = 'inner-light';
+            crossGroup.add(innerLight);
+
+            // 7. 坐标轴
             const axes = new THREE.AxesHelper(r * 2.2);
             axes.name = 'axes-helper';
             crossGroup.add(axes);
 
-            // 地球双层云层（剖面模式）
-            if (config.id === 'earth' && cloudTex) {
+            // 地球双层云层（剖面模式下仍可按需显示）
+            if (config.id === 'earth' && cloudTex && cloudsVisible) {
               const cloudGeo1 = new THREE.SphereGeometry(r * 1.01, 64, 32);
               const cloudMat1 = createEarthCloudMaterial(cloudTex, 0.5);
               const cloudMesh1 = new THREE.Mesh(cloudGeo1, cloudMat1);
@@ -2149,7 +2144,7 @@ export default function UniverseViewer({
             tiltGroup.add(bodyGroup);
 
             // 地球双层云层（独立于 bodyGroup 自转，模拟大气环流）
-            if (config.id === 'earth' && cloudTex) {
+            if (config.id === 'earth' && cloudTex && cloudsVisible) {
               const cloudGeo1 = new THREE.SphereGeometry(r * 1.01, 64, 32);
               const cloudMat1 = createEarthCloudMaterial(cloudTex, 0.5);
               const cloudMesh1 = new THREE.Mesh(cloudGeo1, cloudMat1);
@@ -2199,10 +2194,19 @@ export default function UniverseViewer({
           const lightDir = new THREE.Vector3().copy(group.position).normalize().negate();
 
           // 双层云层独立旋转（模拟大气环流相对地表运动）
-          const cloud1 = tiltGroup.getObjectByName('planet-earth-clouds-1');
-          if (cloud1) cloud1.rotation.y = rotateY * 1.002;
-          const cloud2 = tiltGroup.getObjectByName('planet-earth-clouds-2');
-          if (cloud2) cloud2.rotation.y = rotateY * 1.005;
+          // 使用 traverse 确保控制所有同名 mesh（包括模式切换后残留的）
+          let cloudCount = 0;
+          tiltGroup.traverse(ch => {
+            if (ch.name === 'planet-earth-clouds-1') {
+              ch.rotation.y = rotateY * 1.02;
+              ch.visible = cloudsVisibleRef.current;
+              cloudCount++;
+            } else if (ch.name === 'planet-earth-clouds-2') {
+              ch.rotation.y = rotateY * 1.04;
+              ch.visible = cloudsVisibleRef.current;
+              cloudCount++;
+            }
+          });
 
           // 夜晚灯光 shader 光照方向同步
           const nightObj = tiltGroup.getObjectByName('planet-earth-night-lights');
@@ -2520,10 +2524,10 @@ export default function UniverseViewer({
       if (galaxySpriteRef.current) {
         const distLY = distAU / 63241;
         let galaxyOpacity = 0;
-        if (distLY < 2) {
+        if (distLY < 0.05) {
           galaxyOpacity = 0;
-        } else if (distLY < 10) {
-          galaxyOpacity = (distLY - 2) / 8 * 0.85;
+        } else if (distLY < 0.5) {
+          galaxyOpacity = (distLY - 0.05) / 0.45 * 0.85;
         } else {
           galaxyOpacity = 0.85;
         }
@@ -2533,7 +2537,7 @@ export default function UniverseViewer({
           galaxyOpacity,
           0.05
         );
-        // 银河系是固定方位的 3D Mesh，不面向相机，不随距离缩放
+        // 银河系是包围相机的全景球面，不随距离缩放
       }
 
       // 10. 丝滑聚焦/跟随选中星体 & 动态近剪切面比例尺缩放
@@ -2597,10 +2601,10 @@ export default function UniverseViewer({
                 offset = Math.max(orbitScene * orbitFactor, radOfTarget * 4.2);
               }
             } else {
-              // 可观测模式：保持原有基于天体半径的聚焦逻辑
+              // 可观测模式：星体撑满屏幕的近距离聚焦
               offset = selectedPlanetIdRef.current === 'sun'
-                ? radOfTarget * 3.5
-                : (isSat ? radOfTarget * 3.0 : radOfTarget * 4.2);
+                ? radOfTarget * 2.5
+                : (isSat ? radOfTarget * 2.2 : radOfTarget * 2.8);
             }
 
             cameraRef.current.position.set(targetPos.x, targetPos.y + offset * 0.4, targetPos.z + offset);
@@ -2627,7 +2631,7 @@ export default function UniverseViewer({
       }
 
       // 11. 实时应用贴图便宜位置调试参数
-      Object.entries(textureOffsets).forEach(([id, offset]) => {
+      Object.entries(textureOffsetsRef.current).forEach(([id, offset]: [string, { u: number; v: number }]) => {
         const group = planetMeshesRef.current[id];
         if (!group) return;
         group.traverse((node) => {

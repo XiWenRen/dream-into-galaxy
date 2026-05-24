@@ -19,6 +19,8 @@ interface PlanetInfoPanelProps {
   isLandable?: boolean;
   textureOffset?: { u: number; v: number };
   onChangeTextureOffset?: (offset: { u: number; v: number }) => void;
+  cloudsVisible?: boolean;
+  onToggleClouds?: () => void;
 }
 
 interface SatellitePhysics {
@@ -98,6 +100,8 @@ export default function PlanetInfoPanel({
   isLandable = false,
   textureOffset = { u: 0, v: 0 },
   onChangeTextureOffset,
+  cloudsVisible = true,
+  onToggleClouds,
 }: PlanetInfoPanelProps) {
   if (!planetId) return null;
 
@@ -236,6 +240,25 @@ export default function PlanetInfoPanel({
                 )}
               </svg>
               <span>{landed ? translations[lang].leaveBtn : translations[lang].landBtn}</span>
+            </button>
+          )}
+
+          {/* 云层开关仅地球 */}
+          {planetId.toLowerCase() === 'earth' && onToggleClouds && (
+            <button
+              onClick={onToggleClouds}
+              disabled={crossSectionActive}
+              className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                crossSectionActive
+                  ? 'opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/10'
+                  : cloudsVisible
+                    ? 'bg-sky-500/25 border border-sky-400 text-sky-300 shadow-md shadow-sky-950/20'
+                    : 'bg-white/5 text-white/70 hover:bg-white/10 border border-white/10'
+              }`}
+              id="btn-cloud-toggle"
+            >
+              <span>{cloudsVisible ? '☁️' : '🌫️'}</span>
+              <span>{cloudsVisible ? (isZh ? '云层开' : 'Clouds On') : (isZh ? '云层关' : 'Clouds Off')}</span>
             </button>
           )}
 
@@ -381,10 +404,10 @@ export default function PlanetInfoPanel({
           </div>
 
           <div className="space-y-2.5">
-            {/* U offset slider */}
+            {/* U offset slider — 仅校准经度方向 */}
             <div className="space-y-1">
               <div className="flex justify-between text-[10px] font-mono">
-                <span className="text-white/50">U (horizontal)</span>
+                <span className="text-white/50">U (longitude)</span>
                 <span className="text-cyan-400">{textureOffset.u.toFixed(2)}</span>
               </div>
               <input
@@ -394,26 +417,7 @@ export default function PlanetInfoPanel({
                 step={0.01}
                 value={textureOffset.u}
                 onChange={(e) =>
-                  onChangeTextureOffset({ ...textureOffset, u: parseFloat(e.target.value) })
-                }
-                className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400"
-              />
-            </div>
-
-            {/* V offset slider */}
-            <div className="space-y-1">
-              <div className="flex justify-between text-[10px] font-mono">
-                <span className="text-white/50">V (vertical)</span>
-                <span className="text-cyan-400">{textureOffset.v.toFixed(2)}</span>
-              </div>
-              <input
-                type="range"
-                min={-0.5}
-                max={0.5}
-                step={0.01}
-                value={textureOffset.v}
-                onChange={(e) =>
-                  onChangeTextureOffset({ ...textureOffset, v: parseFloat(e.target.value) })
+                  onChangeTextureOffset({ u: parseFloat(e.target.value), v: 0 })
                 }
                 className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400"
               />
@@ -422,7 +426,7 @@ export default function PlanetInfoPanel({
 
           <button
             onClick={async () => {
-              const payload = JSON.stringify({ planetId, u: textureOffset.u, v: textureOffset.v });
+              const payload = JSON.stringify({ planetId, u: textureOffset.u });
               try {
                 await navigator.clipboard.writeText(payload);
                 alert(isZh ? `已复制: ${payload}` : `Copied: ${payload}`);

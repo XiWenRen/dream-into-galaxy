@@ -37,6 +37,12 @@ interface CommandPanelProps {
   helioY: number;
   helioZ: number;
 
+  // 观测站位置相关 props
+  latitude: number;
+  longitude: number;
+  onChangeLatitude?: (lat: number) => void;
+  onChangeLongitude?: (lon: number) => void;
+
   // 验证面板相关 props
   validationPairKey: string;
   onChangeValidationPairKey: (val: string) => void;
@@ -195,6 +201,12 @@ export default function CommandPanel({
   helioX,
   helioY,
   helioZ,
+
+  // 观测站位置相关 props
+  latitude,
+  longitude,
+  onChangeLatitude,
+  onChangeLongitude,
 
   // 验证面板相关 props
   validationPairKey,
@@ -509,6 +521,76 @@ export default function CommandPanel({
             <div className="flex justify-between text-[8px] text-slate-600 font-mono">
               <span>{t.magLimitBrightest}</span>
               <span>{t.magLimitAll}</span>
+            </div>
+          </div>
+
+          {/* 🌍 观测站位置调整 (Observer Location) */}
+          <div className="space-y-2 pt-2 border-t border-slate-800/60">
+            <div className="text-[9px] text-slate-500 uppercase tracking-wider font-mono">
+              {isZh ? '🌍 观测站位置' : '🌍 Observer Location'}
+            </div>
+
+            {/* 城市快速选择 (仅地球) */}
+            {selectedPlanetId.toLowerCase() === 'earth' && (
+              <select
+                onChange={(e) => {
+                  const [lat, lon] = e.target.value.split(',').map(Number);
+                  onChangeLatitude?.(lat);
+                  onChangeLongitude?.(lon);
+                }}
+                className="bg-slate-900 border border-slate-800 hover:border-cyan-500/50 text-white text-[10.5px] rounded-md px-2 py-1 focus:outline-none cursor-pointer outline-none transition-colors w-full font-mono"
+              >
+                <option value="">{isZh ? '快速选择城市...' : 'Select City...'}</option>
+                <option value="39.90,116.41">{isZh ? '🇨🇳 北京' : '🇨🇳 Beijing'}</option>
+                <option value="31.23,121.47">{isZh ? '🇨🇳 上海' : '🇨🇳 Shanghai'}</option>
+                <option value="22.54,114.06">{isZh ? '🇨🇳 深圳' : '🇨🇳 Shenzhen'}</option>
+                <option value="30.57,104.07">{isZh ? '🇨🇳 成都' : '🇨🇳 Chengdu'}</option>
+                <option value="34.34,108.94">{isZh ? '🇨🇳 西安' : '🇨🇳 Xi\'an'}</option>
+                <option value="40.71,-74.01">{isZh ? '🇺🇸 纽约' : '🇺🇸 New York'}</option>
+                <option value="51.51,-0.13">{isZh ? '🇬🇧 伦敦' : '🇬🇧 London'}</option>
+                <option value="48.86,2.35">{isZh ? '🇫🇷 巴黎' : '🇫🇷 Paris'}</option>
+                <option value="35.68,139.69">{isZh ? '🇯🇵 东京' : '🇯🇵 Tokyo'}</option>
+                <option value="37.57,126.98">{isZh ? '🇰🇷 首尔' : '🇰🇷 Seoul'}</option>
+                <option value="1.35,103.82">{isZh ? '🇸🇬 新加坡' : '🇸🇬 Singapore'}</option>
+                <option value="-33.87,151.21">{isZh ? '🇦🇺 悉尼' : '🇦🇺 Sydney'}</option>
+                <option value="55.76,37.62">{isZh ? '🇷🇺 莫斯科' : '🇷🇺 Moscow'}</option>
+                <option value="19.08,72.88">{isZh ? '🇮🇳 孟买' : '🇮🇳 Mumbai'}</option>
+                <option value="-23.55,-46.63">{isZh ? '🇧🇷 圣保罗' : '🇧🇷 São Paulo'}</option>
+              </select>
+            )}
+
+            {/* 纬度 */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] font-mono text-slate-400">
+                <span>{isZh ? '纬度 Latitude' : 'Latitude'}</span>
+                <span className="text-cyan-400">{latitude.toFixed(2)}°</span>
+              </div>
+              <input
+                type="range"
+                min={-90}
+                max={90}
+                step={0.1}
+                value={latitude}
+                onChange={(e) => onChangeLatitude?.(parseFloat(e.target.value))}
+                className="w-full accent-cyan-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+
+            {/* 经度 */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] font-mono text-slate-400">
+                <span>{isZh ? '经度 Longitude' : 'Longitude'}</span>
+                <span className="text-cyan-400">{longitude.toFixed(2)}°</span>
+              </div>
+              <input
+                type="range"
+                min={-180}
+                max={180}
+                step={0.1}
+                value={longitude}
+                onChange={(e) => onChangeLongitude?.(parseFloat(e.target.value))}
+                className="w-full accent-cyan-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+              />
             </div>
           </div>
         </div>

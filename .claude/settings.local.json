@@ -25,7 +25,11 @@
       "Read(//tmp/**)",
       "Bash(grep -n \"loadHipparcosCatalog\\(\\).then\\\\|createStellarFieldFromCatalog\\\\|new THREE.LineSegments\\\\|constellationLinesGeo\\\\|constellationLine\" C:/Users/dom_zhou/.claude/projects/D--workspace-GalaxySim3D-GoogleAIStudio/890d965a-7579-41e4-8989-5260ce4f8da7.jsonl > /tmp/star_code.txt && wc -l /tmp/star_code.txt)",
       "mcp__plugin_playwright_playwright__browser_select_option",
-      "WebFetch(domain:science.nasa.gov)"
+      "WebFetch(domain:science.nasa.gov)",
+      "WebFetch(domain:apod.nasa.gov)",
+      "WebFetch(domain:www.solarsystemscope.com)",
+      "WebFetch(domain:planetpixelemporium.com)",
+      "WebFetch(domain:svs.gsfc.nasa.gov)"
     ]
   }
 }
