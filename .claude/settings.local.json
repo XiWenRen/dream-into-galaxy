@@ -29,7 +29,11 @@
       "WebFetch(domain:apod.nasa.gov)",
       "WebFetch(domain:www.solarsystemscope.com)",
       "WebFetch(domain:planetpixelemporium.com)",
-      "WebFetch(domain:svs.gsfc.nasa.gov)"
+      "WebFetch(domain:svs.gsfc.nasa.gov)",
+      "mcp__Claude_in_Chrome__list_connected_browsers",
+      "mcp__Claude_in_Chrome__computer",
+      "Bash(tasklist)",
+      "Bash(taskkill /F /IM chrome.exe 2>NUL && echo killed || echo \"no chrome to kill\")"
     ]
   }
 }

@@ -27,6 +27,15 @@ const OBLIQUITY_RAD = (OBLIQUITY_DEG * Math.PI) / 180.0;
 const cosObliq = Math.cos(OBLIQUITY_RAD);
 const sinObliq = Math.sin(OBLIQUITY_RAD);
 
+/** Map satellite ID to its parent planet ID */
+const SATELLITE_PARENT_MAP: Record<string, string> = (() => {
+  const map: Record<string, string> = {};
+  for (const sat of SATELLITE_CATALOG) {
+    map[sat.id] = sat.parentId;
+  }
+  return map;
+})();
+
 /** Fixed visual properties for planets when seen from other bodies */
 const PLANET_VISUALS: Record<string, { color: number; baseMag: number }> = {
   mercury: { color: 0xb0b0b0, baseMag: -0.4 },
@@ -141,9 +150,8 @@ export class ObserverEngine {
     const planetIds = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
     const exclude = new Set<string>([ctx.bodyId]);
 
-    // If observer is a moon, exclude its parent planet
-    const moonToParent: Record<string, string> = { moon: 'earth' };
-    const parentId = moonToParent[ctx.bodyId];
+    // If observer is a natural satellite, exclude its parent planet (parent handled as dominant body)
+    const parentId = SATELLITE_PARENT_MAP[ctx.bodyId];
     if (parentId) exclude.add(parentId);
 
     return planetIds
@@ -163,6 +171,12 @@ export class ObserverEngine {
    * neptune → Triton
    */
   static getSatellitesInSky(ctx: ObserverContext, days: number): SatelliteSkyInfo[] {
+    // If observer is on a natural satellite, its parent planet is handled as the dominant body.
+    // Other moons of the same parent are not rendered in this simplified model.
+    if (SATELLITE_PARENT_MAP[ctx.bodyId]) {
+      return [];
+    }
+
     switch (ctx.bodyId) {
       case 'earth':
         return [this.getMoonFromEarth(days)];

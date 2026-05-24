@@ -4,6 +4,7 @@
  */
 
 import { J2000_TIMESTAMP } from './TimeEngine';
+import { SATELLITE_CATALOG, getSatelliteHeliocentricPosition } from './SatelliteData';
 
 export interface KeplerElements {
   id: string;
@@ -39,7 +40,22 @@ export const CELESTIAL_PHYSICS = {
   jupiter: { id: "jupiter", radius: 69911, rotationPeriod: 9.925, obliquity: 3.13 },
   saturn: { id: "saturn", radius: 58232, rotationPeriod: 10.656, obliquity: 26.73 },
   uranus: { id: "uranus", radius: 25362, rotationPeriod: -17.24, obliquity: 97.77 },
-  neptune: { id: "neptune", radius: 24622, rotationPeriod: 16.11, obliquity: 28.32 }
+  neptune: { id: "neptune", radius: 24622, rotationPeriod: 16.11, obliquity: 28.32 },
+  // Major natural satellites (rotationPeriod = orbital period in hours for tidally locked bodies)
+  phobos: { id: "phobos", radius: 11.2, rotationPeriod: 7.65, obliquity: 0.0 },
+  deimos: { id: "deimos", radius: 6.2, rotationPeriod: 30.31, obliquity: 0.0 },
+  io: { id: "io", radius: 1821.6, rotationPeriod: 42.46, obliquity: 0.0 },
+  europa: { id: "europa", radius: 1560.8, rotationPeriod: 85.22, obliquity: 0.0 },
+  ganymede: { id: "ganymede", radius: 2634.1, rotationPeriod: 171.72, obliquity: 0.0 },
+  callisto: { id: "callisto", radius: 2410.3, rotationPeriod: 400.54, obliquity: 0.0 },
+  titan: { id: "titan", radius: 2575.5, rotationPeriod: 382.68, obliquity: 0.0 },
+  rhea: { id: "rhea", radius: 763.8, rotationPeriod: 108.43, obliquity: 0.0 },
+  enceladus: { id: "enceladus", radius: 252.1, rotationPeriod: 32.88, obliquity: 0.0 },
+  titania: { id: "titania", radius: 788.4, rotationPeriod: 208.94, obliquity: 0.0 },
+  oberon: { id: "oberon", radius: 761.4, rotationPeriod: 323.11, obliquity: 0.0 },
+  ariel: { id: "ariel", radius: 578.9, rotationPeriod: 60.48, obliquity: 0.0 },
+  triton: { id: "triton", radius: 1353.4, rotationPeriod: -141.05, obliquity: 0.0 }, // retrograde
+  proteus: { id: "proteus", radius: 210.0, rotationPeriod: 26.93, obliquity: 0.0 }
 };
 
 export class OrbitEngine {
@@ -67,9 +83,8 @@ export class OrbitEngine {
     }
 
     const elem = PLANET_ORBITAL_DATA[id];
-    if (!elem) {
-      return { x: 0, y: 0, z: 0 };
-    }
+    if (elem) {
+      // 1. 计算平均近点角 Mean Anomaly (M)
 
     // 1. 计算平均近点角 Mean Anomaly (M)
     // 公转角速度 n = 360 / period
@@ -111,6 +126,21 @@ export class OrbitEngine {
     const zEcliptic = xOrbit * (sinOmega * sinI) + yOrbit * (cosOmega * sinI);
 
     return { x: xEcliptic, y: yEcliptic, z: zEcliptic };
+    }
+
+    // 支持其他天然卫星（如土卫六 Titan）
+    const sat = SATELLITE_CATALOG.find(s => s.id === id);
+    if (sat) {
+      const parentPos = this.getHeliocentricPosition(sat.parentId, days);
+      const relPos = getSatelliteHeliocentricPosition(sat, days);
+      return {
+        x: parentPos.x + relPos.x,
+        y: parentPos.y + relPos.y,
+        z: parentPos.z + relPos.z
+      };
+    }
+
+    return { x: 0, y: 0, z: 0 };
   }
 
   /**

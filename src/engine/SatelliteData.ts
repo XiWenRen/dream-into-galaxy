@@ -67,26 +67,56 @@ export const SATELLITE_CATALOG: SatelliteDef[] = [
     inclinationDeg: 0.28, initialPhaseRad: 4.0, color: 0x8d6e63,
     magnitude: -1.2, radiusKm: 2410.3
   },
-  // Major Saturnian moon
+  // Saturnian moons
   {
     id: 'titan', nameZh: '土卫六 Titan', nameEn: 'Titan',
     parentId: 'saturn', semiMajorAxisKm: 1221870, periodDays: 15.945,
     inclinationDeg: 0.35, initialPhaseRad: 1.0, color: 0xd4a76a,
     magnitude: -1.5, radiusKm: 2575.5
   },
-  // Major Uranian moon
+  {
+    id: 'rhea', nameZh: '土卫五 Rhea', nameEn: 'Rhea',
+    parentId: 'saturn', semiMajorAxisKm: 527040, periodDays: 4.518,
+    inclinationDeg: 0.35, initialPhaseRad: 2.0, color: 0xb0bebe,
+    magnitude: -1.0, radiusKm: 763.8
+  },
+  {
+    id: 'enceladus', nameZh: '土卫二 Enceladus', nameEn: 'Enceladus',
+    parentId: 'saturn', semiMajorAxisKm: 238020, periodDays: 1.370,
+    inclinationDeg: 0.35, initialPhaseRad: 3.0, color: 0xe0f2f1,
+    magnitude: 0.0, radiusKm: 252.1
+  },
+  // Uranian moons
   {
     id: 'titania', nameZh: '天卫三 Titania', nameEn: 'Titania',
     parentId: 'uranus', semiMajorAxisKm: 435910, periodDays: 8.706,
     inclinationDeg: 0.14, initialPhaseRad: 0.8, color: 0xc0c0c0,
     magnitude: -0.5, radiusKm: 788.4
   },
-  // Major Neptunian moon
+  {
+    id: 'oberon', nameZh: '天卫四 Oberon', nameEn: 'Oberon',
+    parentId: 'uranus', semiMajorAxisKm: 583520, periodDays: 13.463,
+    inclinationDeg: 0.14, initialPhaseRad: 2.5, color: 0xd1c4e9,
+    magnitude: 0.0, radiusKm: 761.4
+  },
+  {
+    id: 'ariel', nameZh: '天卫一 Ariel', nameEn: 'Ariel',
+    parentId: 'uranus', semiMajorAxisKm: 190900, periodDays: 2.520,
+    inclinationDeg: 0.14, initialPhaseRad: 1.0, color: 0xe0f2f1,
+    magnitude: 0.0, radiusKm: 578.9
+  },
+  // Neptunian moons
   {
     id: 'triton', nameZh: '海卫一 Triton', nameEn: 'Triton',
     parentId: 'neptune', semiMajorAxisKm: 354760, periodDays: 5.877,
     inclinationDeg: 157.0, initialPhaseRad: 1.5, color: 0xa0c4e8,
     magnitude: -1.0, radiusKm: 1353.4
+  },
+  {
+    id: 'proteus', nameZh: '海卫八 Proteus', nameEn: 'Proteus',
+    parentId: 'neptune', semiMajorAxisKm: 117647, periodDays: 1.122,
+    inclinationDeg: 0.0, initialPhaseRad: 0.5, color: 0xb0bec5,
+    magnitude: 1.0, radiusKm: 210.0
   },
 ];
 

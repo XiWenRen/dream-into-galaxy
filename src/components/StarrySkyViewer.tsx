@@ -11,6 +11,7 @@ import { OrbitEngine } from '../engine/OrbitEngine';
 import { AstrophenomenaEngine } from '../engine/AstrophenomenaEngine';
 import { ObserverEngine } from '../engine/ObserverEngine';
 import { translations } from '../i18n';
+import { SATELLITE_CATALOG } from '../engine/SatelliteData';
 import { STAR_LIST, CONSTELLATIONS, BRIGHT_STAR_COUNT, DetailedStar } from '../engine/StarDatabase';
 import { EXTRA_STARS, EXTRA_CONSTELLATIONS } from '../engine/ExtraStarsDatabase';
 
@@ -422,14 +423,91 @@ const createConstellationLabelSprite = (text: string): THREE.Sprite => {
   return sprite;
 };
 
+/** Texture URLs for dominant body rendering */
+const DOMINANT_BODY_TEXTURES: Record<string, string> = {
+  mercury: '/textures/8k_mercury.jpg',
+  venus: '/textures/8k_venus_surface.jpg',
+  earth: '/textures/8k_earth_daymap.jpg',
+  moon: '/textures/8k_moon.jpg',
+  mars: '/textures/8k_mars.jpg',
+  jupiter: '/textures/8k_jupiter.jpg',
+  saturn: '/textures/8k_saturn.jpg',
+  uranus: '/textures/8k_uranus.jpg',
+  neptune: '/textures/8k_neptune.jpg',
+  sun: '/textures/8k_sun.jpg',
+};
+
+/** Icons for celestial bodies */
+const BODY_ICONS: Record<string, string> = {
+  sun: '\u{2609}',
+  mercury: '\u{263F}',
+  venus: '\u{2640}',
+  earth: '\u{1F30D}',
+  moon: '\u{1F319}',
+  mars: '\u{2642}',
+  jupiter: '\u{2643}',
+  saturn: '\u{2644}',
+  uranus: '\u{26A2}',
+  neptune: '\u{2646}',
+};
+
 function getDominantBodyInfo(observerId: string): { id: string; nameZh: string; nameEn: string; icon: string; textureUrl: string } | null {
   switch (observerId) {
     case 'earth':
-      return { id: 'moon', nameZh: '月球 (The Moon)', nameEn: 'The Moon', icon: '\u{1F319}', textureUrl: '/textures/8k_moon.jpg' };
+      return { id: 'moon', nameZh: '月球', nameEn: 'The Moon', icon: BODY_ICONS.moon, textureUrl: DOMINANT_BODY_TEXTURES.moon };
     case 'moon':
-      return { id: 'earth', nameZh: '地球 (Earth)', nameEn: 'Earth', icon: '\u{1F30D}', textureUrl: '/textures/8k_earth_daymap.jpg' };
-    default:
+      return { id: 'earth', nameZh: '地球', nameEn: 'Earth', icon: BODY_ICONS.earth, textureUrl: DOMINANT_BODY_TEXTURES.earth };
+    default: {
+      // Check if observer is a natural satellite → parent planet is dominant
+      const sat = SATELLITE_CATALOG.find(s => s.id === observerId);
+      if (sat) {
+        const parentId = sat.parentId;
+        const parentNameZh = (() => {
+          switch (parentId) {
+            case 'mercury': return '水星';
+            case 'venus': return '金星';
+            case 'earth': return '地球';
+            case 'mars': return '火星';
+            case 'jupiter': return '木星';
+            case 'saturn': return '土星';
+            case 'uranus': return '天王星';
+            case 'neptune': return '海王星';
+            default: return parentId;
+          }
+        })();
+        const parentNameEn = parentId.charAt(0).toUpperCase() + parentId.slice(1);
+        return {
+          id: parentId,
+          nameZh: parentNameZh,
+          nameEn: parentNameEn,
+          icon: BODY_ICONS[parentId] || '\u{1F30D}',
+          textureUrl: DOMINANT_BODY_TEXTURES[parentId] || '',
+        };
+      }
       return null;
+    }
+  }
+}
+
+/** Get display name for any observer body (planet or satellite) */
+function getObserverBodyName(observerId: string, lang: 'zh' | 'en'): string {
+  const sat = SATELLITE_CATALOG.find(s => s.id === observerId);
+  if (sat) {
+    return lang === 'zh' ? sat.nameZh : sat.nameEn;
+  }
+  // Planets use hardcoded names with symbols
+  switch (observerId) {
+    case 'sun': return lang === 'zh' ? '\u{2609} 太阳' : '\u{2609} Sun';
+    case 'mercury': return lang === 'zh' ? '\u{263F} 水星' : '\u{263F} Mercury';
+    case 'venus': return lang === 'zh' ? '\u{2640} 金星' : '\u{2640} Venus';
+    case 'earth': return lang === 'zh' ? '\u{1F30D} 地球' : '\u{1F30D} Earth';
+    case 'moon': return lang === 'zh' ? '\u{1F319} 月球' : '\u{1F319} Moon';
+    case 'mars': return lang === 'zh' ? '\u{2642} 火星' : '\u{2642} Mars';
+    case 'jupiter': return lang === 'zh' ? '\u{2643} 木星' : '\u{2643} Jupiter';
+    case 'saturn': return lang === 'zh' ? '\u{2644} 土星' : '\u{2644} Saturn';
+    case 'uranus': return lang === 'zh' ? '\u{26A2} 天王星' : '\u{26A2} Uranus';
+    case 'neptune': return lang === 'zh' ? '\u{2646} 海王星' : '\u{2646} Neptune';
+    default: return observerId;
   }
 }
 
@@ -621,6 +699,27 @@ export default function StarrySkyViewer({
             moonHazeSpriteRef.current.position.set(0, 0, 0);
             moonHazeSpriteRef.current.material.color.setHex(0x88bbff);
             moonHazeSpriteRef.current.material.opacity = 0.6;
+          }
+        } else {
+          // General satellite observer: parent planet as dominant body
+          moonSky.scale.setScalar(1.0);
+          moonMat.color.setHex(0xffffff);
+          moonMat.emissive.setHex(0x000000);
+          moonMat.emissiveIntensity = 0;
+          loadRealTexture(dominant.textureUrl, textureCacheRef, (tex) => {
+            if (observerBodyIdRef.current === observerBodyId && moonSkyRef.current) {
+              const off = textureOffsetsRef.current[dominant.id] ?? { u: 0, v: 0 };
+              tex.wrapS = THREE.RepeatWrapping;
+              tex.wrapT = THREE.ClampToEdgeWrapping;
+              tex.minFilter = THREE.LinearFilter;
+              tex.offset.x = 0.25 + off.u;
+              tex.offset.y = off.v;
+              (moonSkyRef.current.material as THREE.MeshStandardMaterial).map = tex;
+              (moonSkyRef.current.material as THREE.MeshStandardMaterial).needsUpdate = true;
+            }
+          });
+          if (moonHazeSpriteRef.current) {
+            moonHazeSpriteRef.current.visible = false;
           }
         }
       } else {
@@ -1207,6 +1306,21 @@ export default function StarrySkyViewer({
               extraZh: '仰角: ' + (moonSkyRef.current ? getHorizontalCoordinates(moonRaRef.current, moonDecRef.current, TimeEngine.getLocalSiderealTime(currentTimestampRef.current, longitudeRef.current), latitudeRef.current).alt.toFixed(1) : '0') + '°',
               extraEn: 'Altitude: ' + (moonSkyRef.current ? getHorizontalCoordinates(moonRaRef.current, moonDecRef.current, TimeEngine.getLocalSiderealTime(currentTimestampRef.current, longitudeRef.current), latitudeRef.current).alt.toFixed(1) : '0') + '°'
             });
+          } else if (dom) {
+            // Generic satellite observer → parent planet
+            const obsNameZh = getObserverBodyName(observerBodyIdRef.current, 'zh');
+            const obsNameEn = getObserverBodyName(observerBodyIdRef.current, 'en');
+            setHoveredCelestial({
+              id: dom.id,
+              nameZh: dom.nameZh,
+              nameEn: dom.nameEn,
+              typeZh: '行星',
+              typeEn: 'Planet',
+              infoZh: `从${obsNameZh}表面观测，${dom.nameZh}是天空中最为壮观的主导天体。由于潮汐锁定，它在天空中几乎静止不动。`,
+              infoEn: `As seen from ${obsNameEn}, ${dom.nameEn} dominates the sky. Due to tidal locking, it remains nearly stationary.`,
+              extraZh: '仰角: ' + (moonSkyRef.current ? getHorizontalCoordinates(moonRaRef.current, moonDecRef.current, TimeEngine.getLocalSiderealTime(currentTimestampRef.current, longitudeRef.current), latitudeRef.current).alt.toFixed(1) : '0') + '°',
+              extraEn: 'Altitude: ' + (moonSkyRef.current ? getHorizontalCoordinates(moonRaRef.current, moonDecRef.current, TimeEngine.getLocalSiderealTime(currentTimestampRef.current, longitudeRef.current), latitudeRef.current).alt.toFixed(1) : '0') + '°'
+            });
           }
         } else if (hit.userData.type === 'planet') {
           const planetData = hit.userData.planetData;
@@ -1353,6 +1467,23 @@ export default function StarrySkyViewer({
               infoEn: 'From the lunar surface, Earth appears as a blue marble suspended in the pitch-black sky. Due to tidal locking, it remains nearly stationary in the lunar sky, making it the most spectacular sight on the Moon.',
               extraDetailsZh: '地球平均直径 12,742 公里 | 从月球看角直径约 2° | 潮汐锁定使其在月空中几乎固定',
               extraDetailsEn: 'Earth mean diameter 12,742 km | Angular diameter ~2° from Moon | Tidal locking keeps it nearly fixed in lunar sky'
+            });
+          } else if (dom) {
+            const obsNameZh = getObserverBodyName(observerBodyIdRef.current, 'zh');
+            const obsNameEn = getObserverBodyName(observerBodyIdRef.current, 'en');
+            setSelectedCelestial({
+              id: dom.id,
+              nameZh: dom.nameZh,
+              nameEn: dom.nameEn,
+              typeZh: '行星 / 主导天体',
+              typeEn: 'Planet / Dominant Body',
+              mag: 0,
+              ra: moonRaRef.current || 0,
+              dec: moonDecRef.current || 0,
+              infoZh: `从${obsNameZh}表面看去，${dom.nameZh}是夜空中最壮观的主导天体。由于潮汐锁定，它在天空中几乎静止不动。`,
+              infoEn: `From the surface of ${obsNameEn}, ${dom.nameEn} dominates the sky. Due to tidal locking, it remains nearly stationary.`,
+              extraDetailsZh: `${dom.nameZh}是${obsNameZh}的母行星，在天空中极为壮观。`,
+              extraDetailsEn: `${dom.nameEn} is the parent planet of ${obsNameEn}, spectacular in the sky.`
             });
           }
         } else if (hit.userData.type === 'planet') {
@@ -1530,7 +1661,23 @@ export default function StarrySkyViewer({
         }
       }
     } else {
-      if (moonSkyRef.current) moonSkyRef.current.visible = false;
+      const dominant = getDominantBodyInfo(observerBodyId);
+      if (dominant && moonSkyRef.current) {
+        const parentInfo = ObserverEngine.getPlanetRADec(ctx, dominant.id, days);
+        moonRa = parentInfo.ra; moonDec = parentInfo.dec;
+        moonCoords = getHorizontalCoordinates(moonRa, moonDec, lst, latitude);
+        const parentPos = get3DPositionOnDome(moonCoords.az, moonCoords.alt, 270);
+        moonSkyRef.current.position.copy(parentPos);
+        moonSkyRef.current.visible = moonCoords.alt > -2;
+        // Scale based on angular diameter relative to Moon-from-Earth (~0.5°)
+        const scale = Math.max(0.5, parentInfo.angularDiameter / 0.5);
+        moonSkyRef.current.scale.setScalar(scale);
+        const latRad = (latitude * Math.PI) / 180.0;
+        const celestialNorth = new THREE.Vector3(0, Math.sin(latRad), Math.cos(latRad));
+        setTidallyLockedOrientation(moonSkyRef.current, cameraRef.current?.position ?? new THREE.Vector3(0, 0, 0.1), celestialNorth);
+      } else {
+        if (moonSkyRef.current) moonSkyRef.current.visible = false;
+      }
       if (moonHazeSpriteRef.current) moonHazeSpriteRef.current.visible = false;
     }
 
@@ -2098,16 +2245,7 @@ export default function StarrySkyViewer({
         {skyData && (
           <div className="flex items-center space-x-1 text-[10px] whitespace-nowrap">
             <span className="text-slate-400">
-              {observerBodyId === 'earth' ? (isZh ? '🌍 地球' : '🌍 Earth') :
-               observerBodyId === 'moon' ? (isZh ? '🌙 月球' : '🌙 Moon') :
-               observerBodyId === 'mars' ? (isZh ? '🔴 火星' : '🔴 Mars') :
-               observerBodyId === 'mercury' ? (isZh ? '☿ 水星' : '☿ Mercury') :
-               observerBodyId === 'venus' ? (isZh ? '♀ 金星' : '♀ Venus') :
-               observerBodyId === 'jupiter' ? (isZh ? '♃ 木星' : '♃ Jupiter') :
-               observerBodyId === 'saturn' ? (isZh ? '♄ 土星' : '♄ Saturn') :
-               observerBodyId === 'uranus' ? (isZh ? '⛢ 天王星' : '⛢ Uranus') :
-               observerBodyId === 'neptune' ? (isZh ? '♆ 海王星' : '♆ Neptune') :
-               observerBodyId}
+              {getObserverBodyName(observerBodyId, lang)}
             </span>
             <span className="text-slate-600">|</span>
             <span className={skyData.sunAlt > 0 ? "text-amber-400" : "text-slate-500"}>☀️{skyData.sunAlt.toFixed(0)}°</span>

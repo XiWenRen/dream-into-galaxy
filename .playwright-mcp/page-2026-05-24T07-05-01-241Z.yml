@@ -1,0 +1,109 @@
+- generic [ref=e3]:
+  - button "展开控制台" [ref=e81] [cursor=pointer]:
+    - img [ref=e82]
+  - main [ref=e86]:
+    - generic [ref=e88]:
+      - generic:
+        - generic: "离太阳距离:"
+        - generic: 1.96 AU
+        - generic: "|"
+        - generic: 地球 (Earth)
+    - generic [ref=e92]:
+      - generic [ref=e93]:
+        - generic [ref=e94]:
+          - heading "地球 (Earth)" [level=2] [ref=e95]:
+            - generic [ref=e96]: 地球 (Earth)
+          - paragraph [ref=e97]: earth SYSTEM COORDS
+        - generic [ref=e98]:
+          - button "登录星球" [ref=e99] [cursor=pointer]:
+            - img [ref=e101]
+            - generic [ref=e106]: 登录星球
+          - button "🌫️ 云层关" [disabled] [ref=e201] [cursor=pointer]:
+            - generic [ref=e108]: 🌫️
+            - generic [ref=e109]: 云层关
+          - button "🛡️ 星球完整模式" [active] [ref=e202] [cursor=pointer]:
+            - generic [ref=e111]: 🛡️
+            - generic [ref=e112]: 星球完整模式
+          - button "关闭介绍面板" [ref=e113] [cursor=pointer]:
+            - img [ref=e114]
+      - generic [ref=e116]:
+        - generic [ref=e117]: 人类唯一的家园。拥有丰富多样的液态水海洋、稳定的磁层保障以及含有氧气和富氮的厚重保护性大气层。
+        - generic [ref=e118]:
+          - paragraph [ref=e203]: ✨ 通过剖面图层，展示出星体内部结构分布与元素组成结构：
+          - generic [ref=e120]:
+            - generic [ref=e206]:
+              - generic [ref=e207]:
+                - generic [ref=e208]: 地核 (内固外液)
+                - generic [ref=e209]: 6,000 °C
+              - paragraph [ref=e210]: 液态外核与固态铁镍内核 (约6000°C)。流体发电机效应形成了巨大的地磁场保护伞。
+              - paragraph [ref=e211]: "物质组成: 液态流体外核 + 结晶固态铁镍内核"
+            - generic [ref=e214]:
+              - generic [ref=e215]:
+                - generic [ref=e216]: 地幔 (熔融下幔/软流圈)
+                - generic [ref=e217]: 3,500 °C
+              - paragraph [ref=e218]: 含硅、镁的粘稠地幔圈。产生板块漂移的根本机制动力源。
+              - paragraph [ref=e219]: "物质组成: 富硅、镁高粘稠超基性橄榄岩质圈"
+            - generic [ref=e222]:
+              - generic [ref=e223]:
+                - generic [ref=e224]: 地壳 (陆壳/洋壳)
+                - generic [ref=e225]: 15 °C
+              - paragraph [ref=e226]: 花岗岩与玄武岩陆地壳。承载地表所有的海洋、河流与生命群落系统。
+              - paragraph [ref=e227]: "物质组成: 含盐分海洋、大陆架花岗岩与丰富有机层"
+            - generic [ref=e230]:
+              - generic [ref=e231]:
+                - generic [ref=e232]: 大气圈 (活性气体)
+                - generic [ref=e233]: "-50 ~ 20 °C"
+              - paragraph [ref=e234]: 富氧空气活性层。包含78%氮、21%氧和水汽，过滤有害宇宙辐射。
+              - paragraph [ref=e235]: "物质组成: 78% 氮、21% 氧、以及适宜的水温云雾"
+      - generic [ref=e136]:
+        - generic [ref=e137]:
+          - heading "🎨 贴图偏移校准" [level=3] [ref=e138]
+          - generic [ref=e139]: UV OFFSET
+        - generic [ref=e141]:
+          - generic [ref=e142]:
+            - generic [ref=e143]: U (longitude)
+            - generic [ref=e144]: "0.00"
+          - slider [ref=e145] [cursor=pointer]: "0"
+        - button "复制结果" [ref=e146] [cursor=pointer]:
+          - img [ref=e147]
+          - generic [ref=e150]: 复制结果
+  - generic [ref=e152]:
+    - img [ref=e153] [cursor=pointer]:
+      - generic [ref=e158]:
+        - generic: "-3y"
+      - generic [ref=e160]:
+        - generic: "-1M"
+      - generic [ref=e162]:
+        - generic: "-1w"
+      - generic [ref=e164]:
+        - generic: "-1d"
+      - generic [ref=e166]:
+        - generic: "-1h"
+      - generic [ref=e168]:
+        - generic: "-1m"
+      - generic [ref=e170]:
+        - generic: "-5x"
+      - generic [ref=e172]:
+        - generic: 1:1
+      - generic [ref=e175]:
+        - generic: 5x
+      - generic [ref=e177]:
+        - generic: 1m
+      - generic [ref=e179]:
+        - generic: 1h
+      - generic [ref=e181]:
+        - generic: 1d
+      - generic [ref=e183]:
+        - generic: 1w
+      - generic [ref=e185]:
+        - generic: 1M
+      - generic [ref=e187]:
+        - generic: 3y
+    - generic [ref=e189]:
+      - generic [ref=e190]:
+        - img [ref=e191]
+        - generic "双击修改时间" [ref=e194] [cursor=pointer]: 2026-05-24 07:05:00 UTC+0
+        - button "暂停" [ref=e195] [cursor=pointer]:
+          - img [ref=e196]
+        - button "UTC+0" [ref=e199] [cursor=pointer]
+      - generic [ref=e200]: 1x

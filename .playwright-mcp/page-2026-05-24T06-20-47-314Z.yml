@@ -1,0 +1,100 @@
+- generic [ref=e3]:
+  - button "展开控制台" [ref=e6] [cursor=pointer]:
+    - img [ref=e7]
+  - main [ref=e11]:
+    - generic [ref=e13]:
+      - generic:
+        - generic: "离太阳距离:"
+        - generic: 0.72 AU
+        - generic: "|"
+        - generic: 地球 (Earth)
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - heading "地球 (Earth)" [level=2] [ref=e20]:
+            - generic [ref=e21]: 地球 (Earth)
+          - paragraph [ref=e22]: earth SYSTEM COORDS
+        - generic [ref=e23]:
+          - button "登录星球" [ref=e24] [cursor=pointer]:
+            - img [ref=e26]
+            - generic [ref=e31]: 登录星球
+          - button "☁️ 云层开" [ref=e32] [cursor=pointer]:
+            - generic [ref=e33]: ☁️
+            - generic [ref=e34]: 云层开
+          - button "🔬 剖面剖析模式" [ref=e35] [cursor=pointer]:
+            - generic [ref=e36]: 🔬
+            - generic [ref=e37]: 剖面剖析模式
+          - button "关闭介绍面板" [ref=e38] [cursor=pointer]:
+            - img [ref=e39]
+      - generic [ref=e41]:
+        - generic [ref=e42]: 人类唯一的家园。拥有丰富多样的液态水海洋、稳定的磁层保障以及含有氧气和富氮的厚重保护性大气层。
+        - generic [ref=e43]:
+          - heading "📋 物理参数" [level=3] [ref=e44]
+          - generic [ref=e45]:
+            - generic [ref=e46]:
+              - generic [ref=e47]: 赤道半径
+              - generic [ref=e48]: 6,371 km
+            - generic [ref=e49]:
+              - generic [ref=e50]: 自转周期
+              - generic [ref=e51]: 23.934 hrs
+            - generic [ref=e52]:
+              - generic [ref=e53]: 自转轴倾角
+              - generic [ref=e54]: 23.44°
+            - generic [ref=e55]:
+              - generic [ref=e56]: 平均距离
+              - generic [ref=e57]: 1.0000 AU
+            - generic [ref=e58]:
+              - generic [ref=e59]: 公转周期
+              - generic [ref=e60]: 365.256 地球日
+      - generic [ref=e61]:
+        - generic [ref=e62]:
+          - heading "🎨 贴图偏移校准" [level=3] [ref=e63]
+          - generic [ref=e64]: UV OFFSET
+        - generic [ref=e66]:
+          - generic [ref=e67]:
+            - generic [ref=e68]: U (longitude)
+            - generic [ref=e69]: "0.00"
+          - slider [ref=e70] [cursor=pointer]: "0"
+        - button "复制结果" [ref=e71] [cursor=pointer]:
+          - img [ref=e72]
+          - generic [ref=e75]: 复制结果
+  - generic [ref=e77]:
+    - img [ref=e78] [cursor=pointer]:
+      - generic [ref=e83]:
+        - generic: "-3y"
+      - generic [ref=e85]:
+        - generic: "-1M"
+      - generic [ref=e87]:
+        - generic: "-1w"
+      - generic [ref=e89]:
+        - generic: "-1d"
+      - generic [ref=e91]:
+        - generic: "-1h"
+      - generic [ref=e93]:
+        - generic: "-1m"
+      - generic [ref=e95]:
+        - generic: "-5x"
+      - generic [ref=e97]:
+        - generic: 1:1
+      - generic [ref=e100]:
+        - generic: 5x
+      - generic [ref=e102]:
+        - generic: 1m
+      - generic [ref=e104]:
+        - generic: 1h
+      - generic [ref=e106]:
+        - generic: 1d
+      - generic [ref=e108]:
+        - generic: 1w
+      - generic [ref=e110]:
+        - generic: 1M
+      - generic [ref=e112]:
+        - generic: 3y
+    - generic [ref=e114]:
+      - generic [ref=e115]:
+        - img [ref=e116]
+        - generic "双击修改时间" [ref=e119] [cursor=pointer]: 2026-05-24 06:20:46 UTC+0
+        - button "暂停" [ref=e120] [cursor=pointer]:
+          - img [ref=e121]
+        - button "UTC+0" [ref=e124] [cursor=pointer]
+      - generic [ref=e125]: 1x

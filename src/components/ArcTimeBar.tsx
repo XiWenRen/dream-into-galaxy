@@ -14,32 +14,104 @@ interface ArcTimeBarProps {
   onJumpDate: (timestamp: number) => void;
 }
 
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const CENTER_T = 0.5;
+
 // ─── Time presets ───────────────────────────────────────────────────────────
 
 interface TimePreset {
-  value: number;     // speedMultiplier (negative = reverse)
+  value: number;
   label: string;
   labelShort: string;
-  t: number;         // position along arc [0,1]
   side: 'left' | 'center' | 'right';
 }
 
-const TIME_PRESETS: TimePreset[] = [
-  { value: -3600, label: '-1h/s', labelShort: '-1h', t: 0.08, side: 'left' },
-  { value: -60, label: '-1m/s', labelShort: '-1m', t: 0.18, side: 'left' },
-  { value: -5, label: '-5s/s', labelShort: '-5x', t: 0.28, side: 'left' },
-  { value: 0, label: '1:1', labelShort: '1:1', t: 0.5, side: 'center' },
-  { value: 5, label: '5s/s', labelShort: '5x', t: 0.72, side: 'right' },
-  { value: 60, label: '1m/s', labelShort: '1m', t: 0.80, side: 'right' },
-  { value: 3600, label: '1h/s', labelShort: '1h', t: 0.87, side: 'right' },
-  { value: 86400, label: '1d/s', labelShort: '1d', t: 0.93, side: 'right' },
-  { value: 94608000, label: '3y/s', labelShort: '3y', t: 0.98, side: 'right' },
+// 手动校准的 [speed, t] 映射表：低速区密集但可点击，高速区渐疏，完全对称
+const SPEED_T_MAP: [number, number][] = [
+  [-94608000, 0.00],
+  [-2592000,  0.10],
+  [-604800,   0.16],
+  [-86400,    0.23],
+  [-3600,     0.31],
+  [-60,       0.39],
+  [-5,        0.45],
+  [0,         0.50],
+  [5,         0.55],
+  [60,        0.61],
+  [3600,      0.69],
+  [86400,     0.77],
+  [604800,    0.84],
+  [2592000,   0.90],
+  [94608000,  1.00],
 ];
 
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+// speed -> t：在映射表中线性插值
+function speedToT(speed: number): number {
+  if (speed === 0) return CENTER_T;
+  const absSpeed = Math.abs(speed);
+  // 找 absSpeed 在正半轴映射表中的位置
+  const positiveMap = SPEED_T_MAP.filter(([s]) => s >= 0);
+  for (let i = 0; i < positiveMap.length - 1; i++) {
+    const [sLow, tLow] = positiveMap[i];
+    const [sHigh, tHigh] = positiveMap[i + 1];
+    if (absSpeed >= sLow && absSpeed <= sHigh) {
+      const ratio = (absSpeed - sLow) / (sHigh - sLow);
+      const t = lerp(tLow, tHigh, ratio);
+      return speed < 0 ? 1 - t : t;
+    }
+  }
+  // 超出范围时钳制
+  return speed < 0 ? 0 : 1;
+}
+
+// t -> speed：在映射表中线性插值（仅在正半轴工作，再镜像）
+function tToSpeed(t: number): number {
+  const clamped = Math.max(0, Math.min(1, t));
+  const isLeft = clamped < CENTER_T;
+  const absT = isLeft ? 1 - clamped : clamped;
+
+  const positiveMap = SPEED_T_MAP.filter(([s]) => s >= 0);
+  for (let i = 0; i < positiveMap.length - 1; i++) {
+    const [_, tLow] = positiveMap[i];
+    const [__, tHigh] = positiveMap[i + 1];
+    if (absT >= tLow && absT <= tHigh) {
+      const ratio = (absT - tLow) / (tHigh - tLow);
+      const [sLow] = positiveMap[i];
+      const [sHigh] = positiveMap[i + 1];
+      const speed = Math.round(lerp(sLow, sHigh, ratio));
+      return isLeft ? -speed : speed;
+    }
+  }
+  return isLeft ? -1 : 1;
+}
+
+const TIME_PRESETS: (TimePreset & { t: number })[] = SPEED_T_MAP.map(([value, t]) => ({
+  value,
+  label: value === 0 ? '1:1' : `${value >= 0 ? '' : '-'}${formatSpeedLabel(Math.abs(value))}/s`,
+  labelShort: value === 0 ? '1:1' : (value > 0 ? '' : '-') + formatSpeedLabel(Math.abs(value)),
+  side: value === 0 ? 'center' : (value < 0 ? 'left' : 'right'),
+  t,
+}));
+
+function formatSpeedLabel(v: number): string {
+  if (v >= 94608000) return '3y';
+  if (v >= 2592000) return '1M';
+  if (v >= 604800) return '1w';
+  if (v >= 86400) return '1d';
+  if (v >= 3600) return '1h';
+  if (v >= 60) return '1m';
+  return v + 'x';
+}
+
+// 点击时判定是否"靠近"某个 preset 的阈值（弧线归一化距离）
+const PRESET_SNAP_THRESHOLD = 0.03;
+
 // ─── Arc math ───────────────────────────────────────────────────────────────
-// Quadratic bezier: P0=(20,20), P1=(300,80), P2=(580,20)
-// Bx(t) = 20 + 560t
-// By(t) = 20 + 120t(1-t)   (upward arc, reduced curvature)
 
 function getArcPoint(t: number): { x: number; y: number } {
   const x = 20 + 560 * t;
@@ -100,57 +172,62 @@ export default function ArcTimeBar({
   lang,
   onJumpDate,
 }: ArcTimeBarProps) {
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [useUTC, setUseUTC] = useState(true);
+  const [timezoneOffset, setTimezoneOffset] = useState(0); // 小时偏移，默认 UTC
+  const [showTzPicker, setShowTzPicker] = useState(false);
+  const [isEditingTime, setIsEditingTime] = useState(false);
   const [hoveredPreset, setHoveredPreset] = useState<TimePreset | null>(null);
   const isZh = lang === 'zh';
   const t = translations[lang];
 
-  const rawDate = new Date(timeState.currentTimestamp);
+  // 常用时区偏移列表（UTC-12 到 UTC+12）
+  const TZ_OPTIONS = useMemo(() => {
+    const opts: number[] = [];
+    for (let i = -12; i <= 12; i++) opts.push(i);
+    return opts;
+  }, []);
 
-  // Determine active preset
+  // 当前速度在弧线上的精确位置（由对数映射计算）
+  const speedT = useMemo(() => {
+    if (timeState.isPaused) return CENTER_T;
+    return speedToT(timeState.speedMultiplier);
+  }, [timeState.speedMultiplier, timeState.isPaused]);
+
+  // 判定当前激活的 preset（用于高亮刻度）
   const activePreset = useMemo(() => {
-    if (timeState.isPaused) return TIME_PRESETS.find(p => p.value === 0) || null;
-    // Find closest preset by value
+    if (timeState.isPaused) return TIME_PRESETS.find(p => p.value === 0)!;
+    const currentT = speedToT(timeState.speedMultiplier);
+    // 找到 t 最接近当前速度的 preset
     let closest = TIME_PRESETS[0];
     let minDiff = Infinity;
     for (const p of TIME_PRESETS) {
-      if (p.value === 0) continue;
-      const diff = Math.abs(Math.abs(p.value) - Math.abs(timeState.speedMultiplier));
+      const diff = Math.abs(p.t - currentT);
       if (diff < minDiff) {
         minDiff = diff;
         closest = p;
       }
     }
-    // Only highlight if actually close (within 10%)
-    if (minDiff / Math.abs(timeState.speedMultiplier) < 0.1 || timeState.speedMultiplier === closest.value) {
-      return closest;
-    }
-    return null;
+    // 只有在非常接近（阈值内）时才认为是"激活"该 preset
+    return minDiff < PRESET_SNAP_THRESHOLD ? closest : null;
   }, [timeState.speedMultiplier, timeState.isPaused]);
 
-  // Format timestamp for display
-  const formatTime = (ts: number, utc: boolean): string => {
-    const d = new Date(ts);
-    if (utc) {
-      return d.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
-    }
-    return d.toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    }) + ' LOCAL';
+  // 根据时区偏移格式化时间
+  const formatTime = (ts: number, offsetHours: number): string => {
+    const offsetMs = offsetHours * 3600 * 1000;
+    const d = new Date(ts + offsetMs);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const sign = offsetHours >= 0 ? '+' : '';
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC${sign}${offsetHours}`;
   };
 
-  // Format for datetime-local input (always in local timezone of the browser)
   const toDateTimeLocal = (ts: number): string => {
-    const d = new Date(ts);
+    const offsetMs = timezoneOffset * 3600 * 1000;
+    const d = new Date(ts + offsetMs);
     const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
   };
 
   const handlePresetClick = (preset: TimePreset) => {
     if (preset.value === 0) {
-      // Center: toggle pause, or set to 1x if already paused
       if (timeState.isPaused) {
         onChangeTimeState({ isPaused: false, speedMultiplier: 1 });
       } else if (timeState.speedMultiplier === 1) {
@@ -167,18 +244,48 @@ export default function ArcTimeBar({
     onChangeTimeState({ isPaused: !timeState.isPaused });
   };
 
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    if (!val) return;
-    const ts = new Date(val).getTime();
-    if (!isNaN(ts)) {
-      onJumpDate(ts);
-      setShowDatePicker(false);
-    }
-  };
-
-  // Arc SVG path (upward arc with reduced curvature)
   const arcPath = 'M 20 20 Q 300 60 580 20';
+
+  // 点击弧线任意位置
+  const handleArcClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    const svg = e.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    const viewBoxWidth = 600;
+    // 将点击 x 坐标转换为 viewBox 中的 t 值
+    let tClick = ((e.clientX - rect.left) / rect.width * viewBoxWidth - 20) / 560;
+    tClick = Math.max(0, Math.min(1, tClick));
+
+    // 优先：判断是否靠近某个 preset，靠近则精确切换到该 preset
+    let closestPreset: typeof TIME_PRESETS[0] | null = null;
+    let minDiff = Infinity;
+    for (const p of TIME_PRESETS) {
+      const diff = Math.abs(p.t - tClick);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestPreset = p;
+      }
+    }
+    if (closestPreset && minDiff < PRESET_SNAP_THRESHOLD) {
+      handlePresetClick(closestPreset);
+      return;
+    }
+
+    // 否则：连续调速
+    if (Math.abs(tClick - CENTER_T) < 0.02) {
+      // 中心小范围：暂停 / 1x
+      if (timeState.isPaused) {
+        onChangeTimeState({ isPaused: false, speedMultiplier: 1 });
+      } else if (timeState.speedMultiplier === 1) {
+        onChangeTimeState({ isPaused: true });
+      } else {
+        onChangeTimeState({ isPaused: false, speedMultiplier: 1 });
+      }
+      return;
+    }
+
+    const speed = tToSpeed(tClick);
+    onChangeTimeState({ isPaused: false, speedMultiplier: speed });
+  };
 
   return (
     <div className="relative flex flex-col items-center select-none"
@@ -187,10 +294,10 @@ export default function ArcTimeBar({
       {/* SVG Arc Track */}
       <svg
         viewBox="0 0 600 80"
-        className="w-full"
+        className="w-full cursor-pointer"
         style={{ height: 'auto', overflow: 'visible' }}
+        onClick={handleArcClick}
       >
-        {/* Glow filter */}
         <defs>
           <filter id="arcGlow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="3" result="blur" />
@@ -215,17 +322,42 @@ export default function ArcTimeBar({
           stroke="rgba(6,182,212,0.2)"
           strokeWidth="2"
         />
-        {/* Active arc segment */}
-        {activePreset && activePreset.value !== 0 && (
+
+        {/* Active arc segment: 从中心到当前速度位置的连线 */}
+        {!timeState.isPaused && timeState.speedMultiplier !== 0 && (
           <path
             d={arcPath}
             fill="none"
             stroke="rgba(6,182,212,0.5)"
             strokeWidth="2.5"
             filter="url(#arcGlow)"
-            strokeDasharray={`${activePreset.t * 580} 580`}
+            strokeDasharray={`${speedT * 580} 580`}
           />
         )}
+
+        {/* Speed indicator: 当前速度在弧线上的精确位置 */}
+        {(() => {
+          const pos = getArcPoint(speedT);
+          return (
+            <g>
+              <circle
+                cx={pos.x}
+                cy={pos.y}
+                r={5}
+                fill="#22d3ee"
+                filter="url(#dotGlow)"
+                style={{ transition: 'all 0.3s ease' }}
+              />
+              <circle
+                cx={pos.x}
+                cy={pos.y}
+                r={2}
+                fill="white"
+                style={{ transition: 'all 0.3s ease', pointerEvents: 'none' }}
+              />
+            </g>
+          );
+        })()}
 
         {/* Preset dots */}
         {TIME_PRESETS.map((preset) => {
@@ -238,11 +370,13 @@ export default function ArcTimeBar({
             <g
               key={preset.value}
               className="cursor-pointer"
-              onClick={() => handlePresetClick(preset)}
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePresetClick(preset);
+              }}
               onMouseEnter={() => setHoveredPreset(preset)}
               onMouseLeave={() => setHoveredPreset(null)}
             >
-              {/* Outer glow ring for active */}
               {isActive && (
                 <circle
                   cx={pos.x}
@@ -254,7 +388,6 @@ export default function ArcTimeBar({
                   filter="url(#dotGlow)"
                 />
               )}
-              {/* Dot */}
               <circle
                 cx={pos.x}
                 cy={pos.y}
@@ -264,7 +397,6 @@ export default function ArcTimeBar({
                 strokeWidth="1"
                 style={{ transition: 'all 0.2s ease' }}
               />
-              {/* Label above dot */}
               <text
                 x={pos.x}
                 y={pos.y - (isCenter ? 14 : 10)}
@@ -282,22 +414,49 @@ export default function ArcTimeBar({
         })}
       </svg>
 
-      {/* Center HUD: Date/Time + Pause button */}
+      {/* Center HUD */}
       <div
         className="absolute flex flex-col items-center gap-2"
-        style={{
-          top: '-36px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-        }}
+        style={{ top: '-36px', left: '50%', transform: 'translateX(-50%)' }}
       >
-        {/* Date/Time display - transparent floating, no border */}
-        <div className="flex items-center gap-2 bg-slate-950/50 backdrop-blur-md rounded-lg px-3 py-1.5 shadow-lg">
+        <div className="flex items-center gap-2 bg-slate-950/30 backdrop-blur-md rounded-xl px-3 py-1.5 shadow-[0_4px_20px_rgba(0,0,0,0.4)] border-0">
           <IconClock className="w-3 h-3 text-cyan-400/70" />
-          <span className="text-[11px] font-mono font-semibold text-cyan-300 tracking-wide whitespace-nowrap">
-            {formatTime(timeState.currentTimestamp, useUTC)}
-          </span>
-          {/* Pause/Play button */}
+          {isEditingTime ? (
+            <input
+              type="datetime-local"
+              defaultValue={toDateTimeLocal(timeState.currentTimestamp)}
+              autoFocus
+              className="bg-[#0b0c10] border border-cyan-500/40 text-cyan-300 text-[11px] rounded px-1.5 py-0.5 font-mono focus:outline-none focus:border-cyan-500 w-40"
+              onBlur={(e) => {
+                const val = e.target.value;
+                if (val) {
+                  const ts = new Date(val).getTime();
+                  if (!isNaN(ts)) onJumpDate(ts);
+                }
+                setIsEditingTime(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const val = (e.target as HTMLInputElement).value;
+                  if (val) {
+                    const ts = new Date(val).getTime();
+                    if (!isNaN(ts)) onJumpDate(ts);
+                  }
+                  setIsEditingTime(false);
+                } else if (e.key === 'Escape') {
+                  setIsEditingTime(false);
+                }
+              }}
+            />
+          ) : (
+            <span
+              className="text-[11px] font-mono font-semibold text-cyan-300 tracking-wide whitespace-nowrap cursor-pointer select-none"
+              onDoubleClick={() => setIsEditingTime(true)}
+              title={isZh ? '双击修改时间' : 'Double-click to edit time'}
+            >
+              {formatTime(timeState.currentTimestamp, timezoneOffset)}
+            </span>
+          )}
           <button
             onClick={handlePauseToggle}
             className={`ml-1 p-1 rounded-md transition-all cursor-pointer ${
@@ -309,26 +468,17 @@ export default function ArcTimeBar({
           >
             {timeState.isPaused ? <IconPlay className="w-3.5 h-3.5" /> : <IconPause className="w-3.5 h-3.5" />}
           </button>
-          {/* Date picker toggle */}
           <button
-            onClick={() => setShowDatePicker(!showDatePicker)}
-            className="p-1 rounded-md bg-slate-900/50 text-slate-400 hover:text-cyan-400 hover:bg-slate-800 transition-all cursor-pointer"
-            title={t.selectDate}
-          >
-            <IconCalendar className="w-3.5 h-3.5" />
-          </button>
-          {/* UTC/Local toggle */}
-          <button
-            onClick={() => setUseUTC(!useUTC)}
-            className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer"
+            onClick={() => setShowTzPicker(!showTzPicker)}
+            className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border transition-all cursor-pointer relative"
             style={{
-              color: useUTC ? '#22d3ee' : '#94a3b8',
-              borderColor: useUTC ? 'rgba(6,182,212,0.4)' : 'rgba(100,116,139,0.3)',
-              background: useUTC ? 'rgba(6,182,212,0.1)' : 'transparent',
+              color: '#22d3ee',
+              borderColor: 'rgba(6,182,212,0.4)',
+              background: 'rgba(6,182,212,0.1)',
             }}
-            title={useUTC ? 'UTC' : 'Local Time'}
+            title={isZh ? '选择时区' : 'Select timezone'}
           >
-            {useUTC ? 'UTC' : 'LOC'}
+            {`UTC${timezoneOffset >= 0 ? '+' : ''}${timezoneOffset}`}
           </button>
         </div>
 
@@ -346,7 +496,35 @@ export default function ArcTimeBar({
           )}
         </div>
 
-        {/* Hover tooltip for preset */}
+        {/* Timezone picker popover */}
+        {showTzPicker && (
+          <div
+            className="absolute z-50 bg-slate-950/95 backdrop-blur-xl rounded-xl p-2 shadow-2xl border border-slate-800 flex flex-col gap-1"
+            style={{ bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: '8px', maxHeight: '220px', overflowY: 'auto', minWidth: '260px' }}
+          >
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider font-mono px-1">{isZh ? '选择时区' : 'Timezone'}</div>
+            <div className="grid grid-cols-5 gap-1">
+              {TZ_OPTIONS.map((offset) => (
+                <button
+                  key={offset}
+                  onClick={() => {
+                    setTimezoneOffset(offset);
+                    setShowTzPicker(false);
+                  }}
+                  className={`text-[9px] font-mono px-1 py-1 rounded transition-all cursor-pointer whitespace-nowrap ${
+                    offset === timezoneOffset
+                      ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                      : 'bg-slate-900/50 text-slate-400 hover:bg-slate-800 hover:text-cyan-300'
+                  }`}
+                >
+                  UTC{offset >= 0 ? '+' : ''}{offset}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Hover tooltip */}
         {hoveredPreset && hoveredPreset.value !== 0 && (
           <div className="absolute bottom-full mb-1 px-2 py-1 bg-slate-950/95 border border-slate-800 rounded text-[9px] font-mono text-cyan-300 whitespace-nowrap pointer-events-none">
             {hoveredPreset.side === 'left' ? (
@@ -364,27 +542,6 @@ export default function ArcTimeBar({
         )}
       </div>
 
-      {/* Date picker popover */}
-      {showDatePicker && (
-        <div
-          className="absolute z-50 bg-slate-950/95 border border-slate-800/80 backdrop-blur-xl rounded-xl p-3 shadow-2xl flex flex-col gap-2"
-          style={{ top: '70px', left: '50%', transform: 'translateX(-50%)' }}
-        >
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider font-mono">{t.selectDate}</div>
-          <input
-            type="datetime-local"
-            value={toDateTimeLocal(timeState.currentTimestamp)}
-            onChange={handleDateChange}
-            className="bg-[#0b0c10] border border-white/10 text-white text-xs rounded-lg px-2 py-1.5 font-mono focus:outline-none focus:border-cyan-500/50"
-          />
-          <button
-            onClick={() => setShowDatePicker(false)}
-            className="self-end text-[9px] text-slate-400 hover:text-white cursor-pointer font-mono"
-          >
-            {t.collapse}
-          </button>
-        </div>
-      )}
     </div>
   );
 }

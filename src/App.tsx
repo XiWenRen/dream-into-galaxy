@@ -9,16 +9,18 @@ import StarrySkyViewer from './components/StarrySkyViewer';
 import PlanetInfoPanel from './components/PlanetInfoPanel';
 import CommandPanel from './components/CommandPanel';
 import ArcTimeBar from './components/ArcTimeBar';
+import LoadingScreen from './components/LoadingScreen';
 import { TimeEngine } from './engine/TimeEngine';
 import { OrbitEngine } from './engine/OrbitEngine';
 import { AstrophenomenaEngine } from './engine/AstrophenomenaEngine';
 import { TimeState, ThemeType } from './types/astronomy';
 import { translations } from './i18n';
 
-// 可登录行星白名单 (所有行星及月球均可作为观测点，气态巨行星按云层顶观测)
-const LANDABLE_PLANETS = ['earth', 'mercury', 'venus', 'mars', 'moon', 'jupiter', 'saturn', 'uranus', 'neptune'];
+// 可登录天体白名单 (行星、月球及主要天然卫星均可作为观测点)
+const LANDABLE_PLANETS = ['earth', 'mercury', 'venus', 'mars', 'moon', 'jupiter', 'saturn', 'uranus', 'neptune', 'phobos', 'deimos', 'io', 'europa', 'ganymede', 'callisto', 'titan', 'rhea', 'enceladus', 'titania', 'oberon', 'ariel', 'triton', 'proteus'];
 
 export default function App() {
+  const [isLoading, setIsLoading] = useState(true);
   const [lang, setLang] = useState<'zh' | 'en'>('zh');
   const [selectedPlanetId, setSelectedPlanetId] = useState<string>('earth');
   const [crossSectionActive, setCrossSectionActive] = useState<boolean>(false);
@@ -65,7 +67,10 @@ export default function App() {
   });
 
   // 贴图便宜位置调试 (用于行星面板上交互式校准纹理偏移)
-  const [textureOffsets, setTextureOffsets] = useState<Record<string, { u: number; v: number }>>({});
+  // 月球默认偏移 u=0.42，经滑块校准后固定
+  const [textureOffsets, setTextureOffsets] = useState<Record<string, { u: number; v: number }>>({
+    moon: { u: 0.42, v: 0 }
+  });
 
   // 处理无极缩放 (Stepless Transition Animation Effect)
   const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
@@ -164,6 +169,14 @@ export default function App() {
       className={`h-full w-full flex flex-col relative overflow-hidden transition-colors duration-500 cosmic-starfield select-none ${themeStyle.bg}`}
       id="astro-simulation-framework-root"
     >
+      {/* 加载页面 */}
+      {isLoading && (
+        <LoadingScreen
+          lang={lang}
+          onLoadComplete={() => setIsLoading(false)}
+        />
+      )}
+
       {/* 梦幻背景网格与漫射亮光 */}
       <div className="absolute inset-0 bg-radial from-transparent to-[#050608]/95 pointer-events-none z-0" />
 

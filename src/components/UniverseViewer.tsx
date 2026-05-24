@@ -67,8 +67,9 @@ function buildHipparcosEclipticField(stars: HipparcosStar[], magLimitVal: number
     colors[i * 3 + 1] = col.g;
     colors[i * 3 + 2] = col.b;
 
+    // size 编码视星等：亮星更大，确保在远距离仍可见
     const magT = Math.max(-1.5, Math.min(star.mag, 6.5));
-    const magSize = 3.0 - (magT + 1.5) * (2.0 / 8.0);
+    const magSize = 6.0 - (magT + 1.5) * (3.5 / 8.0);
     sizes[i] = magSize;
   }
 
@@ -573,7 +574,9 @@ export default function UniverseViewer({
 
     const realUrl = REAL_TEXTURE_URLS[id];
     if (realUrl) {
-      const loader = new THREE.TextureLoader();
+      // 复用全局 TextureLoader 避免重复实例化开销
+      const loader = (window as any).__galaxyTextureLoader || new THREE.TextureLoader();
+      (window as any).__galaxyTextureLoader = loader;
       loader.load(
         realUrl,
         (loadedTex) => {
@@ -1213,31 +1216,50 @@ export default function UniverseViewer({
     const cosEps = Math.cos(eps);
     const sinEps = Math.sin(eps);
 
-    // 银河系全景背景：equirectangular 全景图映射到球面，相机位于球心
-    // 使用 NASA APOD 高清全景图：https://apod.nasa.gov/apod/image/0911/mwpan_mellinger_big.jpg
+    // 银河系全景背景：3D 空间中的 face-on 薄盘图片
+    // 太阳在盘面上，距离银心象征性偏移；盘法线指向银北极
     const galaxyTex = new THREE.TextureLoader().load('/textures/milky_way_galaxy.png');
     galaxyTex.colorSpace = THREE.SRGBColorSpace;
-    const galaxyGeo = new THREE.SphereGeometry(190000, 64, 32);
+    const galaxyGeo = new THREE.CircleGeometry(500000, 64);
     const galaxyMat = new THREE.MeshBasicMaterial({
       map: galaxyTex,
       transparent: true,
       opacity: 0,
-      side: THREE.BackSide,
+      side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     });
     const galaxyMesh = new THREE.Mesh(galaxyGeo, galaxyMat);
 
-    // equirectangular 纹理默认北极朝上(Y+)，银心需对准人马座方向
-    // 银心赤道坐标：RA=17h45.6m, Dec=-29°00'
-    const raGC = (17 + 45.6 / 60) * 15; // 转换为角度
-    // 全景图通常 0° 经度对应 -Z 或 +X，需旋转使银心对准正确方位
-    // 银心方向在全景图中的经度位置：RA 265° 对应 u≈0.74
-    // 通过绕 Y 轴旋转对齐银心到相机前方（当相机朝向银心时看到图片中心）
-    galaxyMesh.rotation.y = (270 - raGC) * Math.PI / 180;
-    // 银道面倾斜约 60° 相对天球赤道，翻转纹理使银道面呈正确倾角
-    galaxyMesh.rotation.z = Math.PI;
-    galaxyMesh.rotation.x = (90 - 29.81) * Math.PI / 180; // 银北极倾角
+    // 银心方向（赤道坐标 → 黄道坐标 → Three.js 坐标）
+    const raGC = (17 + 45.6 / 60) * Math.PI / 12;
+    const decGC = -29.0 * Math.PI / 180;
+    const cosDecGC = Math.cos(decGC);
+    const sinDecGC = Math.sin(decGC);
+    const cosRaGC = Math.cos(raGC);
+    const sinRaGC = Math.sin(raGC);
+    const vEqX_gc = cosDecGC * cosRaGC;
+    const vEqY_gc = cosDecGC * sinRaGC;
+    const vEqZ_gc = sinDecGC;
+    const vEcX_gc = vEqX_gc;
+    const vEcY_gc = vEqY_gc * cosEps + vEqZ_gc * sinEps;
+    const vEcZ_gc = -vEqY_gc * sinEps + vEqZ_gc * cosEps;
+    // Three.js 坐标映射 (X, Z, Y)
+    const gcDir = new THREE.Vector3(vEcX_gc, vEcZ_gc, vEcY_gc).normalize();
+
+    // 银北极方向（银道面法线）
+    const galacticPole = new THREE.Vector3(
+      Math.cos(29.81 * Math.PI / 180) * Math.cos(96.38 * Math.PI / 180),
+      Math.sin(29.81 * Math.PI / 180),
+      Math.cos(29.81 * Math.PI / 180) * Math.sin(96.38 * Math.PI / 180)
+    ).normalize();
+
+    // 盘中心偏移到银心方向；太阳→银心向量垂直于银北极，故太阳在盘面上
+    const GALACTIC_OFFSET = 100000;
+    galaxyMesh.position.copy(gcDir).multiplyScalar(GALACTIC_OFFSET);
+
+    // 盘面法线指向银北极（CircleGeometry 默认法线朝 +Z，lookAt 后 +Z 指向目标）
+    galaxyMesh.lookAt(galaxyMesh.position.clone().add(galacticPole));
 
     scene.add(galaxyMesh);
     galaxySpriteRef.current = galaxyMesh;
@@ -1959,88 +1981,162 @@ export default function UniverseViewer({
             };
             const pc = crossPalette[config.id] || crossPalette.earth;
 
-            // 辅助：创建半球剖面对（南半球完整 + 北半球 270度）
-            const createHemispherePair = (radius: number, mat: THREE.Material, namePrefix: string) => {
+            // === 剖面模式：使用 LatheGeometry 创建真正有厚度的球壳 ===
+            // 每一层都是带径向厚度的实体球壳，剖面缺口处自然显示截面填充。
+
+            // 辅助：生成球壳剖面轮廓（Vector2 数组，x=半径, y=高度）
+            const buildShellProfile = (innerR: number, outerR: number, thetaStart: number, thetaLength: number, segs: number = 32) => {
+              const pts: THREE.Vector2[] = [];
+              // 外表面：从 thetaStart 到 thetaStart + thetaLength
+              for (let i = 0; i <= segs; i++) {
+                const t = i / segs;
+                const theta = thetaStart + t * thetaLength;
+                pts.push(new THREE.Vector2(outerR * Math.sin(theta), outerR * Math.cos(theta)));
+              }
+              // 内表面：从 thetaStart + thetaLength 回到 thetaStart
+              for (let i = segs; i >= 0; i--) {
+                const t = i / segs;
+                const theta = thetaStart + t * thetaLength;
+                pts.push(new THREE.Vector2(innerR * Math.sin(theta), innerR * Math.cos(theta)));
+              }
+              return pts;
+            };
+
+            // 辅助：生成 1/4 扇形环截面填充（用于切口处的实心断面）
+            const createQuarterRingSection = (
+              innerR: number,
+              outerR: number,
+              normal: THREE.Vector3,
+              e1: THREE.Vector3,
+              e2: THREE.Vector3,
+              segs: number = 16
+            ): THREE.BufferGeometry => {
+              const positions: number[] = [];
+              const normals: number[] = [];
+              const indices: number[] = [];
+
+              for (let i = 0; i <= segs; i++) {
+                const t = i / segs;
+                const angle = t * (Math.PI / 2);
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+
+                // 外层点
+                const ox = outerR * (cos * e1.x + sin * e2.x);
+                const oy = outerR * (cos * e1.y + sin * e2.y);
+                const oz = outerR * (cos * e1.z + sin * e2.z);
+                positions.push(ox, oy, oz);
+                normals.push(normal.x, normal.y, normal.z);
+
+                // 内层点
+                const ix = innerR * (cos * e1.x + sin * e2.x);
+                const iy = innerR * (cos * e1.y + sin * e2.y);
+                const iz = innerR * (cos * e1.z + sin * e2.z);
+                positions.push(ix, iy, iz);
+                normals.push(normal.x, normal.y, normal.z);
+              }
+
+              for (let i = 0; i < segs; i++) {
+                const base = i * 2;
+                // 三角形1：外i -> 外i+1 -> 内i
+                indices.push(base, base + 2, base + 1);
+                // 三角形2：外i+1 -> 内i+1 -> 内i
+                indices.push(base + 2, base + 3, base + 1);
+              }
+
+              const geo = new THREE.BufferGeometry();
+              geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+              geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+              geo.setIndex(indices);
+              return geo;
+            };
+
+            // 辅助：创建有厚度的半球球壳对（含截面填充）
+            const createThickShellPair = (innerR: number, outerR: number, mat: THREE.Material, namePrefix: string, sectionColor?: number) => {
               const g = new THREE.Group();
               g.name = namePrefix;
-              const geoS = new THREE.SphereGeometry(radius, 48, 24, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-              const geoN = new THREE.SphereGeometry(radius, 48, 24, 0, Math.PI * 1.5, 0, Math.PI / 2);
+
+              // 南半球球壳（赤道→南极，完整 360°）
+              const profileS = buildShellProfile(innerR, outerR, Math.PI / 2, Math.PI / 2);
+              const geoS = new THREE.LatheGeometry(profileS, 48, 0, Math.PI * 2);
               const meshS = new THREE.Mesh(geoS, mat);
-              const meshN = new THREE.Mesh(geoN, mat);
               meshS.name = namePrefix + '-south';
+
+              // 北半球球壳（北极→赤道，270° 扇面，留 90° 缺口在第一卦限 X>0, Z>0）
+              const profileN = buildShellProfile(innerR, outerR, 0, Math.PI / 2);
+              const geoN = new THREE.LatheGeometry(profileN, 48, Math.PI / 2, Math.PI * 1.5);
+              const meshN = new THREE.Mesh(geoN, mat);
               meshN.name = namePrefix + '-north';
+
               g.add(meshS, meshN);
+
+              // === 3组截面填充：让切口呈现实心同心圆环 ===
+              // 截面使用纯色（避免纹理在截面上拉伸）
+              const secMat = sectionColor !== undefined
+                ? new THREE.MeshBasicMaterial({ color: sectionColor, side: THREE.DoubleSide })
+                : mat;
+
+              // 截面1：X=0 平面（phi=PI/2 边界），Z≥0, Y≥0 的 1/4 扇形环（法线朝 +X）
+              const secA = createQuarterRingSection(innerR, outerR,
+                new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(0, 0, 1),
+                new THREE.Vector3(0, 1, 0)
+              );
+              const meshA = new THREE.Mesh(secA, secMat);
+              meshA.name = namePrefix + '-section-x';
+              g.add(meshA);
+
+              // 截面2：Z=0 平面（phi=0 边界），X≥0, Y≥0 的 1/4 扇形环（法线朝 +Z）
+              const secB = createQuarterRingSection(innerR, outerR,
+                new THREE.Vector3(0, 0, 1),
+                new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(0, 1, 0)
+              );
+              const meshB = new THREE.Mesh(secB, secMat);
+              meshB.name = namePrefix + '-section-z';
+              g.add(meshB);
+
+              // 截面3：Y=0 赤道面，X≥0, Z≥0 的 1/4 扇形环（法线朝 +Y）
+              const secC = createQuarterRingSection(innerR, outerR,
+                new THREE.Vector3(0, 1, 0),
+                new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(0, 0, 1)
+              );
+              const meshC = new THREE.Mesh(secC, secMat);
+              meshC.name = namePrefix + '-section-y';
+              g.add(meshC);
+
               return g;
             };
 
-            // 辅助：创建层间分隔薄壳
-            const createBoundary = (radius: number, color: number, opacity: number, name: string) => {
-              const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide });
-              return createHemispherePair(radius, mat, name);
-            };
+            // 所有剖面层统一使用 MeshBasicMaterial：颜色稳定、不受场景光照影响、避免 PBR 异常
+            // 1. 核心层（实心球，半径 0.4r）
+            const coreMat = new THREE.MeshBasicMaterial({ color: pc.core, side: THREE.DoubleSide });
+            crossGroup.add(createThickShellPair(0, r * 0.4, coreMat, 'inner-body-core', pc.core));
 
-            // 1. 核心层（自发光铁镍核）
-            const coreMat = new THREE.MeshStandardMaterial({
-              color: pc.core,
-              emissive: pc.coreEmissive || 0x000000,
-              emissiveIntensity: pc.coreEmissive ? 0.6 : 0,
-              roughness: 0.3,
-              metalness: 0.8,
-              side: THREE.DoubleSide
-            });
-            crossGroup.add(createHemispherePair(r * 0.4, coreMat, 'inner-body-core'));
+            // 2. 地幔层（球壳，内径 0.4r，外径 0.74r）
+            const mantleMat = new THREE.MeshBasicMaterial({ color: pc.mantle, side: THREE.DoubleSide });
+            crossGroup.add(createThickShellPair(r * 0.4, r * 0.74, mantleMat, 'inner-body-mantle', pc.mantle));
 
-            // 核心-地幔分隔壳
-            crossGroup.add(createBoundary(r * 0.402, 0x1a0800, 0.7, 'inner-boundary-core'));
+            // 3. 地壳层（球壳，内径 0.74r，外径 r，保留纹理用于外表面）
+            const crustMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+            // 截面使用地幔色（地壳截面显示下方地幔的颜色更合理，且避免纹理拉伸）
+            crossGroup.add(createThickShellPair(r * 0.74, r, crustMat, 'inner-body-crust', pc.mantle));
 
-            // 2. 地幔层（粘稠岩浆质感）
-            const mantleMat = new THREE.MeshStandardMaterial({
-              color: pc.mantle,
-              emissive: pc.mantleEmissive || 0x000000,
-              emissiveIntensity: pc.mantleEmissive ? 0.2 : 0,
-              roughness: 0.85,
-              side: THREE.DoubleSide
-            });
-            crossGroup.add(createHemispherePair(r * 0.74, mantleMat, 'inner-body-mantle'));
-
-            // 地幔-地壳分隔壳
-            crossGroup.add(createBoundary(r * 0.742, 0x1a0800, 0.7, 'inner-boundary-mantle'));
-
-            // 3. 地壳层（保留真彩纹理）
-            const crustMat = new THREE.MeshStandardMaterial({
-              map: tex,
-              bumpMap: tex,
-              bumpScale: 0.04,
-              roughness: 0.7,
-              side: THREE.DoubleSide
-            });
-            crossGroup.add(createHemispherePair(r, crustMat, 'inner-body-crust'));
-
-            // 4. 大气层（增强可见度）
+            // 4. 大气层（薄球壳，内径 r，外径 1.06r，极淡）
             const hasAtmosphere = ['earth', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'].includes(config.id);
             if (hasAtmosphere) {
               const atmMat = new THREE.MeshBasicMaterial({
                 color: pc.atm,
                 transparent: true,
-                opacity: 0.4,
+                opacity: 0.06,
                 side: THREE.DoubleSide,
                 depthWrite: false
               });
-              crossGroup.add(createHemispherePair(r * 1.08, atmMat, 'inner-body-atmosphere'));
+              crossGroup.add(createThickShellPair(r, r * 1.06, atmMat, 'inner-body-atmosphere', pc.atm));
             }
 
-            // 5. 地球夜晚灯光
-            if (config.id === 'earth' && nightTex) {
-              crossGroup.add(createHemispherePair(r * 1.005, createNightLightsMaterial(nightTex), 'planet-earth-night-lights'));
-            }
-
-            // 6. 内部补光：让剖面内部纹理与层次清晰可见
-            const innerLight = new THREE.PointLight(0xffffff, 1.5, r * 4, 0.3);
-            innerLight.position.set(0, r * 0.2, 0);
-            innerLight.name = 'inner-light';
-            crossGroup.add(innerLight);
-
-            // 7. 坐标轴
+            // 5. 坐标轴
             const axes = new THREE.AxesHelper(r * 2.2);
             axes.name = 'axes-helper';
             crossGroup.add(axes);
@@ -2601,13 +2697,12 @@ export default function UniverseViewer({
                 offset = Math.max(orbitScene * orbitFactor, radOfTarget * 4.2);
               }
             } else {
-              // 可观测模式：星体撑满屏幕的近距离聚焦
-              offset = selectedPlanetIdRef.current === 'sun'
-                ? radOfTarget * 2.5
-                : (isSat ? radOfTarget * 2.2 : radOfTarget * 2.8);
+              // 可观测模式：星体恰好撑满屏幕（FOV=50°, d = r / tan(25°) ≈ 2.15r）
+              const fillFactor = 2.15;
+              offset = radOfTarget * fillFactor;
             }
 
-            cameraRef.current.position.set(targetPos.x, targetPos.y + offset * 0.4, targetPos.z + offset);
+            cameraRef.current.position.set(targetPos.x, targetPos.y, targetPos.z + offset);
             lastSelectedPlanetIdRef.current = selectedPlanetIdRef.current;
             lastTargetPosRef.current.copy(targetPos);
           } else {
@@ -2634,19 +2729,21 @@ export default function UniverseViewer({
       Object.entries(textureOffsetsRef.current).forEach(([id, offset]: [string, { u: number; v: number }]) => {
         const group = planetMeshesRef.current[id];
         if (!group) return;
+        // 月球与星空模式统一基础偏移 0.25（SphereGeometry +z 面对应 u=0.25）
+        const baseU = id === 'moon' ? 0.25 : 0;
         group.traverse((node) => {
           if (node instanceof THREE.Mesh && node.name === 'planet-body-mesh') {
             const mat = node.material as THREE.MeshStandardMaterial;
             if (mat.map) {
-              mat.map.offset.x = offset.u;
+              mat.map.offset.x = baseU + offset.u;
               mat.map.offset.y = offset.v;
             }
             if (mat.bumpMap) {
-              mat.bumpMap.offset.x = offset.u;
+              mat.bumpMap.offset.x = baseU + offset.u;
               mat.bumpMap.offset.y = offset.v;
             }
             if (mat.roughnessMap) {
-              mat.roughnessMap.offset.x = offset.u;
+              mat.roughnessMap.offset.x = baseU + offset.u;
               mat.roughnessMap.offset.y = offset.v;
             }
           }
@@ -2654,7 +2751,7 @@ export default function UniverseViewer({
           if (node instanceof THREE.Mesh && node.name === 'planet-earth-clouds') {
             const cMat = node.material as THREE.MeshStandardMaterial;
             if (cMat.map) {
-              cMat.map.offset.x = offset.u;
+              cMat.map.offset.x = baseU + offset.u;
               cMat.map.offset.y = offset.v;
             }
           }
