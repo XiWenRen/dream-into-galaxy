@@ -1,6 +1,0 @@
-{
-  "name": "3D 太阳系与银河系探索系统",
-  "description": "基于真实物理轨道、多层次渲染与全景观星模拟的3D太阳系及银河系科普交互系统。",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
