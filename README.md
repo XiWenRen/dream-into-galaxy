@@ -1,20 +1,184 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+  <h1>🌌 梦入银河</h1>
+  <p>
+    <strong>给小朋友们都能自由探索的太阳系-银河系3D模拟世界</strong>
+  </p>
+  <p>
+    <a href="#-功能特性">✨ 功能特性</a> · 
+    <a href="#-技术栈">🛠️ 技术栈</a> · 
+    <a href="#-快速开始">🚀 快速开始</a> · 
+    <a href="#-项目架构">📦 项目架构</a>
+  </p>
+  <br/>
 </div>
 
-# Run and deploy your AI Studio app
+---
 
-This contains everything you need to run your app locally.
+## 🌟 项目简介
 
-View your app in AI Studio: https://ai.studio/apps/4fded434-f3a7-4d99-bd8e-2cf2ba3983f6
+**梦入银河** 是一个面向青少年群体的 3D Web 宇宙知识教学系统，核心定位是**兴趣指引与科学启蒙**。系统以严谨的天文物理计算为基石，以高保真三维渲染为载体，让用户能够直观探索太阳系、银河系乃至地面观星的完整宇宙体验。
 
-## Run Locally
+让每个孩子都能自由探索我们的宇宙、星空，更好地学习天文地理知识！
 
-**Prerequisites:**  Node.js
+## ✨ 功能特性
 
+### 🔭 双模式无缝切换
+- **宇宙视角**：3D 太空漫游，太阳系全景、行星轨道、卫星系统、银河背景
+- **地面观星**：以观察者为球心的天球投影，日月位置、星图、星座连线
+- **无极缩放**：双模式切换的无缝视觉过渡动画
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### 🌍 太阳系模拟
+- **8K 高清贴图**：所有行星使用高质量纹理贴图
+- **真实轨道计算**：基于 J2000.0 历元标准，使用真实克卜勒轨道根数
+- **行星卫星系统**：支持包括月球、火卫、木卫、土卫等在内的 20+ 天体
+- **剖面模式**：将行星球体切开展示内部圈层结构（核/幔/壳/大气层）
+- **自转同步**：贴图与 UTC 时间严格同步
+
+### ⭐ 星空与星座
+- **Hipparcos 星表**：包含 8,785 颗亮星（视星等 ≤ 6.5）
+- **88 个现代星座**：完整的星座连线和名称标注
+- **望远镜模式**：模拟不同倍数光学设备的 FOV 可调视场
+- **星名标签**：可开关的恒星名称和星座名称显示
+
+### 📅 时间与天象
+- **时间引擎**：J2000 历元换算、恒星时计算、可调节时间流速
+- **24 节气**：实时计算并显示当前节气
+- **月相模拟**：8 个月相阶段可视化
+- **交食检测**：日食和月食实时检测
+- **日期预设**：快速跳转至特殊天象日期
+
+### 🎨 精美 UI
+- **4 套科技风主题**：Space Tech、Cosmic Dark、Neon Hologram、Solar Gold
+- **驾驶舱风格**：底部弧形时间控制条、侧边信息面板
+- **国际化**：全系统支持中文/英文双语切换
+
+## 🛠️ 技术栈
+
+| 技术 | 说明 |
+|------|------|
+| **React 19** | UI 框架 |
+| **TypeScript** | 类型安全的开发体验 |
+| **Three.js** | 3D 渲染引擎 |
+| **Vite** | 极速开发构建工具 |
+| **Tailwind CSS** | 原子化 CSS 框架 |
+| **Framer Motion** | 动画库 |
+| **Lucide React** | 图标库 |
+
+## 🚀 快速开始
+
+### 前置要求
+
+- Node.js 18+ 
+- npm 或 pnpm
+
+### 本地运行
+
+1. **克隆仓库**
+   ```bash
+   git clone https://github.com/XiWenRen/dream-into-galaxy.git
+   cd dream-into-galaxy
+   ```
+
+2. **安装依赖**
+   ```bash
+   npm install
+   ```
+
+3. **启动开发服务器**
+   ```bash
+   npm run dev
+   ```
+
+4. **打开浏览器**
+   
+   访问 http://localhost:3000
+
+### 构建生产版本
+
+```bash
+npm run build
+npm run preview
+```
+
+## 🎮 使用指南
+
+### 基本操作
+
+| 操作 | 说明 |
+|------|------|
+| **鼠标拖拽** | 旋转视角 |
+| **滚轮缩放** | 缩放场景 |
+| **点击行星** | 选中并查看详细信息 |
+| **进入观测** | 从行星表面进行地面观星 |
+
+### 控制面板功能
+
+- **时间控制**：暂停/播放、调节时间流速、跳转到特定日期
+- **星座显示**：开关星座连线、星名标签、星座名称
+- **星等限制**：调整可见恒星的亮度阈值
+- **主题切换**：选择不同的视觉主题
+- **语言切换**：中文/英文双语切换
+
+## 📦 项目架构
+
+```
+GalaxySim3D/
+├── src/
+│   ├── components/          # UI 组件和渲染器
+│   │   ├── UniverseViewer.tsx      # 宇宙视角渲染器
+│   │   ├── StarrySkyViewer.tsx     # 地面观星渲染器
+│   │   ├── PlanetInfoPanel.tsx     # 行星信息面板
+│   │   ├── CommandPanel.tsx        # 控制面板
+│   │   └── ArcTimeBar.tsx          # 时间控制条
+│   ├── engine/              # 核心模拟引擎
+│   │   ├── TimeEngine.ts           # 时间引擎
+│   │   ├── OrbitEngine.ts          # 轨道引擎
+│   │   ├── AstrophenomenaEngine.ts # 天文现象引擎
+│   │   ├── StarDatabase.ts         # 星表数据库
+│   │   ├── ExtraStarsDatabase.ts   # 额外星座数据库
+│   │   └── PlanetMaterials.ts      # 行星材质加载器
+│   ├── types/               # TypeScript 类型定义
+│   ├── i18n/                # 国际化翻译
+│   ├── App.tsx              # 主应用组件
+│   └── main.tsx             # 应用入口
+├── public/
+│   ├── data/                # 静态数据
+│   │   └── hipparcos_65.json      # Hipparcos 星表
+│   └── textures/            # 纹理贴图
+│       ├── 8k_*.jpg         # 8K 行星贴图
+│       └── 2k_*.jpg         # 2K 贴图
+└── docs/                    # 项目文档
+```
+
+### 分层架构
+
+项目采用清晰的五层架构设计：
+
+| 层级 | 说明 |
+|------|------|
+| **L4: 应用层** | App.tsx、状态管理、i18n、主题系统 |
+| **L3: UI 层** | 控制面板、信息面板、交互组件 |
+| **L2: 渲染层** | Three.js 场景管理、双模式渲染器 |
+| **L1: 引擎层** | 时间引擎、轨道引擎、天文现象引擎 |
+| **L0: 数据层** | 轨道常量、星表数据库、纹理资源 |
+
+## 📚 相关文档
+
+- [项目架构与开发文档](docs/项目架构与开发文档.md) - 详细的架构设计和开发规范
+- [验证测试用例](docs/verification/) - 天文观测验证测试用例
+
+## 🤝 贡献指南
+
+欢迎提交 Issue 和 Pull Request！
+
+## 📄 许可证
+
+本项目采用 Apache-2.0 许可证。详见 [LICENSE](LICENSE) 文件。
+
+---
+
+<div align="center">
+  <p>
+    用代码点亮星空 ✨
+  </p>
+</div>
