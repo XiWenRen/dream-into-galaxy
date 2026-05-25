@@ -7,6 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OrbitEngine, CELESTIAL_PHYSICS, PLANET_ORBITAL_DATA } from '../engine/OrbitEngine';
+import { createAdvancedRingMaterial } from '../engine/PlanetMaterials';
 import { ScaleEngine } from '../engine/ScaleEngine';
 import { TimeEngine } from '../engine/TimeEngine';
 import { translations } from '../i18n';
@@ -405,12 +406,34 @@ const CROSS_PALETTE: Record<string, { core: number; mantle: number; crust: numbe
   neptune: { core: 0xccccdd, mantle: 0x4466bb, crust: 0x335599, atm: 0x3366aa, rCore: 0.28, rMantle: 0.77 },
 };
 
-const injectClippingShader = (mat: THREE.Material) => {
+const injectPlanetShader = (mat: THREE.Material, planetId?: string, radius?: number) => {
   mat.userData.uniforms = {
-    uShowStructure: { value: false }
+    uShowStructure: { value: false },
+    uLocalSunDirection: { value: new THREE.Vector3(1.0, 0.0, 0.0) }
   };
+  
+  let hasRing = false;
+  let innerR = 0;
+  let outerR = 0;
+  
+  if (planetId && radius) {
+    if (planetId === 'saturn') { hasRing = true; innerR = radius * 1.28; outerR = radius * 2.35; }
+    else if (planetId === 'uranus') { hasRing = true; innerR = radius * 1.5; outerR = radius * 2.01; }
+    else if (planetId === 'jupiter') { hasRing = true; innerR = radius * 1.31; outerR = radius * 1.84; }
+    else if (planetId === 'neptune') { hasRing = true; innerR = radius * 1.7; outerR = radius * 2.55; }
+  }
+
+  mat.userData.uniforms.uHasRing = { value: hasRing };
+  mat.userData.uniforms.uRingInnerRadius = { value: innerR };
+  mat.userData.uniforms.uRingOuterRadius = { value: outerR };
+
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uShowStructure = mat.userData.uniforms.uShowStructure;
+    shader.uniforms.uLocalSunDirection = mat.userData.uniforms.uLocalSunDirection;
+    shader.uniforms.uHasRing = mat.userData.uniforms.uHasRing;
+    shader.uniforms.uRingInnerRadius = mat.userData.uniforms.uRingInnerRadius;
+    shader.uniforms.uRingOuterRadius = mat.userData.uniforms.uRingOuterRadius;
+
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
       `#include <common>\n varying vec3 vLocalPosition;`
@@ -421,11 +444,15 @@ const injectClippingShader = (mat: THREE.Material) => {
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
-      `#include <common>\n uniform bool uShowStructure;\n varying vec3 vLocalPosition;`
+      `#include <common>\n uniform bool uShowStructure;\n varying vec3 vLocalPosition;\n uniform vec3 uLocalSunDirection;\n uniform bool uHasRing;\n uniform float uRingInnerRadius;\n uniform float uRingOuterRadius;\n\n float getRingShadow(vec3 localPos, vec3 lightDirLocal) {\n if (!uHasRing) return 1.0;\n float d = lightDirLocal.y;\n if (abs(d) < 0.001) return 1.0;\n float t = -localPos.y / d;\n if (t < 0.0) return 1.0;\n vec3 p = localPos + t * lightDirLocal;\n float dist = length(p);\n if (dist >= uRingInnerRadius && dist <= uRingOuterRadius) { return 0.25; }\n return 1.0;\n }`
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       'void main() {',
-      `void main() {\n if (uShowStructure && vLocalPosition.x > 0.0 && vLocalPosition.y > 0.0 && vLocalPosition.z > 0.0) { discard; }`
+      `void main() {\n if (uShowStructure && vLocalPosition.x > -0.01 && vLocalPosition.y > -0.01 && vLocalPosition.z > -0.01) { discard; }`
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <dithering_fragment>',
+      `#include <dithering_fragment>\n if (uHasRing) { gl_FragColor.rgb *= getRingShadow(vLocalPosition, normalize(uLocalSunDirection)); }`
     );
   };
 };
@@ -743,6 +770,7 @@ export default function UniverseViewer({
     earth_clouds: '/textures/8k_earth_clouds.jpg',
     earth_specular: '/textures/2k_earth_specular_map.jpg',
     earth_nightmap: '/textures/8k_earth_nightmap.jpg',
+    saturn_ring: '/textures/8k_saturn_ring_alpha.png',
   };
 
   const textureCacheRef = useRef<Record<string, THREE.Texture>>({});
@@ -1263,24 +1291,49 @@ export default function UniverseViewer({
     return texture;
   };
 
-  // 生成 Concentric 米色和卡西尼土星环 HD 1D 线性纹理
-  const createRingTexture = (): THREE.Texture => {
+  // 生成 1D 线性纹理用于各行星的解析式星环
+  const createProceduralRingTexture = (planetId: string): THREE.Texture => {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
-    canvas.height = 32;
+    canvas.height = 2; // 1D texture
     const ctx = canvas.getContext('2d')!;
     const grad = ctx.createLinearGradient(0, 0, 512, 0);
-    grad.addColorStop(0, 'rgba(120, 100, 70, 0.1)');
-    grad.addColorStop(0.12, 'rgba(220, 201, 171, 0.5)');
-    grad.addColorStop(0.35, 'rgba(189, 171, 140, 0.7)');
-    grad.addColorStop(0.48, 'rgba(30, 25, 20, 0.03)'); // Cassini Division 卡西尼缝
-    grad.addColorStop(0.52, 'rgba(191, 170, 131, 0.72)');
-    grad.addColorStop(0.72, 'rgba(230, 211, 180, 0.6)');
-    grad.addColorStop(0.85, 'rgba(141, 120, 96, 0.3)');
-    grad.addColorStop(0.95, 'rgba(60, 50, 42, 0.01)'); // Encke Division 恩克缝
-    grad.addColorStop(1, 'rgba(40, 35, 30, 0.0)');
+
+    if (planetId === 'uranus') {
+      // 天王星环（暗淡、多窄环，主要由暗色物质组成）
+      grad.addColorStop(0.0, 'rgba(180, 220, 230, 0.0)');
+      grad.addColorStop(0.2, 'rgba(180, 220, 230, 0.25)'); // Zeta
+      grad.addColorStop(0.3, 'rgba(180, 220, 230, 0.0)');
+      grad.addColorStop(0.5, 'rgba(180, 220, 230, 0.45)'); // Alpha, Beta
+      grad.addColorStop(0.6, 'rgba(180, 220, 230, 0.15)');
+      grad.addColorStop(0.8, 'rgba(180, 220, 230, 0.55)'); // Eta, Gamma, Delta
+      grad.addColorStop(0.9, 'rgba(180, 220, 230, 0.15)');
+      grad.addColorStop(0.95, 'rgba(180, 220, 230, 0.95)'); // Epsilon ring (最亮最外)
+      grad.addColorStop(1.0, 'rgba(180, 220, 230, 0.0)');
+    } else if (planetId === 'jupiter') {
+      // 木星光环（极度暗淡的尘埃环）
+      grad.addColorStop(0.0, 'rgba(255, 200, 150, 0.0)');
+      grad.addColorStop(0.3, 'rgba(255, 200, 150, 0.35)'); // Halo ring
+      grad.addColorStop(0.7, 'rgba(255, 200, 150, 0.1)');
+      grad.addColorStop(0.9, 'rgba(255, 200, 150, 0.55)'); // Main ring
+      grad.addColorStop(1.0, 'rgba(255, 200, 150, 0.0)');
+    } else if (planetId === 'neptune') {
+      // 海王星环（含有亮弧段的暗环）
+      grad.addColorStop(0.0, 'rgba(150, 180, 255, 0.0)');
+      grad.addColorStop(0.2, 'rgba(150, 180, 255, 0.25)'); // Galle
+      grad.addColorStop(0.4, 'rgba(150, 180, 255, 0.05)');
+      grad.addColorStop(0.6, 'rgba(150, 180, 255, 0.45)'); // Le Verrier
+      grad.addColorStop(0.8, 'rgba(150, 180, 255, 0.05)');
+      grad.addColorStop(0.95, 'rgba(150, 180, 255, 0.75)'); // Adams (含弧段)
+      grad.addColorStop(1.0, 'rgba(150, 180, 255, 0.0)');
+    } else {
+      // Fallback
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
+      grad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+    }
+
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 32);
+    ctx.fillRect(0, 0, 512, 2);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.ClampToEdgeWrapping;
@@ -1767,18 +1820,20 @@ export default function UniverseViewer({
 
       // 如果是土星，绘制标志性的 Concentric 3D 真彩星环 (Rings)
       if (config.id === 'saturn') {
-        const ringGeo = new THREE.RingGeometry(config.radius * 1.4, config.radius * 2.5, 64);
+        const innerRatio = 1.28;
+        const outerRatio = 2.35;
+        const ringGeo = new THREE.RingGeometry(config.radius * innerRatio, config.radius * outerRatio, 128);
         ringGeo.rotateX(Math.PI / 2);
 
-        const ringTex = createRingTexture();
-        const ringMat = new THREE.MeshStandardMaterial({
-          map: ringTex,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.85,
-          roughness: 0.6,
-          emissive: new THREE.Color(0x000000)
-        });
+        const ringTex = getPlanetTexture('saturn_ring');
+        const ringMat = createAdvancedRingMaterial(
+          ringTex,
+          config.radius * innerRatio,
+          config.radius * outerRatio,
+          config.radius * 1.035, // Use equatorial radius for accurate shadow length
+          new THREE.Color(0xffffff),
+          0.85
+        );
         const ringMesh = new THREE.Mesh(ringGeo, ringMat);
         ringMesh.name = 'saturn-ring-mesh';
         // Add userData so that raycaster knows this is part of Saturn's ring system
@@ -1788,20 +1843,68 @@ export default function UniverseViewer({
 
       // 如果是天王星，因 98° 自转倾角垂直放置一条微弱天王星环 (Vertical Rings)
       if (config.id === 'uranus') {
-        const ringGeo = new THREE.RingGeometry(config.radius * 1.5, config.radius * 1.8, 64);
+        const innerRatio = 1.5;
+        const outerRatio = 2.01;
+        const ringGeo = new THREE.RingGeometry(config.radius * innerRatio, config.radius * outerRatio, 128);
         ringGeo.rotateX(Math.PI / 2); // Standard equatorial plane of Uranus
-        const ringMat = new THREE.MeshStandardMaterial({
-          color: 0xa5f3fc,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.25,
-          roughness: 0.9,
-          emissive: new THREE.Color(0x000000)
-        });
+        
+        const ringTex = createProceduralRingTexture('uranus');
+        const ringMat = createAdvancedRingMaterial(
+          ringTex,
+          config.radius * innerRatio,
+          config.radius * outerRatio,
+          config.radius,
+          new THREE.Color(0xa5f3fc),
+          0.85
+        );
         const ringMesh = new THREE.Mesh(ringGeo, ringMat);
         ringMesh.name = 'uranus-ring-mesh';
         ringMesh.userData = { planetId: 'uranus', isRing: true };
         tiltGroup.add(ringMesh); // Added to tiltGroup!
+      }
+
+      // 补充木星光环 (Jupiter Rings)
+      if (config.id === 'jupiter') {
+        const innerRatio = 1.31;
+        const outerRatio = 1.84;
+        const ringGeo = new THREE.RingGeometry(config.radius * innerRatio, config.radius * outerRatio, 128);
+        ringGeo.rotateX(Math.PI / 2);
+        
+        const ringTex = createProceduralRingTexture('jupiter');
+        const ringMat = createAdvancedRingMaterial(
+          ringTex,
+          config.radius * innerRatio,
+          config.radius * outerRatio,
+          config.radius,
+          new THREE.Color(0xffdca8),
+          0.6
+        );
+        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.name = 'jupiter-ring-mesh';
+        ringMesh.userData = { planetId: 'jupiter', isRing: true };
+        tiltGroup.add(ringMesh);
+      }
+
+      // 补充海王星光环 (Neptune Rings)
+      if (config.id === 'neptune') {
+        const innerRatio = 1.7;
+        const outerRatio = 2.55;
+        const ringGeo = new THREE.RingGeometry(config.radius * innerRatio, config.radius * outerRatio, 128);
+        ringGeo.rotateX(Math.PI / 2);
+        
+        const ringTex = createProceduralRingTexture('neptune');
+        const ringMat = createAdvancedRingMaterial(
+          ringTex,
+          config.radius * innerRatio,
+          config.radius * outerRatio,
+          config.radius,
+          new THREE.Color(0x99bbff),
+          0.75
+        );
+        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.name = 'neptune-ring-mesh';
+        ringMesh.userData = { planetId: 'neptune', isRing: true };
+        tiltGroup.add(ringMesh);
       }
 
       // 绘制公转可见卫星 / 探测器 (Sub-moons and Space Probes)
@@ -2202,10 +2305,61 @@ export default function UniverseViewer({
         }
         group.position.copy(finalPos);
 
-        // 所有星体常驻显示，不随选中而隐藏
-
+        // 获取太阳的世界坐标
+        const sunWorldPos = new THREE.Vector3();
+        if (sunMeshRef.current) {
+          sunMeshRef.current.getWorldPosition(sunWorldPos);
+        }
+        const lightDir = new THREE.Vector3().subVectors(sunWorldPos, finalPos).normalize();
+        
         const tiltGroup = group.getObjectByName('planet-tilt-root') as THREE.Group;
         if (!tiltGroup) return;
+
+        const localLightDir = lightDir.clone();
+        if (tiltGroup.matrixWorld) {
+           const invMat = new THREE.Matrix4().copy(tiltGroup.matrixWorld).invert();
+           localLightDir.transformDirection(invMat).normalize();
+        }
+
+        // 核心考虑自转角度：自转速度和方向由 OrbitEngine 基于历元完美约束
+        const rotateY = OrbitEngine.getRotationAngle(config.id, currentTimestampRef.current);
+
+        // 更新星环 Shader 的动态 Uniforms 和行星的 localSunDirection
+        tiltGroup.children.forEach(ch => {
+          if (ch.name.endsWith('-ring-mesh') && ch instanceof THREE.Mesh) {
+            if (ch.material instanceof THREE.ShaderMaterial && ch.material.uniforms.uSunDirection) {
+              ch.material.uniforms.uSunDirection.value.copy(lightDir);
+              ch.material.uniforms.uPlanetCenter.value.copy(finalPos);
+              if (ch.material.uniforms.uRotateY) {
+                ch.material.uniforms.uRotateY.value = rotateY;
+              }
+            }
+          }
+          if (ch.name.startsWith('planet-earth-clouds') && ch instanceof THREE.Mesh) {
+            if (ch.material && ch.material.userData?.uniforms?.uLocalSunDirection) {
+              const cloudLocalLightDir = lightDir.clone();
+              if (ch.matrixWorld) {
+                const invMat = new THREE.Matrix4().copy(ch.matrixWorld).invert();
+                cloudLocalLightDir.transformDirection(invMat).normalize();
+              }
+              ch.material.userData.uniforms.uLocalSunDirection.value.copy(cloudLocalLightDir);
+            }
+          }
+          if (ch.name === 'planet-body-root' && ch instanceof THREE.Group) {
+             ch.children.forEach(bodyMesh => {
+               if (bodyMesh instanceof THREE.Mesh && bodyMesh.material) {
+                 if (bodyMesh.material.userData?.uniforms?.uLocalSunDirection) {
+                   const bodyLocalLightDir = lightDir.clone();
+                   if (bodyMesh.matrixWorld) {
+                     const invMat = new THREE.Matrix4().copy(bodyMesh.matrixWorld).invert();
+                     bodyLocalLightDir.transformDirection(invMat).normalize();
+                   }
+                   bodyMesh.material.userData.uniforms.uLocalSunDirection.value.copy(bodyLocalLightDir);
+                 }
+               }
+            });
+          }
+        });
 
         // 清理老一轮的球体展示，每次更新根据 剖面模式 (crossSectionActive) & 选中星体进行个性多层渲染，保证数据同步
         const isSelected = selectedPlanetIdRef.current === config.id;
@@ -2244,7 +2398,7 @@ export default function UniverseViewer({
             ...(config.id === 'earth' && earthSpecularTex ? { roughnessMap: earthSpecularTex } : {})
           });
           
-          injectClippingShader(mat);
+          injectPlanetShader(mat, config.id, r);
 
           const mesh = new THREE.Mesh(geom, mat);
           mesh.name = 'planet-body-mesh';
@@ -2327,23 +2481,20 @@ export default function UniverseViewer({
           if (config.id === 'earth' && cloudTex) {
             const cloudGeo1 = new THREE.SphereGeometry(r * 1.01, 64, 32);
             const cloudMat1 = createEarthCloudMaterial(cloudTex, 0.5);
-            injectClippingShader(cloudMat1);
+            injectPlanetShader(cloudMat1, config.id, r * 1.01);
             const cloudMesh1 = new THREE.Mesh(cloudGeo1, cloudMat1);
             cloudMesh1.name = 'planet-earth-clouds-1';
             tiltGroup.add(cloudMesh1);
 
             const cloudGeo2 = new THREE.SphereGeometry(r * 1.015, 64, 32);
             const cloudMat2 = createEarthCloudMaterial(cloudTex, 0.25);
-            injectClippingShader(cloudMat2);
+            injectPlanetShader(cloudMat2, config.id, r * 1.015);
             const cloudMesh2 = new THREE.Mesh(cloudGeo2, cloudMat2);
             cloudMesh2.name = 'planet-earth-clouds-2';
             tiltGroup.add(cloudMesh2);
           }
         }
 
-        // 核心考虑自转角度：自转速度和方向由 OrbitEngine 基于历元完美约束
-        const rotateY = OrbitEngine.getRotationAngle(config.id, currentTimestampRef.current);
-        
         const bodyRoot = tiltGroup.getObjectByName('planet-body-root');
         if (bodyRoot) {
           bodyRoot.rotation.y = rotateY;
@@ -2369,17 +2520,8 @@ export default function UniverseViewer({
             const isHoveredRing = isHoveredPlanet && hoveredLayerRef.current === 'ring';
             tiltGroup.children.forEach(ch => {
               if (ch.name.endsWith('-ring-mesh') && ch instanceof THREE.Mesh) {
-                // 对于星环，如果没有提供自定义 shader，我们就直接修改 material.emissive 或者 opacity
-                if (ch.material instanceof THREE.MeshStandardMaterial) {
-                  if (isHoveredRing) {
-                    ch.material.emissive = new THREE.Color(0x222222); // 微微发亮
-                    ch.material.opacity = Math.min(1.0, ch.material.opacity + 0.2);
-                  } else {
-                    ch.material.emissive = new THREE.Color(0x000000);
-                    // 恢复原始透明度
-                    ch.material.opacity = config.id === 'saturn' ? 0.85 : 0.25;
-                  }
-                  ch.material.needsUpdate = true;
+                if (ch.material instanceof THREE.ShaderMaterial && ch.material.uniforms.uHovered) {
+                  ch.material.uniforms.uHovered.value = isHoveredRing ? 1.0 : 0.0;
                 }
               }
             });

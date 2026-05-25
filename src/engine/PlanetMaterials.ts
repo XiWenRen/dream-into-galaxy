@@ -227,10 +227,12 @@ export function createEarthAtmosphereMaterial(): THREE.ShaderMaterial {
 // ============================================================================
 
 const CLOUD_VERTEX_SHADER = `
+  #include <common>
   varying vec2 vUv;
   varying vec3 vNormal;
 
   void main() {
+    #include <begin_vertex>
     vUv = uv;
     vNormal = normalize(normalMatrix * normal);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -238,6 +240,7 @@ const CLOUD_VERTEX_SHADER = `
 `;
 
 const CLOUD_FRAGMENT_SHADER = `
+  #include <common>
   uniform sampler2D uCloudMap;
   uniform float uTime;
   uniform vec3 uLightDirection;
@@ -262,6 +265,7 @@ const CLOUD_FRAGMENT_SHADER = `
     float alpha = cloudDensity * (diffuse * 0.88 + fresnel * 0.38);
 
     gl_FragColor = vec4(cloudColor, alpha);
+    #include <dithering_fragment>
   }
 `;
 
@@ -287,58 +291,154 @@ export function createEarthCloudMaterial(cloudTexture: THREE.Texture): THREE.Sha
 }
 
 // ============================================================================
-// Saturn Ring Shader
+// Advanced PBR Ring Shader (Analytical Shadow & Mie Scattering)
 // ============================================================================
 
-const RING_VERTEX_SHADER = `
+const ADVANCED_RING_VERTEX_SHADER = `
   varying vec2 vUv;
   varying vec3 vNormal;
+  varying vec3 vLocalPosition;
+  varying vec3 vWorldPosition;
 
   void main() {
     vUv = uv;
     vNormal = normalize(normalMatrix * normal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vLocalPosition = position;
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPos.xyz;
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
   }
 `;
 
-const RING_FRAGMENT_SHADER = `
+const ADVANCED_RING_FRAGMENT_SHADER = `
   uniform sampler2D uRingMap;
-  uniform vec3 uSunDirection;
+  uniform vec3 uSunDirection; // Normalized world space sun direction
+  uniform vec3 uPlanetCenter; // World space planet center
+  uniform float uPlanetRadius;
+  uniform float uInnerRadius;
+  uniform float uOuterRadius;
+  uniform vec3 uBaseColor;
   uniform float uOpacity;
+  uniform bool uShowStructure; // For section mode clipping
+  uniform float uHovered; // Hover state 0.0 or 1.0
+  uniform float uRotateY; // Planet rotation to sync the clipping cut
 
   varying vec2 vUv;
   varying vec3 vNormal;
+  varying vec3 vLocalPosition;
+  varying vec3 vWorldPosition;
+
+  // Ray-Sphere Intersection for Planet Shadow
+  float raySphereIntersect(vec3 ro, vec3 rd, vec3 center, float radius) {
+    vec3 oc = ro - center;
+    float b = dot(oc, rd);
+    float c = dot(oc, oc) - radius * radius;
+    float h = b * b - c;
+    
+    // No intersection
+    if (h < 0.0) return 0.0;
+    
+    // We only care if the intersection is between the ring and the sun
+    // Since rd is towards the sun, t must be > 0
+    float t = -b - sqrt(h);
+    if (t > 0.0) return 1.0;
+    
+    return 0.0;
+  }
 
   void main() {
-    vec4 texColor = texture2D(uRingMap, vUv);
+    // 1. Section Mode Clipping (discard first octant)
+    if (uShowStructure) {
+      // Transform ring's local position to planet's rotating body space
+      float cosY = cos(-uRotateY);
+      float sinY = sin(-uRotateY);
+      float px = vLocalPosition.x * cosY - vLocalPosition.z * sinY;
+      float pz = vLocalPosition.x * sinY + vLocalPosition.z * cosY;
+      
+      if (px > -0.01 && vLocalPosition.y > -0.01 && pz > -0.01) {
+        discard;
+      }
+    }
 
-    // Use the alpha channel of the ring texture for transparency
-    float alpha = texColor.a * uOpacity;
+    // 2. Map local radius to UV.x for 1D texture sampling
+    // Since the ring geometry was rotated by Math.PI / 2 on the X axis, it lies on the X-Z plane
+    float localRadius = length(vLocalPosition.xz);
+    // Normalized radius from 0 (inner) to 1 (outer)
+    float normalizedRadius = clamp((localRadius - uInnerRadius) / (uOuterRadius - uInnerRadius), 0.0, 1.0);
+    
+    // Sample texture
+    vec4 texColor = texture2D(uRingMap, vec2(normalizedRadius, 0.5));
+    
+    // 针对土星 C 环（极度暗淡透明）的光学增强
+    // C 环由于尘埃和冰块密度极低，在真实的贴图中 Alpha 和 RGB 值都非常小，在黑色背景下极易隐形
+    // 我们通过非线性伽马曲线（pow）和基础亮度补偿来使其在可视化中脱颖而出，同时保持卡西尼缝等空白区域的透明
+    float boostedAlpha = pow(texColor.a, 0.5) * 1.6;
+    boostedAlpha = clamp(boostedAlpha, 0.0, 1.0);
 
-    // Simple Lambertian lighting from sun direction
-    float sunDot = max(dot(normalize(vNormal), normalize(uSunDirection)), 0.0);
-    float lighting = 0.3 + 0.7 * sunDot;
+    // 提亮暗部的色彩，防止黑在黑上看不见
+    vec3 boostedColor = texColor.rgb + vec3(0.08) * texColor.a;
 
-    vec3 color = texColor.rgb * lighting;
+    // Multiply by base color (for Uranus/Neptune without good textures)
+    vec3 finalColor = boostedColor * uBaseColor;
+    float alpha = boostedAlpha * uOpacity;
+    
+    if (alpha < 0.01) discard;
 
-    gl_FragColor = vec4(color, alpha);
+    // 3. Simple Mie Scattering Approximation
+    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    vec3 lightDir = normalize(uSunDirection);
+    
+    float phaseAngle = dot(viewDir, lightDir);
+    // Forward scattering (backlit) is brighter, backward scattering is also slightly brighter
+    float scatter = 0.5 + 0.5 * pow(clamp((phaseAngle + 1.0) / 2.0, 0.0, 1.0), 4.0) + 0.3 * pow(clamp(phaseAngle, 0.0, 1.0), 2.0);
+
+    // 4. Planet Shadow on Ring
+    float inPlanetShadow = raySphereIntersect(vWorldPosition, lightDir, uPlanetCenter, uPlanetRadius);
+    
+    // 5. Basic Lighting
+    // Rings are translucent and scatter light in all directions, so we use the absolute dot product
+    float nDotL = abs(dot(normalize(vNormal), lightDir));
+    float lighting = 0.85 + 0.3 * nDotL; // High ambient to prevent rings from becoming pitch black
+
+    // Hover Effect (Bevel / Emissive)
+    vec3 emissive = vec3(0.0);
+    if (uHovered > 0.5) {
+      emissive = finalColor * 0.6; // Glow when hovered
+    }
+
+    // Combine and slightly boost overall brightness
+    vec3 outColor = finalColor * lighting * scatter * (1.0 - inPlanetShadow * 0.95) * 1.5 + emissive;
+
+    gl_FragColor = vec4(outColor, alpha);
   }
 `;
 
 /**
- * Create a ShaderMaterial for Saturn's rings using an alpha-mapped texture.
- *
- * @param ringTexture - The ring texture (e.g. 8k_saturn_ring_alpha.png)
- * @returns A ShaderMaterial with alpha-based ring gaps and sun lighting
+ * Create an advanced ShaderMaterial for planetary rings with analytical shadows and Mie scattering.
  */
-export function createSaturnRingMaterial(ringTexture: THREE.Texture): THREE.ShaderMaterial {
+export function createAdvancedRingMaterial(
+  ringTexture: THREE.Texture,
+  innerRadius: number,
+  outerRadius: number,
+  planetRadius: number,
+  baseColor: THREE.Color = new THREE.Color(0xffffff),
+  opacity: number = 0.85
+): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    vertexShader: RING_VERTEX_SHADER,
-    fragmentShader: RING_FRAGMENT_SHADER,
+    vertexShader: ADVANCED_RING_VERTEX_SHADER,
+    fragmentShader: ADVANCED_RING_FRAGMENT_SHADER,
     uniforms: {
       uRingMap: { value: ringTexture },
       uSunDirection: { value: new THREE.Vector3(1.0, 0.0, 0.0) },
-      uOpacity: { value: 0.9 }
+      uPlanetCenter: { value: new THREE.Vector3(0, 0, 0) },
+      uPlanetRadius: { value: planetRadius },
+      uInnerRadius: { value: innerRadius },
+      uOuterRadius: { value: outerRadius },
+      uBaseColor: { value: baseColor },
+      uOpacity: { value: opacity },
+      uShowStructure: { value: false },
+      uHovered: { value: 0.0 },
+      uRotateY: { value: 0.0 }
     },
     transparent: true,
     depthWrite: false,
@@ -346,3 +446,4 @@ export function createSaturnRingMaterial(ringTexture: THREE.Texture): THREE.Shad
     blending: THREE.NormalBlending
   });
 }
+
