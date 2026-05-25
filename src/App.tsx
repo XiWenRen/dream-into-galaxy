@@ -59,6 +59,9 @@ export default function App() {
   // 望远镜模式（仅在星空模式下生效）
   const [telescopeActive, setTelescopeActive] = useState<boolean>(false);
 
+  // 剖面模式下的当前悬停层级 (联动 3D 模型与详情卡片)
+  const [activeLayer, setActiveLayer] = useState<'core' | 'mantle' | 'crust' | 'atmosphere' | 'ring' | null>(null);
+
   // 轨道计算时间基础状态 (默认 43200x 倍速 = 1秒过去12小时，方便直接看出星体位移)
   const [timeState, setTimeState] = useState<TimeState>({
     currentTimestamp: Date.now(),
@@ -297,6 +300,8 @@ export default function App() {
               strictPhysics={strictPhysics}
               setStrictPhysics={setStrictPhysics}
               textureOffsets={textureOffsets}
+              activeLayer={activeLayer}
+              onLayerHover={setActiveLayer}
             />
           )}
         </div>
@@ -320,6 +325,8 @@ export default function App() {
               isLandable={LANDABLE_PLANETS.includes(selectedPlanetId)}
               textureOffset={textureOffsets[selectedPlanetId] ?? { u: 0, v: 0 }}
               onChangeTextureOffset={(offset) => setTextureOffsets(prev => ({ ...prev, [selectedPlanetId]: offset }))}
+              activeLayer={activeLayer}
+              onLayerHover={setActiveLayer}
             />
           </div>
         )}

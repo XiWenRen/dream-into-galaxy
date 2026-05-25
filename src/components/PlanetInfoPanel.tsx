@@ -21,6 +21,8 @@ interface PlanetInfoPanelProps {
   onChangeTextureOffset?: (offset: { u: number; v: number }) => void;
   cloudsVisible?: boolean;
   onToggleClouds?: () => void;
+  activeLayer?: 'core' | 'mantle' | 'crust' | 'atmosphere' | 'ring' | null;
+  onLayerHover?: (layer: 'core' | 'mantle' | 'crust' | 'atmosphere' | 'ring' | null) => void;
 }
 
 interface SatellitePhysics {
@@ -102,6 +104,8 @@ export default function PlanetInfoPanel({
   onChangeTextureOffset,
   cloudsVisible = true,
   onToggleClouds,
+  activeLayer,
+  onLayerHover,
 }: PlanetInfoPanelProps) {
   if (!planetId) return null;
 
@@ -131,66 +135,68 @@ export default function PlanetInfoPanel({
     switch (planetId) {
       case 'sun':
         return [
-          { key: 'sun_core', color: 'from-yellow-400 to-orange-500', name: isZh ? '日核 (热核反应区)' : 'Sun Core (Fusion Zone)', temp: '15,000,000 °C', comp: isZh ? '电离氢、氦核聚变高能粒子体' : 'Ionized hydrogen & helium plasma' },
-          { key: 'sun_mantle', color: 'from-amber-600 to-red-600', name: isZh ? '辐射与对流区' : 'Radiative & Convective Zone', temp: '2,000,000 °C', comp: isZh ? '对流传递与高能带电等离子流' : 'Radiative & convective loops' },
-          { key: 'sun_crust', color: 'from-orange-500 to-yellow-300', name: isZh ? '光球与色球层' : 'Photosphere & Corona', temp: '5,500 °C', comp: isZh ? '色球表面、热斑及耀斑喷射面' : 'Visual surface with sunspots' }
+          { type: 'core', key: 'sun_core', color: 'from-yellow-400 to-orange-500', name: isZh ? '日核 (热核反应区)' : 'Sun Core (Fusion Zone)', temp: '15,000,000 °C', comp: isZh ? '电离氢、氦核聚变高能粒子体' : 'Ionized hydrogen & helium plasma' },
+          { type: 'mantle', key: 'sun_mantle', color: 'from-amber-600 to-red-600', name: isZh ? '辐射与对流区' : 'Radiative & Convective Zone', temp: '2,000,000 °C', comp: isZh ? '对流传递与高能带电等离子流' : 'Radiative & convective loops' },
+          { type: 'crust', key: 'sun_crust', color: 'from-orange-500 to-yellow-300', name: isZh ? '光球与色球层' : 'Photosphere & Corona', temp: '5,500 °C', comp: isZh ? '色球表面、热斑及耀斑喷射面' : 'Visual surface with sunspots' }
         ];
       case 'mercury':
         return [
-          { key: 'mercury_core', color: 'from-orange-700 to-zinc-600', name: isZh ? '水星核' : 'Mercury Core', temp: '900 °C', comp: isZh ? '超大富铁固态/液态核心' : 'High density iron metal core' },
-          { key: 'mercury_mantle', color: 'from-yellow-700 to-stone-500', name: isZh ? '水星地幔' : 'Mercury Mantle', temp: '400 °C', comp: isZh ? '坚硬岩石质硅酸盐地幔圈' : 'Rocky silicate mantle' },
-          { key: 'mercury_crust', color: 'from-stone-500 to-stone-600', name: isZh ? '水星地壳' : 'Mercury Crust', temp: '-180 ~ 430 °C', comp: isZh ? '高硬玄武岩撞击风化地表壳' : 'Basalt scarred crust' }
+          { type: 'core', key: 'mercury_core', color: 'from-orange-700 to-zinc-600', name: isZh ? '水星核' : 'Mercury Core', temp: '900 °C', comp: isZh ? '超大富铁固态/液态核心' : 'High density iron metal core' },
+          { type: 'mantle', key: 'mercury_mantle', color: 'from-yellow-700 to-stone-500', name: isZh ? '水星地幔' : 'Mercury Mantle', temp: '400 °C', comp: isZh ? '坚硬岩石质硅酸盐地幔圈' : 'Rocky silicate mantle' },
+          { type: 'crust', key: 'mercury_crust', color: 'from-stone-500 to-stone-600', name: isZh ? '水星地壳' : 'Mercury Crust', temp: '-180 ~ 430 °C', comp: isZh ? '高硬玄武岩撞击风化地表壳' : 'Basalt scarred crust' }
         ];
       case 'venus':
         return [
-          { key: 'venus_core', color: 'from-yellow-600 to-amber-700', name: isZh ? '金星核' : 'Venus Core', temp: '5,000 °C', comp: isZh ? '熔融态铁镍重金属核心' : 'Molten iron-nickel core' },
-          { key: 'venus_mantle', color: 'from-amber-800 to-stone-600', name: isZh ? '金星地幔' : 'Venus Mantle', temp: '3,000 °C', comp: isZh ? '高压粘稠硅酸盐地幔对流带' : 'Silicates viscous mantle' },
-          { key: 'venus_crust', color: 'from-orange-850 to-amber-900', name: isZh ? '金星地壳' : 'Venus Crust', temp: '460 °C', comp: isZh ? '干燥无水玄武岩活火山地层' : 'Dry volcanic basalt lithosphere' },
-          { key: 'venus_atmosphere', color: 'from-yellow-100 to-yellow-400', name: isZh ? '金星大气层' : 'Venus Atmosphere', temp: '470 °C', comp: '96.5% CO2, 强酸腐性硫酸浓雾' }
+          { type: 'core', key: 'venus_core', color: 'from-yellow-600 to-amber-700', name: isZh ? '金星核' : 'Venus Core', temp: '5,000 °C', comp: isZh ? '熔融态铁镍重金属核心' : 'Molten iron-nickel core' },
+          { type: 'mantle', key: 'venus_mantle', color: 'from-amber-800 to-stone-600', name: isZh ? '金星地幔' : 'Venus Mantle', temp: '3,000 °C', comp: isZh ? '高压粘稠硅酸盐地幔对流带' : 'Silicates viscous mantle' },
+          { type: 'crust', key: 'venus_crust', color: 'from-orange-850 to-amber-900', name: isZh ? '金星地壳' : 'Venus Crust', temp: '460 °C', comp: isZh ? '干燥无水玄武岩活火山地层' : 'Dry volcanic basalt lithosphere' },
+          { type: 'atmosphere', key: 'venus_atmosphere', color: 'from-yellow-100 to-yellow-400', name: isZh ? '金星大气层' : 'Venus Atmosphere', temp: '470 °C', comp: '96.5% CO2, 强酸腐性硫酸浓雾' }
         ];
       case 'earth':
         return [
-          { key: 'earth_core', color: 'from-rose-500 to-yellow-400', name: isZh ? '地核 (内固外液)' : 'Earth Core (Dual State)', temp: '6,000 °C', comp: isZh ? '液态流体外核 + 结晶固态铁镍内核' : 'Liquid outer & solid inner core' },
-          { key: 'earth_mantle', color: 'from-amber-600 to-stone-600', name: isZh ? '地幔 (熔融下幔/软流圈)' : 'Earth Mantle (Viscous)', temp: '3,500 °C', comp: isZh ? '富硅、镁高粘稠超基性橄榄岩质圈' : 'Viscous silicate minerals' },
-          { key: 'earth_crust', color: 'from-emerald-700 to-blue-700', name: isZh ? '地壳 (陆壳/洋壳)' : 'Earth Crust', temp: '15 °C', comp: isZh ? '含盐分海洋、大陆架花岗岩与丰富有机层' : 'Granites, basalts & water basins' },
-          { key: 'earth_atmosphere', color: 'from-sky-400 to-sky-200 border border-sky-400/20', name: isZh ? '大气圈 (活性气体)' : 'Atmosphere (Active Gases)', temp: '-50 ~ 20 °C', comp: '78% 氮、21% 氧、以及适宜的水温云雾' }
+          { type: 'core', key: 'earth_core', color: 'from-rose-500 to-yellow-400', name: isZh ? '地核 (内固外液)' : 'Earth Core (Dual State)', temp: '6,000 °C', comp: isZh ? '液态流体外核 + 结晶固态铁镍内核' : 'Liquid outer & solid inner core' },
+          { type: 'mantle', key: 'earth_mantle', color: 'from-amber-600 to-stone-600', name: isZh ? '地幔 (熔融下幔/软流圈)' : 'Earth Mantle (Viscous)', temp: '3,500 °C', comp: isZh ? '富硅、镁高粘稠超基性橄榄岩质圈' : 'Viscous silicate minerals' },
+          { type: 'crust', key: 'earth_crust', color: 'from-emerald-700 to-blue-700', name: isZh ? '地壳 (陆壳/洋壳)' : 'Earth Crust', temp: '15 °C', comp: isZh ? '含盐分海洋、大陆架花岗岩与丰富有机层' : 'Granites, basalts & water basins' },
+          { type: 'atmosphere', key: 'earth_atmosphere', color: 'from-sky-400 to-sky-200 border border-sky-400/20', name: isZh ? '大气圈 (活性气体)' : 'Atmosphere (Active Gases)', temp: '-50 ~ 20 °C', comp: '78% 氮、21% 氧、以及适宜的水温云雾' }
         ];
       case 'moon':
         return [
-          { key: 'moon_core', color: 'from-stone-600 to-neutral-400', name: isZh ? '月核' : 'Lunar Core', temp: '1,300 °C', comp: isZh ? '已完全冷却凝固的小型金属铁核' : 'Small solid dormant iron core' },
-          { key: 'moon_mantle', color: 'from-stone-500 to-stone-400', name: isZh ? '月慢' : 'Lunar Mantle', temp: '800 °C', comp: isZh ? '富橄榄石、辉石的坚硬月地幔' : 'Pyroxene & olivine rocky mantle' },
-          { key: 'moon_crust', color: 'from-stone-300 to-stone-400', name: isZh ? '月壳' : 'Lunar Crust', temp: '-150 ~ 120 °C', comp: isZh ? '粗糙长石斜长岩月壳，上敷灰色月壤' : 'Anorthosite crust with loose regolith' }
+          { type: 'core', key: 'moon_core', color: 'from-stone-600 to-neutral-400', name: isZh ? '月核' : 'Lunar Core', temp: '1,300 °C', comp: isZh ? '已完全冷却凝固的小型金属铁核' : 'Small solid dormant iron core' },
+          { type: 'mantle', key: 'moon_mantle', color: 'from-stone-500 to-stone-400', name: isZh ? '月慢' : 'Lunar Mantle', temp: '800 °C', comp: isZh ? '富橄榄石、辉石的坚硬月地幔' : 'Pyroxene & olivine rocky mantle' },
+          { type: 'crust', key: 'moon_crust', color: 'from-stone-300 to-stone-400', name: isZh ? '月壳' : 'Lunar Crust', temp: '-150 ~ 120 °C', comp: isZh ? '粗糙长石斜长岩月壳，上敷灰色月壤' : 'Anorthosite crust with loose regolith' }
         ];
       case 'mars':
         return [
-          { key: 'mars_core', color: 'from-orange-800 to-red-950', name: isZh ? '火星核' : 'Mars Core', temp: '2,000 °C', comp: isZh ? '固态铁镍与高度结合硫化物壳核心' : 'Iron, nickel & sulfur alloy core' },
-          { key: 'mars_mantle', color: 'from-amber-900 to-orange-700', name: isZh ? '火星地幔' : 'Mars Mantle', temp: '1,500 °C', comp: isZh ? '静止不动的长石硅酸盐硬地幔圈' : 'Dormant silicate rocky mantle' },
-          { key: 'mars_crust', color: 'from-red-600 to-orange-600', name: isZh ? '火星地壳' : 'Mars Crust', temp: '-60 °C', comp: isZh ? '富含三氧化二铁红尘砂土层，干燥断裂' : 'Iron oxide sand & basalt bedrock' },
-          { key: 'mars_atmosphere', color: 'from-rose-900/30 to-rose-400/20', name: isZh ? '火星稀薄大气' : 'Mars Thin Atmosphere', temp: '-70 °C', comp: '95% CO2, 极度干冷与稀薄' }
+          { type: 'core', key: 'mars_core', color: 'from-orange-800 to-red-950', name: isZh ? '火星核' : 'Mars Core', temp: '2,000 °C', comp: isZh ? '固态铁镍与高度结合硫化物壳核心' : 'Iron, nickel & sulfur alloy core' },
+          { type: 'mantle', key: 'mars_mantle', color: 'from-amber-900 to-orange-700', name: isZh ? '火星地幔' : 'Mars Mantle', temp: '1,500 °C', comp: isZh ? '静止不动的长石硅酸盐硬地幔圈' : 'Dormant silicate rocky mantle' },
+          { type: 'crust', key: 'mars_crust', color: 'from-red-600 to-orange-600', name: isZh ? '火星地壳' : 'Mars Crust', temp: '-60 °C', comp: isZh ? '富含三氧化二铁红尘砂土层，干燥断裂' : 'Iron oxide sand & basalt bedrock' },
+          { type: 'atmosphere', key: 'mars_atmosphere', color: 'from-rose-900/30 to-rose-400/20', name: isZh ? '火星稀薄大气' : 'Mars Thin Atmosphere', temp: '-70 °C', comp: '95% CO2, 极度干冷与稀薄' }
         ];
       case 'jupiter':
         return [
-          { key: 'jupiter_core', color: 'from-violet-800 to-fuchsia-900', name: isZh ? '木星超重核' : 'Jupiter Heavy Core', temp: '20,000 °C', comp: isZh ? '十几倍地球质量的超压重岩石与冰晶聚合物' : 'Super-compressed rock & ice kernel' },
-          { key: 'jupiter_mantle', color: 'from-blue-900 to-purple-800', name: isZh ? '液态金属氢幔层' : 'Metallic Hydrogen Mantle', temp: '9,000 °C', comp: isZh ? '极强导电性质的超高压流动液态金属氢海洋' : 'Fluid superconductive metallic hydrogen' },
-          { key: 'jupiter_atmosphere', color: 'from-orange-200 to-amber-400', name: isZh ? '木星气态大气' : 'Jupiter Gaseous Envelope', temp: '-110 °C', comp: '89% H2, 10% He, 极速流转风暴云带' }
+          { type: 'core', key: 'jupiter_core', color: 'from-violet-800 to-fuchsia-900', name: isZh ? '木星超重核' : 'Jupiter Heavy Core', temp: '20,000 °C', comp: isZh ? '十几倍地球质量的超压重岩石与冰晶聚合物' : 'Super-compressed rock & ice kernel' },
+          { type: 'mantle', key: 'jupiter_mantle', color: 'from-blue-900 to-purple-800', name: isZh ? '液态金属氢幔层' : 'Metallic Hydrogen Mantle', temp: '9,000 °C', comp: isZh ? '极强导电性质的超高压流动液态金属氢海洋' : 'Fluid superconductive metallic hydrogen' },
+          { type: 'atmosphere', key: 'jupiter_atmosphere', color: 'from-orange-200 to-amber-400', name: isZh ? '木星气态大气' : 'Jupiter Gaseous Envelope', temp: '-110 °C', comp: '89% H2, 10% He, 极速流转风暴云带' }
         ];
       case 'saturn':
         return [
-          { key: 'saturn_core', color: 'from-stone-600 to-yellow-950', name: isZh ? '土星固态核' : 'Saturn Core', temp: '11,000 °C', comp: isZh ? '高热压缩的硅酸盐與岩石核，外包冰质物' : 'Rocky Core surrounded by chemical ice' },
-          { key: 'saturn_mantle', color: 'from-yellow-800 to-amber-700', name: isZh ? '金属氢及氦雨幔' : 'Metallic Hydrogen & Helium Rain', temp: '6,000 °C', comp: isZh ? '高压流动金属氢，因温差出现氦雨沉降释放潜热' : 'Turbulent liquid hydrogen with precipitating helium' },
-          { key: 'saturn_atmosphere', color: 'from-yellow-100 to-yellow-400', name: isZh ? '土星大气圈' : 'Saturn Atmosphere', temp: '-140 °C', comp: '96% 氢气以及微量结晶甲烷，极速喷射流' }
+          { type: 'core', key: 'saturn_core', color: 'from-stone-600 to-yellow-950', name: isZh ? '土星固态核' : 'Saturn Core', temp: '11,000 °C', comp: isZh ? '高热压缩的硅酸盐與岩石核，外包冰质物' : 'Rocky Core surrounded by chemical ice' },
+          { type: 'mantle', key: 'saturn_mantle', color: 'from-yellow-800 to-amber-700', name: isZh ? '金属氢及氦雨幔' : 'Metallic Hydrogen & Helium Rain', temp: '6,000 °C', comp: isZh ? '高压流动金属氢，因温差出现氦雨沉降释放潜热' : 'Turbulent liquid hydrogen with precipitating helium' },
+          { type: 'atmosphere', key: 'saturn_atmosphere', color: 'from-yellow-100 to-yellow-400', name: isZh ? '土星大气圈' : 'Saturn Atmosphere', temp: '-140 °C', comp: '96% 氢气以及微量结晶甲烷，极速喷射流' },
+          { type: 'ring', key: 'saturn_rings', color: 'from-amber-200 to-amber-600', name: isZh ? '土星环系' : 'Saturn Rings', temp: '-200 °C', comp: isZh ? '主要由冰晶碎片与少量岩石尘埃构成' : 'Ice crystals & rocky dust debris' }
         ];
       case 'uranus':
         return [
-          { key: 'uranus_core', color: 'from-sky-800 to-cyan-950', name: isZh ? '天王星金属原子核' : 'Uranus Core', temp: '5,000 °C', comp: isZh ? '重金属、铁镍与冰质种子核' : 'Iron-nickel & silicate rock' },
-          { key: 'uranus_mantle', color: 'from-cyan-600 to-blue-700', name: isZh ? '超临界热冰地幔' : 'Supercritical Fluid Ice Mantle', temp: '2,500 °C', comp: isZh ? '高导电率的超高压稠密甲烷、氨水极性热流体' : 'Water, ammonia & methane hot fluid ice' },
-          { key: 'uranus_atmosphere', color: 'from-cyan-300 to-cyan-100', name: isZh ? '天王星青绿大气' : 'Uranus Green-Cyan Atmosphere', temp: '-224 °C', comp: '气体氢氦及甲烷分子层，吸收红色可见光' }
+          { type: 'core', key: 'uranus_core', color: 'from-sky-800 to-cyan-950', name: isZh ? '天王星金属原子核' : 'Uranus Core', temp: '5,000 °C', comp: isZh ? '重金属、铁镍与冰质种子核' : 'Iron-nickel & silicate rock' },
+          { type: 'mantle', key: 'uranus_mantle', color: 'from-cyan-600 to-blue-700', name: isZh ? '超临界热冰地幔' : 'Supercritical Fluid Ice Mantle', temp: '2,500 °C', comp: isZh ? '高导电率的超高压稠密甲烷、氨水极性热流体' : 'Water, ammonia & methane hot fluid ice' },
+          { type: 'atmosphere', key: 'uranus_atmosphere', color: 'from-cyan-300 to-cyan-100', name: isZh ? '天王星青绿大气' : 'Uranus Green-Cyan Atmosphere', temp: '-224 °C', comp: '气体氢氦及甲烷分子层，吸收红色可见光' },
+          { type: 'ring', key: 'uranus_rings', color: 'from-cyan-200 to-sky-400', name: isZh ? '天王星微弱环系' : 'Uranus Rings', temp: '-210 °C', comp: isZh ? '极暗的碳质有机物与细小岩石颗粒' : 'Dark macroscopic particles & organic matter' }
         ];
       case 'neptune':
         return [
-          { key: 'neptune_core', color: 'from-blue-800 to-indigo-950', name: isZh ? '海王星重核' : 'Neptune Heavier Core', temp: '5,400 °C', comp: isZh ? '致密重质硅酸盐岩石与冰层核' : 'Viscous rock & metal heavier core' },
-          { key: 'neptune_mantle', color: 'from-blue-600 to-indigo-700', name: isZh ? '电离水冰热极性洋' : 'Ionized Slushy Mantle', temp: '3,000 °C', comp: isZh ? '极高盐度与导电率的水、氨超高压超临界质地' : 'Hot ammonia-water sea under extreme pressure' },
-          { key: 'neptune_atmosphere', color: 'from-indigo-400 to-blue-300', name: isZh ? '海王星蔚蓝大气' : 'Neptune Deep Blue Atmosphere', temp: '-218 °C', comp: '富含甲烷超音速狂风层，吸光呈现完美宝石蓝' }
+          { type: 'core', key: 'neptune_core', color: 'from-blue-800 to-indigo-950', name: isZh ? '海王星重核' : 'Neptune Heavier Core', temp: '5,400 °C', comp: isZh ? '致密重质硅酸盐岩石与冰层核' : 'Viscous rock & metal heavier core' },
+          { type: 'mantle', key: 'neptune_mantle', color: 'from-blue-600 to-indigo-700', name: isZh ? '电离水冰热极性洋' : 'Ionized Slushy Mantle', temp: '3,000 °C', comp: isZh ? '极高盐度与导电率的水、氨超高压超临界质地' : 'Hot ammonia-water sea under extreme pressure' },
+          { type: 'atmosphere', key: 'neptune_atmosphere', color: 'from-indigo-400 to-blue-300', name: isZh ? '海王星蔚蓝大气' : 'Neptune Deep Blue Atmosphere', temp: '-218 °C', comp: '富含甲烷超音速狂风层，吸光呈现完美宝石蓝' }
         ];
       default:
         return [];
@@ -198,6 +204,17 @@ export default function PlanetInfoPanel({
   };
 
   const layers = getLayers();
+
+  const [lockedLayer, setLockedLayer] = React.useState<'core' | 'mantle' | 'crust' | 'atmosphere' | 'ring' | null>(null);
+
+  // Sync lockedLayer with activeLayer if activeLayer is changed externally (e.g. from 3D hover)
+  // Actually, if activeLayer is controlled by 3D, we might want to release the lock.
+  React.useEffect(() => {
+    if (activeLayer !== lockedLayer && activeLayer !== null) {
+      // If 3D is actively hovering something else, release the UI lock
+      setLockedLayer(null);
+    }
+  }, [activeLayer]);
 
   return (
     <div 
@@ -308,26 +325,48 @@ export default function PlanetInfoPanel({
             </p>
             {/* 3D 类似折叠层 */}
             <div className="space-y-2">
-              {layers.map((layer, idx) => (
-                <div 
-                  key={idx} 
-                  className="bg-white/[0.02] border border-white/5 rounded-xl p-2.5 flex items-start space-x-3 hover:bg-white/[0.05] transition-colors"
-                >
-                  <div className={`w-3 h-10 rounded-full bg-gradient-to-b ${layer.color} shrink-0 mt-0.5`} />
-                  <div className="flex-1 space-y-0.5 min-w-0">
-                    <div className="flex justify-between text-xs font-semibold text-white">
-                      <span>{layer.name}</span>
-                      <span className="text-amber-400 font-mono text-[10px]">{layer.temp}</span>
+              {layers.map((layer, idx) => {
+                const isActive = activeLayer === layer.type || lockedLayer === layer.type;
+                return (
+                  <div 
+                    key={idx} 
+                    className={`bg-white/[0.02] border rounded-xl p-2.5 flex items-start space-x-3 transition-all duration-300 cursor-pointer ${
+                      isActive 
+                        ? 'border-cyan-500/50 bg-cyan-950/20 shadow-[0_0_15px_rgba(6,182,212,0.15)] -translate-x-2 scale-[1.02]' 
+                        : 'border-white/5 hover:bg-white/[0.05]'
+                    }`}
+                    onMouseEnter={() => {
+                      if (!lockedLayer) onLayerHover?.(layer.type as any);
+                    }}
+                    onMouseLeave={() => {
+                      if (!lockedLayer) onLayerHover?.(null);
+                    }}
+                    onClick={() => {
+                      if (lockedLayer === layer.type) {
+                        setLockedLayer(null);
+                        onLayerHover?.(null);
+                      } else {
+                        setLockedLayer(layer.type as any);
+                        onLayerHover?.(layer.type as any);
+                      }
+                    }}
+                  >
+                    <div className={`w-3 h-10 rounded-full bg-gradient-to-b ${layer.color} shrink-0 mt-0.5 ${isActive ? 'shadow-[0_0_8px_currentColor]' : ''}`} />
+                    <div className="flex-1 space-y-0.5 min-w-0">
+                      <div className="flex justify-between text-xs font-semibold text-white">
+                        <span className={isActive ? 'text-cyan-300' : ''}>{layer.name}</span>
+                        <span className={`${isActive ? 'text-cyan-400' : 'text-amber-400'} font-mono text-[10px]`}>{layer.temp}</span>
+                      </div>
+                      <p className={`text-[10.5px] ${isActive ? 'text-cyan-100/90' : 'text-white/70'} leading-normal truncate-2-lines`}>
+                        {translations[lang][layer.key as keyof typeof translations['zh']] || layer.comp}
+                      </p>
+                      <p className={`text-[9.5px] ${isActive ? 'text-cyan-500/60' : 'text-white/40'} font-mono truncate`}>
+                        {translations[lang].composition}: {layer.comp}
+                      </p>
                     </div>
-                    <p className="text-[10.5px] text-white/70 leading-normal truncate-2-lines">
-                      {translations[lang][layer.key as keyof typeof translations['zh']] || layer.comp}
-                    </p>
-                    <p className="text-[9.5px] text-white/40 font-mono truncate">
-                      {translations[lang].composition}: {layer.comp}
-                    </p>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : (
