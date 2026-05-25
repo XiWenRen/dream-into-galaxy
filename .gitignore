@@ -2,6 +2,8 @@ node_modules/
 build/
 dist/
 coverage/
+.claude/
+.playwright-mcp
 .DS_Store
 *.log
 .env*

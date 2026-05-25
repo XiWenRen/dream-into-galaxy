@@ -1297,6 +1297,11 @@ export default function UniverseViewer({
     controls.minDistance = 0.5;
     controlsRef.current = controls;
 
+    // DEBUG: expose for automated verification
+    (window as any).__camera = camera;
+    (window as any).__controls = controls;
+    (window as any).__scene = scene;
+
     // 4. 环境光 + 核心太阳光源点光源 (直面展示星体暗面与照亮面)
     const ambientLight = new THREE.AmbientLight(0x1a1a2e);
     scene.add(ambientLight);
@@ -1941,10 +1946,12 @@ export default function UniverseViewer({
         if (!tiltGroup) return;
 
         // 清理老一轮的球体展示，每次更新根据 剖面模式 (crossSectionActive) & 选中星体进行个性多层渲染，保证数据同步
-        const needsRebuild = tiltGroup.children.filter(ch => ch.name === 'planet-body-root' || ch.name === 'cross-section-root').length === 0;
-        
         const isSelected = selectedPlanetIdRef.current === config.id;
         const isCrossSection = isSelected && crossSectionActiveRef.current;
+
+        const hasBody = tiltGroup.children.some(ch => ch.name === 'planet-body-root');
+        const hasCrossSection = tiltGroup.children.some(ch => ch.name === 'cross-section-root');
+        const needsRebuild = (isCrossSection && !hasCrossSection) || (!isCrossSection && !hasBody);
 
         if (needsRebuild) {
           // 清除历史子星体（包括地球云层，防止模式切换后残留同名mesh）
@@ -1966,18 +1973,18 @@ export default function UniverseViewer({
             const crossGroup = new THREE.Group();
             crossGroup.name = 'cross-section-root';
 
-            // 各行星剖面配色配置（core=核心 mantle=地幔 atm=大气）
-            const crossPalette: Record<string, { core: number; mantle: number; atm: number; coreEmissive?: number; mantleEmissive?: number }> = {
-              earth:   { core: 0xffd700, mantle: 0xc2381a, atm: 0x8ab6ff, coreEmissive: 0xff6600, mantleEmissive: 0x551100 },
-              sun:     { core: 0xffffff, mantle: 0xffaa00, atm: 0xff8800, coreEmissive: 0xffaa00, mantleEmissive: 0xff4400 },
-              moon:    { core: 0x777777, mantle: 0x554433, atm: 0x999999 },
-              mercury: { core: 0x999999, mantle: 0x776655, atm: 0xaaaaaa },
-              venus:   { core: 0xddddcc, mantle: 0xbb9955, atm: 0xffcc44, mantleEmissive: 0x221100 },
-              mars:    { core: 0x882211, mantle: 0xcc5522, atm: 0xffaa88, mantleEmissive: 0x441100 },
-              jupiter: { core: 0xddddcc, mantle: 0xc4956a, atm: 0xd4a574 },
-              saturn:  { core: 0xddddcc, mantle: 0xc4a574, atm: 0xe0c090 },
-              uranus:  { core: 0xccddcc, mantle: 0x88bbcc, atm: 0x66aacc },
-              neptune: { core: 0xccccdd, mantle: 0x4466bb, atm: 0x3366aa },
+            // 各行星剖面配色配置（core=核心 mantle=地幔 crust=地壳 atm=大气）
+            const crossPalette: Record<string, { core: number; mantle: number; crust: number; atm: number; coreEmissive?: number; mantleEmissive?: number }> = {
+              earth:   { core: 0xffd700, mantle: 0xc2381a, crust: 0x5c3a21, atm: 0x8ab6ff, coreEmissive: 0xff6600, mantleEmissive: 0x551100 },
+              sun:     { core: 0xffffff, mantle: 0xffaa00, crust: 0xdd8800, atm: 0xff8800, coreEmissive: 0xffaa00, mantleEmissive: 0xff4400 },
+              moon:    { core: 0x777777, mantle: 0x554433, crust: 0x665544, atm: 0x999999 },
+              mercury: { core: 0x999999, mantle: 0x776655, crust: 0x887766, atm: 0xaaaaaa },
+              venus:   { core: 0xddddcc, mantle: 0xbb9955, crust: 0xaa8844, atm: 0xffcc44, mantleEmissive: 0x221100 },
+              mars:    { core: 0x882211, mantle: 0xcc5522, crust: 0xaa5522, atm: 0xffaa88, mantleEmissive: 0x441100 },
+              jupiter: { core: 0xddddcc, mantle: 0xc4956a, crust: 0xb08050, atm: 0xd4a574 },
+              saturn:  { core: 0xddddcc, mantle: 0xc4a574, crust: 0xb09060, atm: 0xe0c090 },
+              uranus:  { core: 0xccddcc, mantle: 0x88bbcc, crust: 0x77aabb, atm: 0x66aacc },
+              neptune: { core: 0xccccdd, mantle: 0x4466bb, crust: 0x335599, atm: 0x3366aa },
             };
             const pc = crossPalette[config.id] || crossPalette.earth;
 
@@ -2051,6 +2058,26 @@ export default function UniverseViewer({
               return geo;
             };
 
+            // 辅助：将 LatheGeometry 的默认 UV 修正为标准球面纹理映射
+            // LatheGeometry 默认按旋转角和剖面索引生成 UV，上下半球分别创建时会导致接缝处纹理断裂
+            const fixSphereUV = (geo: THREE.BufferGeometry) => {
+              const pos = geo.attributes.position;
+              const uv = geo.attributes.uv;
+              if (!pos || !uv) return;
+              for (let i = 0; i < pos.count; i++) {
+                const x = pos.getX(i);
+                const y = pos.getY(i);
+                const z = pos.getZ(i);
+                const r = Math.sqrt(x * x + y * y + z * z);
+                if (r < 1e-6) continue;
+                const theta = Math.acos(Math.max(-1, Math.min(1, y / r)));
+                let phi = Math.atan2(z, x);
+                if (phi < 0) phi += Math.PI * 2;
+                uv.setXY(i, phi / (Math.PI * 2), theta / Math.PI);
+              }
+              uv.needsUpdate = true;
+            };
+
             // 辅助：创建有厚度的半球球壳对（含截面填充）
             const createThickShellPair = (innerR: number, outerR: number, mat: THREE.Material, namePrefix: string, sectionColor?: number) => {
               const g = new THREE.Group();
@@ -2059,12 +2086,14 @@ export default function UniverseViewer({
               // 南半球球壳（赤道→南极，完整 360°）
               const profileS = buildShellProfile(innerR, outerR, Math.PI / 2, Math.PI / 2);
               const geoS = new THREE.LatheGeometry(profileS, 48, 0, Math.PI * 2);
+              fixSphereUV(geoS);
               const meshS = new THREE.Mesh(geoS, mat);
               meshS.name = namePrefix + '-south';
 
               // 北半球球壳（北极→赤道，270° 扇面，留 90° 缺口在第一卦限 X>0, Z>0）
               const profileN = buildShellProfile(innerR, outerR, 0, Math.PI / 2);
               const geoN = new THREE.LatheGeometry(profileN, 48, Math.PI / 2, Math.PI * 1.5);
+              fixSphereUV(geoN);
               const meshN = new THREE.Mesh(geoN, mat);
               meshN.name = namePrefix + '-north';
 
@@ -2120,8 +2149,7 @@ export default function UniverseViewer({
 
             // 3. 地壳层（球壳，内径 0.74r，外径 r，保留纹理用于外表面）
             const crustMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
-            // 截面使用地幔色（地壳截面显示下方地幔的颜色更合理，且避免纹理拉伸）
-            crossGroup.add(createThickShellPair(r * 0.74, r, crustMat, 'inner-body-crust', pc.mantle));
+            crossGroup.add(createThickShellPair(r * 0.74, r, crustMat, 'inner-body-crust', pc.crust));
 
             // 4. 大气层（薄球壳，内径 r，外径 1.06r，极淡）
             const hasAtmosphere = ['earth', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'].includes(config.id);
@@ -2141,20 +2169,20 @@ export default function UniverseViewer({
             axes.name = 'axes-helper';
             crossGroup.add(axes);
 
-            // 地球双层云层（剖面模式下仍可按需显示）
-            if (config.id === 'earth' && cloudTex && cloudsVisible) {
-              const cloudGeo1 = new THREE.SphereGeometry(r * 1.01, 64, 32);
-              const cloudMat1 = createEarthCloudMaterial(cloudTex, 0.5);
-              const cloudMesh1 = new THREE.Mesh(cloudGeo1, cloudMat1);
-              cloudMesh1.name = 'planet-earth-clouds-1';
-              tiltGroup.add(cloudMesh1);
-
-              const cloudGeo2 = new THREE.SphereGeometry(r * 1.015, 64, 32);
-              const cloudMat2 = createEarthCloudMaterial(cloudTex, 0.25);
-              const cloudMesh2 = new THREE.Mesh(cloudGeo2, cloudMat2);
-              cloudMesh2.name = 'planet-earth-clouds-2';
-              tiltGroup.add(cloudMesh2);
-            }
+            // 剖面模式下不显示云层，避免遮挡内部结构
+            // if (config.id === 'earth' && cloudTex && cloudsVisible) {
+            //   const cloudGeo1 = new THREE.SphereGeometry(r * 1.01, 64, 32);
+            //   const cloudMat1 = createEarthCloudMaterial(cloudTex, 0.5);
+            //   const cloudMesh1 = new THREE.Mesh(cloudGeo1, cloudMat1);
+            //   cloudMesh1.name = 'planet-earth-clouds-1';
+            //   tiltGroup.add(cloudMesh1);
+            //
+            //   const cloudGeo2 = new THREE.SphereGeometry(r * 1.015, 64, 32);
+            //   const cloudMat2 = createEarthCloudMaterial(cloudTex, 0.25);
+            //   const cloudMesh2 = new THREE.Mesh(cloudGeo2, cloudMat2);
+            //   cloudMesh2.name = 'planet-earth-clouds-2';
+            //   tiltGroup.add(cloudMesh2);
+            // }
 
             tiltGroup.add(crossGroup);
           } else {
