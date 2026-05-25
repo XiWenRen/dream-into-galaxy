@@ -132,6 +132,7 @@ interface UniverseViewerProps {
   crossSectionActive: boolean;
   lang: 'zh' | 'en';
   showConstellLines?: boolean;
+  showPlanetLabels?: boolean;
   magLimit?: number;
   textureOffsets?: Record<string, { u: number; v: number }>;
   cloudsVisible?: boolean;
@@ -582,6 +583,85 @@ const createSectorPlane = (radius: number, pc: any) => {
   return new THREE.Mesh(geo, mat);
 };
 
+/**
+ * 带有 Jerk (加加速度) 控制的非线性物理运动学曲线 (S-Curve Kinematic Profile)
+ * 采用 Smoothstep (Hermite插值) 对加速度进行平滑积分。
+ * 这意味着速度的增长和衰减不是突变的，而是呈现 S 型，起步和停止时加速度都为 0，彻底消除机械顿挫感。
+ * @param t 当前流逝的时间
+ * @param D 总距离
+ */
+function calculateKinematicProgress(t: number, D: number): { progress: number, isFinished: boolean, velocity: number, totalTime: number } {
+  if (D <= 0.0001) return { progress: 1.0, isFinished: true, velocity: 0, totalTime: 0 };
+
+  // 1. 动态计算最大巡航速度 (极速限制翻倍：由 4.0 提升至 8.0)
+  const vMax = 8.0 * Math.pow(D, 0.5);
+  
+  // 2. 设定极端的非线性加减速时间
+  // 非线性加速时间：1.2 秒（加速度从0缓慢升到最大再缓慢降回0，最终达到 vMax）
+  let tAccel = 1.2;
+  // 非线性减速时间：3.0 秒
+  let tDecel = 3.0;
+
+  // 使用 Smoothstep 速度曲线积分：v(t) = vMax * (3x^2 - 2x^3)，其中 x = t / T
+  // 积分得到的位移公式为：s(t) = vMax * T * (x^3 - 0.5x^4)
+  // 因此，完整加速阶段（或减速阶段）走过的总距离正好是：0.5 * vMax * T
+  const dAccel = 0.5 * vMax * tAccel;
+  const dDecel = 0.5 * vMax * tDecel;
+
+  let tCruise = 0;
+  let vPeak = vMax;
+
+  // 3. 距离校验：如果是短距离跳转（例如地月之间），则没有足够的距离达到 vMax
+  if (dAccel + dDecel > D) {
+    // 降级为非线性三角形曲线：等比例压缩加减速时间，使得积分面积刚好等于 D
+    const ratio = Math.sqrt(D / (dAccel + dDecel));
+    tAccel *= ratio;
+    tDecel *= ratio;
+    vPeak *= ratio;
+  } else {
+    // 梯形 S-Curve：计算匀速巡航阶段需要的时间
+    const dCruise = D - dAccel - dDecel;
+    tCruise = dCruise / vMax;
+  }
+
+  const totalTime = tAccel + tCruise + tDecel;
+
+  if (t >= totalTime) {
+    return { progress: 1.0, isFinished: true, velocity: 0, totalTime };
+  }
+
+  // 4. 根据当前时间 t 分段积分计算位移与实时速度
+  let currentDist = 0;
+  let currentV = 0;
+
+  if (t <= tAccel) {
+    // 阶段 1: 非线性 S 型加速 (Smoothstep)
+    const x = t / tAccel;
+    currentDist = vPeak * tAccel * (x * x * x - 0.5 * x * x * x * x);
+    currentV = vPeak * (3 * x * x - 2 * x * x * x);
+  } else if (t <= tAccel + tCruise) {
+    // 阶段 2: 匀速巡航
+    const tC = t - tAccel;
+    const distAccel = 0.5 * vPeak * tAccel;
+    currentDist = distAccel + vPeak * tC;
+    currentV = vPeak;
+  } else {
+    // 阶段 3: 非线性 S 型减速 (Smoothstep 倒放)
+    const tD = t - tAccel - tCruise;
+    const x = tD / tDecel;
+    const distBeforeDecel = (0.5 * vPeak * tAccel) + (vPeak * tCruise);
+    
+    // 减速阶段的速度公式：v(t) = vPeak * (1 - (3x^2 - 2x^3))
+    currentV = vPeak * (1 - (3 * x * x - 2 * x * x * x));
+    // 积分得到位移增量：s(t) = vPeak * tDecel * (x - (x^3 - 0.5x^4))
+    const decelDist = vPeak * tDecel * (x - (x * x * x - 0.5 * x * x * x * x));
+    
+    currentDist = distBeforeDecel + decelDist;
+  }
+
+  return { progress: currentDist / D, isFinished: false, velocity: currentV, totalTime };
+}
+
 export default function UniverseViewer({
   currentTimestamp,
   strictPhysics,
@@ -591,6 +671,7 @@ export default function UniverseViewer({
   crossSectionActive,
   lang,
   showConstellLines = false,
+  showPlanetLabels = true,
   magLimit = 5.5,
   textureOffsets = {},
   cloudsVisible = true,
@@ -612,6 +693,31 @@ export default function UniverseViewer({
   const hipparcosCatalogRef = useRef<HipparcosStar[] | null>(null);
   const magLimitRef = useRef(magLimit);
   const textureOffsetsRef = useRef<Record<string, { u: number; v: number }>>(textureOffsets);
+  const transitionInfoRef = useRef<{
+    active: boolean;
+    phase: 'flight' | 'glide' | 'none';
+    targetPlanetId: string;
+    startPos: THREE.Vector3;
+    startTarget: THREE.Vector3;
+    midPos: THREE.Vector3;
+    farPos: THREE.Vector3;
+    finalPos: THREE.Vector3;
+    elapsedTime: number;
+    glideTime: number;
+    totalDistance: number;
+  }>({
+    active: false,
+    phase: 'none',
+    targetPlanetId: '',
+    startPos: new THREE.Vector3(),
+    startTarget: new THREE.Vector3(),
+    midPos: new THREE.Vector3(),
+    farPos: new THREE.Vector3(),
+    finalPos: new THREE.Vector3(),
+    elapsedTime: 0,
+    glideTime: 0,
+    totalDistance: 0
+  });
 
   const getSunRadius = (): number => {
     return ScaleEngine.getRadius('sun', strictPhysics);
@@ -675,6 +781,7 @@ export default function UniverseViewer({
 
   // 用于计算镜头光晕 (Lens Flare) 的屏幕投影坐标
   const [sunScreenPos, setSunScreenPos] = useState<{ x: number; y: number; visible: boolean; scale: number; opacity: number } | null>(null);
+  const [planetLabels, setPlanetLabels] = useState<Record<string, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }>>({});
   const [zoomLevelText, setZoomLevelText] = useState<string>('1.00 AU');
 
   // == 日地距离几何排列验证系统 (Sun-Earth Distance Validation Simulation System) ==
@@ -2852,6 +2959,96 @@ export default function UniverseViewer({
         opacity: flareOpacityRef.current
       });
 
+      // -------------------------------------------------------------
+      // 计算八大行星的名称标签屏幕投影位置
+      // -------------------------------------------------------------
+      const newPlanetLabels: Record<string, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }> = {};
+      const majorPlanets = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
+      
+      if (showPlanetLabels) {
+        majorPlanets.forEach(id => {
+          const group = planetMeshesRef.current[id];
+          if (group) {
+            const worldPos = new THREE.Vector3();
+            group.getWorldPosition(worldPos);
+            
+            const radius = ScaleEngine.getRadius(id, strictPhysicsRef.current);
+            const distToPlanet = cameraRef.current!.position.distanceTo(worldPos);
+            
+            // 物理世界球体正上方的边缘点坐标（用于遮挡检测的起点）
+            const topWorldPos = worldPos.clone();
+            topWorldPos.y += radius;
+            
+            const tempVec = new THREE.Vector3().subVectors(topWorldPos, cameraRef.current!.position);
+            const isBehindCam = tempVec.dot(camDirection) <= 0;
+            
+            // 执行真实的 3D 物理射线检测，判断标签是否被其他星体（例如前面的大星体或当前星球自身倾斜阻挡）遮挡
+            let isOccluded = false;
+            if (!isBehindCam) {
+              const raycaster = new THREE.Raycaster();
+              raycaster.set(cameraRef.current!.position, tempVec.clone().normalize());
+              
+              // 收集所有参与遮挡的实体
+              const occluders: THREE.Object3D[] = [];
+              Object.values(planetMeshesRef.current).forEach(g => {
+                if (g && g.visible) {
+                  g.traverse(node => {
+                    if (node instanceof THREE.Mesh && !node.name.includes('orbit') && !node.name.includes('ring')) {
+                      occluders.push(node);
+                    }
+                  });
+                }
+              });
+              if (sunMeshRef.current) {
+                sunMeshRef.current.traverse(node => {
+                  if (node instanceof THREE.Mesh) occluders.push(node);
+                });
+              }
+              
+              const intersects = raycaster.intersectObjects(occluders, false);
+              if (intersects.length > 0) {
+                // 允许一定的穿模误差，若交点距离显著小于标签位置，则认为被遮挡
+                if (intersects[0].distance < tempVec.length() - radius * 0.5) {
+                  isOccluded = true;
+                }
+              }
+            }
+            
+            // 在 3D 空间中稍微偏上一点 (物理世界 y 轴)
+            worldPos.y += radius * 1.1;
+            
+            // 投影到屏幕
+            const proj = worldPos.clone().project(cameraRef.current!);
+            
+            // 估算在屏幕上的半径偏移，保证文字始终不会被星球本体遮挡
+            // 利用相机的 fov 计算物理尺寸对应的屏幕像素大小
+            const fovRad = (cameraRef.current!.fov * Math.PI) / 180;
+            const screenRadius = (radius / (distToPlanet * Math.tan(fovRad / 2))) * (curHeight / 2);
+            
+            const px = (proj.x * 0.5 + 0.5) * curWidth;
+            const py = (-(proj.y * 0.5) + 0.5) * curHeight - screenRadius * 0.2; // 调整向上的偏移，离星体更近
+            
+            // 距离非常近时隐藏（例如相机距离小于 4.0 倍半径开始变淡，小于 2.0 倍完全消失）
+            let labelOpacity = 1.0;
+            if (distToPlanet < radius * 4.0) {
+              labelOpacity = Math.max(0, (distToPlanet - radius * 2.0) / (radius * 2.0));
+            }
+            
+            if (!isBehindCam && !isOccluded && proj.z <= 1 && labelOpacity > 0.01) {
+              newPlanetLabels[id] = {
+                x: px,
+                y: py,
+                visible: true,
+                opacity: labelOpacity,
+                nameZh: (translations['zh'] as any)[`${id}_name`] || id,
+                nameEn: (translations['en'] as any)[`${id}_name`] || id
+              };
+            }
+          }
+        });
+      }
+      setPlanetLabels(newPlanetLabels);
+
       // 星座连线在宇宙尺度下的动态淡出：星座是地球夜空的2D投影，在真实3D空间中呈放射状。
       // 飞出奥尔特云内缘（>1000 AU）即开始淡出，到 1200 AU 完全不可见。
       if (constellLinesRef.current) {
@@ -2942,24 +3139,13 @@ export default function UniverseViewer({
 
           // 选中星体改变时，重设 controls target 与相机视角位置以实现聚焦跟随
           if (selectedPlanetIdRef.current !== lastSelectedPlanetIdRef.current) {
-            controlsRef.current.target.copy(targetPos);
             const isSat = !!getParentPlanetId(selectedPlanetIdRef.current) && !['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','sun','moon'].includes(selectedPlanetIdRef.current.toLowerCase());
             let offset: number;
             if (strictPhysicsRef.current) {
-              // 物理1:1模式：相机距离基于轨道尺度，确保能看到太阳和轨道全貌
-              const orbitDistances: Record<string, number> = {
-                'mercury': 0.39, 'venus': 0.72, 'earth': 1.0, 'mars': 1.52,
-                'jupiter': 5.2, 'saturn': 9.58, 'uranus': 19.22, 'neptune': 30.05,
-                'moon': 0.00257
-              };
+              // 物理1:1模式：不追求看全轨道，而是近距离观察星体，只保留一定的视野缓冲
+              offset = radOfTarget * 3.5;
               if (selectedPlanetIdRef.current === 'sun') {
-                offset = 8; // 从太阳看，能看到地球轨道内侧
-              } else {
-                const orbitAU = orbitDistances[selectedPlanetIdRef.current] || 1.0;
-                const orbitScene = ScaleEngine.fromAU(orbitAU);
-                // 相机距离为轨道距离的25%~40%，确保能看到太阳和轨道
-                const orbitFactor = isSat ? 0.15 : (selectedPlanetIdRef.current === 'jupiter' || selectedPlanetIdRef.current === 'saturn' ? 0.2 : 0.35);
-                offset = Math.max(orbitScene * orbitFactor, radOfTarget * 4.2);
+                offset = radOfTarget * 4.0;
               }
             } else {
               // 可观测模式：星体恰好撑满屏幕（FOV=50°, d = r / tan(25°) ≈ 2.15r）
@@ -2967,8 +3153,156 @@ export default function UniverseViewer({
               offset = radOfTarget * fillFactor;
             }
 
-            cameraRef.current.position.set(targetPos.x, targetPos.y, targetPos.z + offset);
-            lastSelectedPlanetIdRef.current = selectedPlanetIdRef.current;
+            // 平滑动画过渡效果 (Lerp) 替代硬切
+            // 先不直接设置相机位置，而是存储目标位置到 lastSelectedPlanetIdRef 中供追踪插值使用
+            
+            // 为了让相机总是“正对”星球（而不是背对或侧面飞过去），我们以太阳为中心，
+            // 确保相机的目标点在星球和太阳连线的延长线上（背向太阳），这样飞过去的时候总是能看到被太阳照亮的正面。
+            // 除非选中的是太阳本身，那就随便保持一个相对位置即可
+            let idealCameraPos: THREE.Vector3;
+            if (selectedPlanetIdRef.current === 'sun') {
+              idealCameraPos = new THREE.Vector3(targetPos.x, targetPos.y, targetPos.z + offset);
+            } else {
+              // 从太阳指向星球的方向向量
+              const sunToPlanetDir = targetPos.clone().normalize();
+              // 如果是在原点，或者发生奇异现象，给一个默认向外的向量
+              if (sunToPlanetDir.lengthSq() < 0.0001) {
+                sunToPlanetDir.set(0, 0, 1);
+              }
+              // 相机的位置应该是：星球位置 - (方向向量 * 偏移距离)
+              // 这样相机停在星球和太阳之间，看向星球时看到的就是被太阳完全照亮的亮面
+              idealCameraPos = targetPos.clone().sub(sunToPlanetDir.multiplyScalar(offset));
+            }
+            
+            // 为了防止初始状态相机突变，如果之前没有选中过任何东西，可以直接切过去
+            if (lastSelectedPlanetIdRef.current === '') {
+              cameraRef.current.position.copy(idealCameraPos);
+              controlsRef.current.target.copy(targetPos);
+              lastSelectedPlanetIdRef.current = selectedPlanetIdRef.current;
+              transitionInfoRef.current.active = false;
+              transitionInfoRef.current.phase = 'none';
+            } else {
+              // ==========================================
+              // 镜头运动曲线优化：二阶段式电影级运镜
+              // 阶段 1 (Flight): 高速跃迁到远端泊车点 (动态计算，避免倒车现象)
+              // 阶段 2 (Glide): 极其平缓的最后靠泊滑行 (向前推进4次滚轮距离)
+              // ==========================================
+              const trans = transitionInfoRef.current;
+              
+              // 只有当刚开始切换新的星球时，重新计算起点和控制点
+              if (!trans.active || trans.targetPlanetId !== selectedPlanetIdRef.current) {
+                trans.active = true;
+                trans.phase = 'flight';
+                trans.targetPlanetId = selectedPlanetIdRef.current;
+                trans.elapsedTime = 0;
+                trans.glideTime = 0;
+                trans.startPos.copy(cameraRef.current.position);
+                trans.startTarget.copy(controlsRef.current.target);
+                
+                // 动态计算远端泊车点 farPos
+                // 1. 根据你的要求，将停止位置距离终点再近一半（原来是4倍offset，现在改为2倍）
+                // 2. 为了保证不会发生“倒车”，滑行距离绝对不能超过总路程的 40%
+                const totalJourney = trans.startPos.distanceTo(idealCameraPos);
+                const maxGlide = totalJourney * 0.4;
+                const glideDist = Math.min(offset * 2.0, maxGlide);
+                
+                // 3. farPos 就放在从 idealCameraPos 指向 startPos 的直线上，这样保证是顺着来路停下，永远不会倒车
+                const backDir = new THREE.Vector3().subVectors(trans.startPos, idealCameraPos).normalize();
+                if (backDir.lengthSq() < 0.0001) backDir.set(0, 0, 1);
+                
+                trans.farPos.copy(idealCameraPos).add(backDir.multiplyScalar(glideDist));
+                trans.finalPos.copy(idealCameraPos);
+                trans.totalDistance = trans.startPos.distanceTo(trans.farPos);
+                
+                // 计算相机中间控制点 (midPos)
+                // 获取当前相机朝向
+                const camDir = new THREE.Vector3().subVectors(trans.startTarget, trans.startPos).normalize();
+                if (camDir.lengthSq() < 0.001) camDir.set(0, 0, -1);
+                
+                // 获取相机右侧向量
+                const up = new THREE.Vector3(0, 1, 0);
+                const right = new THREE.Vector3().crossVectors(camDir, up).normalize();
+                if (right.lengthSq() < 0.001) right.set(1, 0, 0);
+                
+                // 判断目标星体在当前视野的左侧还是右侧
+                const toTarget = new THREE.Vector3().subVectors(targetPos, trans.startPos);
+                const dotRight = toTarget.dot(right);
+                const sideDir = dotRight > 0 ? right : right.negate();
+                
+                // 控制点偏移量：基于距离的一个系数
+                const distToFar = trans.startPos.distanceTo(trans.farPos);
+                
+                // 中间点：向相机当前朝向的前方移动，并向目标所在的侧面大幅度平移
+                // 这样相机在前半程就会像直升机摇臂一样滑向侧面，从而让目标自然地落入画面中心
+                trans.midPos.copy(trans.startPos)
+                  .add(camDir.multiplyScalar(distToFar * 0.15))
+                  .add(sideDir.multiplyScalar(distToFar * 0.4));
+              }
+              
+              // 使用真实的 delta 时间推进，防止帧率波动影响总时长
+              // 限制最大 delta 防止切后台导致时间暴走
+              const safeDelta = Math.min(delta, 0.1);
+              
+              if (trans.phase === 'flight') {
+                trans.elapsedTime += safeDelta;
+                const { progress, isFinished, totalTime } = calculateKinematicProgress(trans.elapsedTime, trans.totalDistance);
+                
+                // 需求：第一段运动，末端不要变成0再切换，而是提前 0.2 秒切换到第二段运动
+                // 这样两段运动的衔接会有速度的平滑继承，避免完全静止带来的顿挫感。
+                if (isFinished || (totalTime > 0 && trans.elapsedTime >= totalTime - 0.2)) {
+                  trans.phase = 'glide';
+                  // 提前切换时，不强制将相机位置设为远端点，而是保留当前的物理位置，无缝转入 glide 阶段的插值
+                  // cameraRef.current.position.copy(trans.farPos); 
+                  controlsRef.current.target.copy(targetPos);
+                } else {
+                  const easeT = progress;
+                  
+                  // 1. 视口目标 (Target) 过渡
+                  // 让视点在前半段锁定目标星体（出现在画面正中间）
+                  const targetEaseT = Math.min(1.0, easeT * 1.8);
+                  const currentTarget = new THREE.Vector3();
+                  currentTarget.lerpVectors(trans.startTarget, targetPos, targetEaseT);
+                  controlsRef.current.target.copy(currentTarget);
+                  
+                  // 2. 相机物理位置 (Position) 沿贝塞尔曲线过渡到 farPos
+                  const u = 1 - easeT;
+                  const currentPos = new THREE.Vector3();
+                  currentPos.addScaledVector(trans.startPos, u * u);
+                  currentPos.addScaledVector(trans.midPos, 2 * u * easeT);
+                  currentPos.addScaledVector(trans.farPos, easeT * easeT);
+                  
+                  cameraRef.current.position.copy(currentPos);
+                }
+              } else if (trans.phase === 'glide') {
+                // 阶段 2：极其平缓的最后靠泊滑行
+                trans.glideTime += safeDelta;
+                const GLIDE_DURATION = 2.0; // 距离进一步缩短到 2x offset，滑行时间缩减到 2.0 秒
+                
+                if (trans.glideTime >= GLIDE_DURATION) {
+                  trans.active = false;
+                  trans.phase = 'none';
+                  lastSelectedPlanetIdRef.current = selectedPlanetIdRef.current;
+                  cameraRef.current.position.copy(trans.finalPos);
+                  controlsRef.current.target.copy(targetPos);
+                } else {
+                  const t = trans.glideTime / GLIDE_DURATION;
+                  // 由于我们是在第一阶段末端提前 0.2s 带着微小速度切入的，
+                  // 这里改为使用 easeOutQuad 缓出曲线，不再需要缓慢起步，直接开始平滑减速即可。
+                  const easeT = 1 - (1 - t) * (1 - t);
+                  
+                  const currentPos = new THREE.Vector3();
+                  // 注意：现在的起点是相机在提前 0.2s 切入时的真实位置，而不是死板的 farPos
+                  // 这保证了位置和速度在两个阶段交界处的绝对连续性！
+                  currentPos.lerpVectors(cameraRef.current.position, trans.finalPos, easeT * 0.08); // 使用低权重增量插值
+                  cameraRef.current.position.copy(currentPos);
+                  
+                  // 确保视口在这漫长的 2.5 秒内死死锁定在星体中心
+                  controlsRef.current.target.copy(targetPos);
+                }
+              }
+            }
+            
+            // 更新 tracking 目标点，供后续公转过程中的相对位移计算使用
             lastTargetPosRef.current.copy(targetPos);
           } else {
             // 在公转过程中平滑自适应追踪：利用增量(deltaMove)整体移动相机，防范星体高速公转时由于相机静止而直接飞出特写视口
@@ -3320,6 +3654,39 @@ export default function UniverseViewer({
           </div>
         </div>
       )}
+
+      {/* 3. 八大行星名称标签 (Planet Name Labels) */}
+      <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
+        {Object.entries(planetLabels).map(([id, label]) => {
+          if (!label.visible) return null;
+          return (
+            <div
+              key={id}
+              className="absolute pointer-events-auto cursor-pointer"
+              style={{
+                left: `${label.x}px`,
+                top: `${label.y}px`,
+                transform: 'translate(-50%, -100%)',
+                opacity: label.opacity,
+                transition: 'opacity 0.1s ease-out'
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectPlanet(id);
+              }}
+            >
+              <div className="flex flex-col items-center group">
+                <span className="text-[10px] font-medium text-cyan-400/60 tracking-widest drop-shadow-[0_0_2px_rgba(0,0,0,0.8)] group-hover:text-cyan-300/90 transition-colors">
+                  {lang === 'zh' ? label.nameZh : label.nameEn}
+                </span>
+                <span className="text-[8px] font-mono text-cyan-500/50 drop-shadow-[0_0_2px_rgba(0,0,0,0.8)] opacity-0 group-hover:opacity-100 transition-opacity">
+                  {lang === 'zh' ? label.nameEn : label.nameZh}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       {/* 底部缩放尺读数 */}
       <div

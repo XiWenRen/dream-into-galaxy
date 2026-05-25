@@ -195,7 +195,7 @@ export default function CommandPanel({
   selectedPlanetId,
   onSelectPlanet,
   onFocusPlanet,
-  showPlanetLabels,
+  showPlanetLabels = true,
   onTogglePlanetLabels,
   onJumpDate,
   helioX,
@@ -422,7 +422,7 @@ export default function CommandPanel({
               className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
             />
             <IconEye className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '天体名称提示' : 'Celestial Name Hints'}</span>
+            <span>{isZh ? '行星名称标签' : 'Planet Name Labels'}</span>
           </label>
 
           {!useExponentialSpeed && (

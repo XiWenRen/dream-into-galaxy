@@ -82,3 +82,11 @@ export interface SatelliteSkyInfo {
   magnitude: number;
   color: number;
 }
+
+export interface RingData {
+  innerRadiusRatio: number;
+  outerRadiusRatio: number;
+  texturePath?: string;
+  color?: number;
+  opacity: number;
+}
