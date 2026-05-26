@@ -1843,7 +1843,7 @@ export default function UniverseViewer({
 
     // 太阳内球体
     const sunTex = getPlanetTexture('sun');
-    const sunGeo = new THREE.SphereGeometry(sunRadius, 32, 16);
+    const sunGeo = new THREE.SphereGeometry(sunRadius, 64, 32);
     const sunMat = new THREE.MeshBasicMaterial({ map: sunTex });
     const sunInnerMesh = new THREE.Mesh(sunGeo, sunMat);
     sunInnerMesh.name = 'sun-inner-mesh';
@@ -1853,31 +1853,6 @@ export default function UniverseViewer({
     const sunAxes = new THREE.AxesHelper(sunRadius * 2.2);
     sunAxes.name = 'axes-helper';
     sunInnerMesh.add(sunAxes);
-
-    // 太阳日冕发光环外层 (Corona Core)
-    // A. 太阳日冕发光环内层 (Corona Core - Bright Gold)
-    const coronaGeo = new THREE.SphereGeometry(sunRadius * 1.08, 32, 16);
-    const coronaMat = new THREE.MeshBasicMaterial({
-      color: 0xffe066,
-      transparent: true,
-      opacity: 0.45,
-      side: THREE.BackSide,
-      blending: THREE.AdditiveBlending
-    });
-    const coronaMesh = new THREE.Mesh(coronaGeo, coronaMat);
-    sunGroup.add(coronaMesh);
-
-    // B. 太阳热流散射包络外层 (Corona Outer - Intense Red/Orange)
-    const coronaOuterGeo = new THREE.SphereGeometry(sunRadius * 1.25, 32, 16);
-    const coronaOuterMat = new THREE.MeshBasicMaterial({
-      color: 0xff4d00,
-      transparent: true,
-      opacity: 0.22,
-      side: THREE.BackSide,
-      blending: THREE.AdditiveBlending
-    });
-    const coronaOuterMesh = new THREE.Mesh(coronaOuterGeo, coronaOuterMat);
-    sunGroup.add(coronaOuterMesh);
 
     // C. 3D 太阳全向辐射偏振光晕精灵 (3D Camera-Facing Radiant Solar Glare)
     const solarGlowSpriteMat = new THREE.SpriteMaterial({

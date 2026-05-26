@@ -237,52 +237,6 @@ export function buildSunGroup(
   sunGroup.add(sunInnerMesh);
   sunGroup.userData.sunInnerMesh = sunInnerMesh;
 
-  // b. Corona inner mesh (bright gold)
-  const coronaInnerGeo = new THREE.SphereGeometry(radius * 1.08, 32, 16);
-  const coronaInnerMat = new THREE.MeshBasicMaterial({
-    color: 0xffe066,
-    transparent: true,
-    opacity: 0.5,
-    side: THREE.BackSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const coronaInnerMesh = new THREE.Mesh(coronaInnerGeo, coronaInnerMat);
-  coronaInnerMesh.name = 'sun-corona-inner';
-  sunGroup.add(coronaInnerMesh);
-  sunGroup.userData.coronaInnerMesh = coronaInnerMesh;
-
-  // c. Corona outer mesh (orange)
-  const coronaOuterGeo = new THREE.SphereGeometry(radius * 1.3, 32, 16);
-  const coronaOuterMat = new THREE.MeshBasicMaterial({
-    color: 0xff6600,
-    transparent: true,
-    opacity: 0.25,
-    side: THREE.BackSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const coronaOuterMesh = new THREE.Mesh(coronaOuterGeo, coronaOuterMat);
-  coronaOuterMesh.name = 'sun-corona-outer';
-  sunGroup.add(coronaOuterMesh);
-  sunGroup.userData.coronaOuterMesh = coronaOuterMesh;
-
-  // d. Corona rim mesh (wispy procedural corona texture)
-  const coronaRimGeo = new THREE.SphereGeometry(radius * 1.6, 32, 16);
-  const coronaRimMat = new THREE.MeshBasicMaterial({
-    map: createSunCoronaTexture(),
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.18,
-    side: THREE.BackSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const coronaRimMesh = new THREE.Mesh(coronaRimGeo, coronaRimMat);
-  coronaRimMesh.name = 'sun-corona-rim';
-  sunGroup.add(coronaRimMesh);
-  sunGroup.userData.coronaRimMesh = coronaRimMesh;
-
   // e. Glow sprite (always faces camera, soft photosphere glow)
   const glowMat = new THREE.SpriteMaterial({
     map: createSunGlowTexture(),
