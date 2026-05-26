@@ -10,6 +10,7 @@ import { OrbitEngine, CELESTIAL_PHYSICS, PLANET_ORBITAL_DATA } from '../engine/O
 import { createAdvancedRingMaterial } from '../engine/PlanetMaterials';
 import { ScaleEngine } from '../engine/ScaleEngine';
 import { TimeEngine } from '../engine/TimeEngine';
+import { TeachingModeEngine } from '../engine/TeachingModeEngine';
 import { translations } from '../i18n';
 import { STAR_LIST, CONSTELLATIONS } from '../engine/StarDatabase';
 import { EXTRA_STARS, EXTRA_CONSTELLATIONS } from '../engine/ExtraStarsDatabase';
@@ -124,6 +125,7 @@ function createHipparcosPoints(data: ReturnType<typeof buildHipparcosEclipticFie
 }
 
 interface UniverseViewerProps {
+  startEntryAnimation?: boolean;
   currentTimestamp: number;
   strictPhysics: boolean;
   setStrictPhysics?: (val: boolean) => void;
@@ -663,6 +665,7 @@ function calculateKinematicProgress(t: number, D: number): { progress: number, i
 }
 
 export default function UniverseViewer({
+  startEntryAnimation = false,
   currentTimestamp,
   strictPhysics,
   setStrictPhysics,
@@ -727,6 +730,14 @@ export default function UniverseViewer({
     return ScaleEngine.getRadius(id, strictPhysics);
   };
 
+  const getCurrentPlanetRadius = (id: string): number => {
+    const rawProgress = teachingModeProgressRef.current;
+    const smoothTeachingProgress = THREE.MathUtils.smoothstep(rawProgress, 0, 1);
+    const realRad = id === 'sun' ? getSunRadius() : getPlanetRadius(id);
+    const teachingRad = TeachingModeEngine.getRadius(id);
+    return THREE.MathUtils.lerp(realRad, teachingRad, smoothTeachingProgress);
+  };
+
   // 地月轨道显示数值动态计算（统一比例管道，确保UI显示与3D渲染完全一致）
   const getLunarDisplayValues = () => {
     const moonOrbitAU = 0.00257;
@@ -752,8 +763,9 @@ export default function UniverseViewer({
   const crossSectionActiveRef = useRef(crossSectionActive);
   const cloudsVisibleRef = useRef(cloudsVisible);
 
-  const lastSelectedPlanetIdRef = useRef<string>('');
+  const lastSelectedPlanetIdRef = useRef<string>(selectedPlanetId);
   const lastTargetPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
+  const lastRadOfTargetRef = useRef<number>(1.0);
 
   useEffect(() => {
     currentTimestampRef.current = currentTimestamp;
@@ -777,6 +789,28 @@ export default function UniverseViewer({
     }
   }, [showConstellLines]);
   
+  // 教学模式状态与进度控制
+  const [teachingMode, setTeachingMode] = useState<boolean>(true);
+  const teachingModeRef = useRef<boolean>(true);
+  const teachingModeProgressRef = useRef<number>(1);
+
+  // 初始入场动画控制
+  const isEnteringRef = useRef<boolean>(false);
+  const entryProgressRef = useRef<number>(0);
+  const startEntryRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    teachingModeRef.current = teachingMode;
+  }, [teachingMode]);
+
+  useEffect(() => {
+    if (startEntryAnimation && !startEntryRef.current) {
+      startEntryRef.current = true;
+      isEnteringRef.current = true;
+      entryProgressRef.current = 0;
+    }
+  }, [startEntryAnimation]);
+
   const flareOpacityRef = useRef(1.0);  // 镜头光晕平滑淡入淡出插值机点
 
   // 用于计算镜头光晕 (Lens Flare) 的屏幕投影坐标
@@ -2369,6 +2403,75 @@ export default function UniverseViewer({
 
       const delta = clock.getDelta();
 
+      // --- 初始入场连续动画 (包含极速跃迁与平滑升格俯瞰，共 6.5 秒) ---
+      if (startEntryRef.current && isEnteringRef.current) {
+        entryProgressRef.current += delta / 6.5; // 动画总长调整为 6.5 秒，节奏更紧凑
+        if (entryProgressRef.current >= 1.0) {
+          entryProgressRef.current = 1.0;
+          isEnteringRef.current = false;
+        }
+        
+        const p = entryProgressRef.current;
+        
+        // Z 轴 (距离太阳的平面距离)：全局连续，一气呵成。5次方缓出，前段光速，后段滑行
+        const tZ = 1.0 - Math.pow(1.0 - p, 5);
+        const startZ = 1939000; // 1.44 ly
+        
+        // 4.44 AU = 97.68 场景单位
+        // 为了获得高空俯视角度 (约65度仰角) 同时保持绝对距离为 4.44 AU:
+        // y = 97.68 * sin(65°) ≈ 88.5
+        // z = 97.68 * cos(65°) ≈ 41.2
+        // sqrt(88.5^2 + 41.2^2) ≈ 97.62 ≈ 4.44 AU
+        const endZ = 41.2; 
+        const currentZ = THREE.MathUtils.lerp(startZ, endZ, tZ);
+
+        // Y 轴 (高度)：分离控制，下坠与升格无缝衔接
+        let currentY;
+        const startY = 500000;
+        const midY = -15; // 潜入黄道面下方一点点，产生仰视压迫感
+        const endY = 88.5; // 升格最终俯视高度
+        const splitP = 0.55; // 提前到 55% 进度时到达最低点，提早开始升格动作
+
+        if (p < splitP) {
+          const pY = p / splitP;
+          // Cosine 缓动：平滑起步，平滑到达谷底，垂直速度在谷底变为0
+          // 但此时 Z 轴还在高速前进，形成完美的圆弧形“拉平”动作！
+          const ease = (1.0 - Math.cos(pY * Math.PI)) / 2.0; 
+          currentY = THREE.MathUtils.lerp(startY, midY, ease);
+        } else {
+          const pY = (p - splitP) / (1.0 - splitP);
+          const ease = (1.0 - Math.cos(pY * Math.PI)) / 2.0;
+          currentY = THREE.MathUtils.lerp(midY, endY, ease);
+        }
+
+        cameraRef.current.position.set(0, currentY, currentZ);
+        controlsRef.current.target.set(0, 0, 0);
+        
+        // 在入场期间更新控制器并跳过正常的跟随逻辑，防止冲突
+        controlsRef.current.update();
+        
+        // 同步更新 tracking target，防止入场结束后触发防穿模逻辑导致镜头突然倒退
+        lastTargetPosRef.current.set(0, 0, 0);
+        lastRadOfTargetRef.current = getCurrentPlanetRadius(selectedPlanetIdRef.current || 'sun');
+      } else if (!startEntryRef.current) {
+        // 如果还没开始入场，就停在起点 (1.44 ly)
+        cameraRef.current.position.set(0, 500000, 1939000);
+        controlsRef.current.target.set(0, 0, 0);
+        controlsRef.current.update();
+      }
+
+      // 更新教学模式进度 (平滑过渡)
+      const targetTeachingModeProgress = teachingModeRef.current ? 1.0 : 0.0;
+      const progressDiff = targetTeachingModeProgress - teachingModeProgressRef.current;
+      if (progressDiff !== 0) {
+        const transitionSpeed = 1.0; // 1秒完成切换
+        teachingModeProgressRef.current += Math.sign(progressDiff) * transitionSpeed * delta;
+        if (progressDiff > 0 && teachingModeProgressRef.current > 1) teachingModeProgressRef.current = 1;
+        if (progressDiff < 0 && teachingModeProgressRef.current < 0) teachingModeProgressRef.current = 0;
+      }
+      const rawProgress = teachingModeProgressRef.current;
+      const smoothTeachingProgress = THREE.MathUtils.smoothstep(rawProgress, 0, 1);
+
       const daysSinceJ2000 = TimeEngine.getDaysSinceJ2000(currentTimestampRef.current);
 
       // 太阳自转更新：带 7.25° 黄赤倾角自旋转
@@ -2380,6 +2483,13 @@ export default function UniverseViewer({
         }
         const sunObliquityRad = (7.25 * Math.PI) / 180;
         sunMeshRef.current.rotation.z = sunObliquityRad;
+
+        // 太阳教学模式缩放
+        const realSunRadius = getSunRadius();
+        const teachingSunRadius = TeachingModeEngine.getRadius('sun');
+        const currentSunRadius = THREE.MathUtils.lerp(realSunRadius, teachingSunRadius, smoothTeachingProgress);
+        const sunScale = currentSunRadius / realSunRadius;
+        sunMeshRef.current.scale.set(sunScale, sunScale, sunScale);
       }
 
       // 行星公转与自转更新
@@ -2389,6 +2499,9 @@ export default function UniverseViewer({
 
         // 获取3D轨道物理世界坐标，统一通过 ORBIT_SCALE 转换为场景单位
         let finalPos: THREE.Vector3;
+        let originalMoonOrbitRadius = 1;
+        let currentMoonOrbitRadius = 1;
+
         if (config.id === 'moon') {
           const earthPosRaw = OrbitEngine.getHeliocentricPosition('earth', daysSinceJ2000);
           const moonRelPosRaw = OrbitEngine.getLunarRelativePosition(daysSinceJ2000);
@@ -2404,13 +2517,52 @@ export default function UniverseViewer({
             const scaleFactor = earthObsRad / earthStrictRad;
             moonRelPos.multiplyScalar(scaleFactor);
           }
+          
+          originalMoonOrbitRadius = moonRelPos.length();
+          
+          // 教学模式混合：先求出地球混合后的位置
+          const earthTeachingPos = TeachingModeEngine.getHeliocentricPosition('earth', earthPos);
+          const currentEarthPos = new THREE.Vector3().lerpVectors(earthPos, earthTeachingPos, smoothTeachingProgress);
+          
+          // 求出月球相对地球的混合位置
+          const moonTeachingRelPos = TeachingModeEngine.getRelativePosition('moon', moonRelPos, 'earth');
+          const currentMoonRelPos = new THREE.Vector3().lerpVectors(moonRelPos, moonTeachingRelPos, smoothTeachingProgress);
+          currentMoonOrbitRadius = currentMoonRelPos.length();
 
-          finalPos = earthPos.clone().add(moonRelPos);
+          finalPos = currentEarthPos.add(currentMoonRelPos);
         } else {
           const rawPos = OrbitEngine.getHeliocentricPosition(config.id, daysSinceJ2000);
-          finalPos = toThreePos(rawPos, ORBIT_SCALE);
+          const realPos = toThreePos(rawPos, ORBIT_SCALE);
+          const teachingPos = TeachingModeEngine.getHeliocentricPosition(config.id, realPos);
+          finalPos = new THREE.Vector3().lerpVectors(realPos, teachingPos, smoothTeachingProgress);
         }
         group.position.copy(finalPos);
+
+        // 星体自身组缩放 (含子星和星环)
+        const realRadius = config.radius;
+        const teachingRadius = TeachingModeEngine.getRadius(config.id);
+        const currentRadius = THREE.MathUtils.lerp(realRadius, teachingRadius, smoothTeachingProgress);
+        const scale = currentRadius / realRadius;
+        group.scale.set(scale, scale, scale);
+
+        // 如果该星体有主轨线，也要一起缩放以匹配教学模式下的圆形距离
+        const orbitLine = orbitLinesRef.current[config.id];
+        if (orbitLine) {
+          if (config.id === 'moon') {
+            // 月球轨线在 earthGroup 内部，所以受到 earthScale 的影响
+            // 真实世界的缩放比:
+            const earthRealRadius = getPlanetRadius('earth');
+            const earthTeachingRadius = TeachingModeEngine.getRadius('earth');
+            const earthScale = THREE.MathUtils.lerp(earthRealRadius, earthTeachingRadius, smoothTeachingProgress) / earthRealRadius;
+            
+            const targetWorldScale = currentMoonOrbitRadius / originalMoonOrbitRadius;
+            const localScale = targetWorldScale / earthScale;
+            orbitLine.scale.set(localScale, localScale, localScale);
+          } else {
+            const orbitScale = THREE.MathUtils.lerp(1.0, TeachingModeEngine.getOrbitScaleFactor(config.id), smoothTeachingProgress);
+            orbitLine.scale.set(orbitScale, orbitScale, orbitScale);
+          }
+        }
 
         // 获取太阳的世界坐标
         const sunWorldPos = new THREE.Vector3();
@@ -3099,7 +3251,7 @@ export default function UniverseViewer({
       }
 
       // 10. 丝滑聚焦/跟随选中星体 & 动态近剪切面比例尺缩放
-      if (selectedPlanetIdRef.current) {
+      if (!isEnteringRef.current && startEntryRef.current && selectedPlanetIdRef.current) {
         let targetGroup: THREE.Object3D | null = null;
         
         // 查找卫星：在所有的行星组中寻找具有对应 nameEn 的卫星
@@ -3123,12 +3275,8 @@ export default function UniverseViewer({
           targetGroup.getWorldPosition(targetPos);
 
           // 动态调节 Near 和 MinDistance，防止观察 1:1 精确模式下的微小行星（如 Earth 的 0.00093 半径）时因 Near Plane 穿透而看不到
-          let radOfTarget = 0.5;
-          if (selectedPlanetIdRef.current === 'sun') {
-            radOfTarget = getSunRadius();
-          } else {
-            radOfTarget = getPlanetRadius(selectedPlanetIdRef.current);
-          }
+          let radOfTarget = getCurrentPlanetRadius(selectedPlanetIdRef.current);
+          
           const idealNear = Math.max(0.000001, radOfTarget * 0.02);
           if (cameraRef.current.near !== idealNear) {
             cameraRef.current.near = idealNear;
@@ -3304,15 +3452,26 @@ export default function UniverseViewer({
             
             // 更新 tracking 目标点，供后续公转过程中的相对位移计算使用
             lastTargetPosRef.current.copy(targetPos);
+            lastRadOfTargetRef.current = radOfTarget;
           } else {
             // 在公转过程中平滑自适应追踪：利用增量(deltaMove)整体移动相机，防范星体高速公转时由于相机静止而直接飞出特写视口
             const deltaMove = new THREE.Vector3().subVectors(targetPos, lastTargetPosRef.current);
             cameraRef.current.position.add(deltaMove);
+            
+            // 响应教学模式带来的星体体积变化：自适应推拉相机距离以防穿模
+            if (lastRadOfTargetRef.current > 0 && Math.abs(radOfTarget - lastRadOfTargetRef.current) > 0.000001) {
+              const relPos = new THREE.Vector3().subVectors(cameraRef.current.position, targetPos);
+              const scaleRatio = radOfTarget / lastRadOfTargetRef.current;
+              relPos.multiplyScalar(scaleRatio);
+              cameraRef.current.position.copy(targetPos).add(relPos);
+            }
+
             controlsRef.current.target.copy(targetPos);
             lastTargetPosRef.current.copy(targetPos);
+            lastRadOfTargetRef.current = radOfTarget;
           }
         }
-      } else {
+      } else if (!isEnteringRef.current && startEntryRef.current) {
         // 无选中时，相机聚焦到原点太阳
         controlsRef.current.target.set(0, 0, 0);
         lastSelectedPlanetIdRef.current = '';
@@ -3688,17 +3847,39 @@ export default function UniverseViewer({
         })}
       </div>
 
-      {/* 底部缩放尺读数 */}
-      <div
-        className="absolute bottom-5 left-6 pointer-events-none bg-slate-950/80 border border-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-lg flex items-center space-x-2 text-[10px] font-mono select-none"
-        id="universe-zoom-metric"
-      >
-        <span className="text-slate-400 font-sans">{translations[lang].zoomLevel}:</span>
-        <span className="text-cyan-400 font-semibold">{zoomLevelText}</span>
-        <span className="text-slate-600">|</span>
-        <span className="text-slate-400 font-sans">
-          {selectedPlanetId ? translations[lang][`${selectedPlanetId}_name` as keyof typeof translations['zh']] : translations[lang].allPlanets}
-        </span>
+      {/* 底部缩放尺与教学模式开关 */}
+      <div className="absolute bottom-5 left-6 flex items-center space-x-3 z-30">
+        {/* 教学模式开关 */}
+        <div
+          className="pointer-events-auto bg-slate-950/80 border border-slate-800/80 backdrop-blur-md px-2 py-1.5 rounded-lg flex items-center space-x-2 text-[10px] font-mono select-none cursor-pointer hover:border-cyan-500/50 transition-colors"
+          onClick={() => setTeachingMode(!teachingMode)}
+          title={lang === 'zh' ? '切换教学观测模式' : 'Toggle Teaching Mode'}
+        >
+          <span className={`transition-colors ${teachingMode ? 'text-cyan-400 font-bold' : 'text-slate-500'}`}>
+            {lang === 'zh' ? '教学' : 'TEACH'}
+          </span>
+          
+          <div className={`relative w-8 h-4 rounded-full transition-colors ${teachingMode ? 'bg-cyan-500/40' : 'bg-slate-700/50'}`}>
+            <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full transition-transform duration-300 ${teachingMode ? 'translate-x-4 bg-cyan-400 shadow-[0_0_5px_#22d3ee]' : 'translate-x-0 bg-slate-400'}`} />
+          </div>
+
+          <span className={`transition-colors ${!teachingMode ? 'text-cyan-400 font-bold' : 'text-slate-500'}`}>
+            {lang === 'zh' ? '真实' : 'REAL'}
+          </span>
+        </div>
+
+        {/* 底部缩放尺读数 */}
+        <div
+          className="pointer-events-none bg-slate-950/80 border border-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-lg flex items-center space-x-2 text-[10px] font-mono select-none"
+          id="universe-zoom-metric"
+        >
+          <span className="text-slate-400 font-sans">{translations[lang].zoomLevel}:</span>
+          <span className="text-cyan-400 font-semibold">{zoomLevelText}</span>
+          <span className="text-slate-600">|</span>
+          <span className="text-slate-400 font-sans">
+            {selectedPlanetId ? translations[lang][`${selectedPlanetId}_name` as keyof typeof translations['zh']] : translations[lang].allPlanets}
+          </span>
+        </div>
       </div>
     </div>
   );

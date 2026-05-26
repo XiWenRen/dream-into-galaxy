@@ -21,8 +21,9 @@ const LANDABLE_PLANETS = ['earth', 'mercury', 'venus', 'mars', 'moon', 'jupiter'
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
+  const [isInitialEntry, setIsInitialEntry] = useState(true);
   const [lang, setLang] = useState<'zh' | 'en'>('zh');
-  const [selectedPlanetId, setSelectedPlanetId] = useState<string>('earth');
+  const [selectedPlanetId, setSelectedPlanetId] = useState<string>('sun');
   const [crossSectionActive, setCrossSectionActive] = useState<boolean>(false);
   const [cloudsVisible, setCloudsVisible] = useState<boolean>(true);
   const [showPlanetInfo, setShowPlanetInfo] = useState<boolean>(true);
@@ -176,7 +177,10 @@ export default function App() {
       {isLoading && (
         <LoadingScreen
           lang={lang}
-          onLoadComplete={() => setIsLoading(false)}
+          onLoadComplete={() => {
+            setIsLoading(false);
+            setIsInitialEntry(false);
+          }}
         />
       )}
 
@@ -289,6 +293,7 @@ export default function App() {
             </>
           ) : (
             <UniverseViewer
+              startEntryAnimation={!isInitialEntry}
               currentTimestamp={timeState.currentTimestamp}
               selectedPlanetId={selectedPlanetId}
               onSelectPlanet={handleSelectPlanet}
