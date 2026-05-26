@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { translations } from '../i18n';
 import { PLANET_ORBITAL_DATA, CELESTIAL_PHYSICS } from '../engine/OrbitEngine';
 import { SATELLITE_DATA } from './UniverseViewer';
+import { CELESTIAL_PROFILES, CelestialProfile, StatCard, FlipCard, ComparisonCard, FunFact, ImagineCard } from '../data/celestialProfiles';
 
 interface PlanetInfoPanelProps {
   planetId: string;
@@ -45,7 +46,7 @@ const SATELLITE_PHYSICS_DB: Record<string, SatellitePhysics> = {
   titania: { radius: 788.4, distance: 435910, period: 8.706, obliquity: 0.05 },
   oberon: { radius: 761.4, distance: 583520, period: 13.463, obliquity: 0.1 },
   ariel: { radius: 578.9, distance: 191020, period: 2.520, obliquity: 0.04 },
-  triton: { radius: 1353.4, distance: 354760, period: -5.877, obliquity: 0.0 }, // negative for retrograde
+  triton: { radius: 1353.4, distance: 354760, period: -5.877, obliquity: 0.0 },
   proteus: { radius: 210.0, distance: 117640, period: 1.122, obliquity: 0.0 }
 };
 
@@ -60,7 +61,7 @@ function getSatelliteDescriptionZh(id: string): string {
     case 'callisto': return '木卫四（Callisto）是太阳系中遭到陨石撞击最密集的星体之一，表面极为古老且地质活跃度极低，几乎完整保留了数十亿年前的原始风貌。';
     case 'titan': return '土卫六（Titan）是太阳系中唯一拥有浓厚大气层和液态地表的卫星。其表面有液态甲烷和乙烷组成的湖泊，具有极为丰富的有机物和复杂的有机化学反应。';
     case 'rhea': return '土卫五（Rhea）是土星第二大卫星，是一个富含冰晶的世界。其表面布满密密麻麻的古老撞击坑，并带有极其微弱的二氧化碳和氧气外大气圈。';
-    case 'enceladus': return '土卫二（Enceladus）是著名的“喷泉之星”，其南极冰裂缝中不断喷射出巨大的冰晶和水蒸气柱，地下拥有全球性温暖海洋和海底热液喷口。';
+    case 'enceladus': return '土卫二（Enceladus）是著名的"喷泉之星"，其南极冰裂缝中不断喷射出巨大的冰晶和水蒸气柱，地下拥有全球性温暖海洋和海底热液喷口。';
     case 'titania': return '天卫三（Titania）是天王星最大的卫星，表面由等量的冰与岩石混合构成，具有巨大的峡谷系统和断裂悬崖，暗示了早期曾发生过地质板块运动。';
     case 'oberon': return '天卫四（Oberon）是天王星最外侧的大卫星，表面极为古老且饱经沧桑。它布满了大大小小的撞击坑，其中许多陨石坑底部覆盖着神秘的暗色碳质物质。';
     case 'ariel': return '天卫一（Ariel）是天王星最亮的卫星，表面地质年龄最年轻，分布着错综复杂的深谷和盆地系统，展现了过去活跃的冰火山和地壳构造活动。';
@@ -73,24 +74,303 @@ function getSatelliteDescriptionZh(id: string): string {
 function getSatelliteDescriptionEn(id: string): string {
   const name = id.toLowerCase();
   switch (name) {
-    case 'phobos': return 'Phobos is Mars’s largest satellite, shaped irregularly like a coconut. Its orbit is extremely close to Mars, dropping due to tidal drag, and it is expected to break apart into a Martian ring in millions of years.';
+    case 'phobos': return 'Phobos is Mars\'s largest satellite, shaped irregularly like a coconut. Its orbit is extremely close to Mars, dropping due to tidal drag, and it is expected to break apart into a Martian ring in millions of years.';
     case 'deimos': return 'Deimos is the smaller, outer moon of Mars. Covered by a thick mantle of dusty regolith, it has a surprisingly smooth appearance and is likely a captured asteroid from the outer belt.';
     case 'io': return 'Io is the most volcanically active body in the Solar System, with hundreds of active volcanoes driven by intense tidal heating, stretching and squeezing its interior as it orbits giant Jupiter.';
     case 'europa': return 'Europa features an extremely smooth ice shell covering a global subsurface liquid water ocean, making it one of the most promising candidates in the search for extraterrestrial life.';
     case 'ganymede': return 'Ganymede is the largest moon in the Solar System, even larger than Mercury. It is the only moon known to possess its own magnetosphere, with an interior of liquid iron and silicate rock.';
     case 'callisto': return 'Callisto is the most heavily cratered object in our Solar System, with an ancient surface showing almost no signs of geological activity, preserving a history spanning billions of years.';
     case 'titan': return 'Titan is the only moon with a dense atmosphere and stable bodies of liquid on its surface (methane/ethane lakes), revealing a complex planetary-scale organic chemistry.';
-    case 'rhea': return 'Rhea is Saturn’s second-largest moon, an icy world saturated with impact craters. It features a tenuous, ultra-thin atmosphere composed of oxygen and carbon dioxide.';
+    case 'rhea': return 'Rhea is Saturn\'s second-largest moon, an icy world saturated with impact craters. It features a tenuous, ultra-thin atmosphere composed of oxygen and carbon dioxide.';
     case 'enceladus': return 'Enceladus is famous for its cryovolcanic geysers erupting water vapor and ice crystals from its global subsurface ocean near the south pole, indicating geothermal activity.';
-    case 'titania': return 'Titania is Uranus’s largest moon, composed of mixed rock and ice. It is marked by massive trench networks and grabens, pointing to powerful past endogenic activity.';
+    case 'titania': return 'Titania is Uranus\'s largest moon, composed of mixed rock and ice. It is marked by massive trench networks and grabens, pointing to powerful past endogenic activity.';
     case 'oberon': return 'Oberon is the outermost major moon of Uranus, heavily cratered and extremely ancient. Many of its crater floors are covered by a mysterious dark-colored organic residue.';
-    case 'ariel': return 'Ariel is Uranus’s brightest moon, displaying a complex, relatively young surface grid of deep grabens and fault scraps carved by past cryovolcanism and extensional tectonics.';
-    case 'triton': return 'Triton is Neptune’s largest moon and the only large moon in a retrograde orbit. It features active nitrogen-spewing geysers on a frozen surface of nitrogen and methane ice.';
-    case 'proteus': return 'Proteus is Neptune’s second-largest moon. It is one of the largest non-spherical irregular bodies in the Solar System, heavily distorted by deep impact craters.';
+    case 'ariel': return 'Ariel is Uranus\'s brightest moon, displaying a complex, relatively young surface grid of deep grabens and fault scraps carved by past cryovolcanism and extensional tectonics.';
+    case 'triton': return 'Triton is Neptune\'s largest moon and the only large moon in a retrograde orbit. It features active nitrogen-spewing geysers on a frozen surface of nitrogen and methane ice.';
+    case 'proteus': return 'Proteus is Neptune\'s second-largest moon. It is one of the largest non-spherical irregular bodies in the Solar System, heavily distorted by deep impact craters.';
     default: return `${id} is a celestial satellite orbiting its parent planet.`;
   }
 }
 
+// ============================================================================
+// 子组件：关键数字卡片区域
+// ============================================================================
+function StatCardsSection({ stats, lang }: { stats: StatCard[]; lang: 'zh' | 'en' }) {
+  if (!stats || stats.length === 0) return null;
+
+  const gradients = [
+    'from-rose-500/20 to-orange-500/20 border-rose-500/20',
+    'from-sky-500/20 to-cyan-500/20 border-sky-500/20',
+    'from-amber-500/20 to-yellow-500/20 border-amber-500/20',
+    'from-emerald-500/20 to-teal-500/20 border-emerald-500/20',
+    'from-violet-500/20 to-fuchsia-500/20 border-violet-500/20',
+    'from-blue-500/20 to-indigo-500/20 border-blue-500/20',
+  ];
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center space-x-1.5">
+        <span className="text-sm">📊</span>
+        <span className="text-[11px] font-bold text-white/50 uppercase tracking-wider">
+          {lang === 'zh' ? '关键数字' : 'Key Numbers'}
+        </span>
+      </div>
+      <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+        {stats.map((stat, idx) => (
+          <div
+            key={idx}
+            className={`flex-shrink-0 w-[72px] bg-gradient-to-br ${gradients[idx % gradients.length]} backdrop-blur-sm rounded-xl border p-2.5 flex flex-col items-center text-center group cursor-default transition-transform hover:scale-105`}
+            title={stat.tip || ''}
+          >
+            <span className="text-lg leading-none mb-1">{stat.emoji}</span>
+            <span className="text-sm font-bold text-white leading-tight">{stat.value}</span>
+            <span className="text-[9px] text-white/60 font-mono leading-tight">{stat.unit}</span>
+            <span className="text-[9px] text-white/40 mt-0.5 leading-tight">{stat.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 子组件：翻转知识卡
+// ============================================================================
+function FlipCardsSection({ cards, lang }: { cards: FlipCard[]; lang: 'zh' | 'en' }) {
+  const [flipped, setFlipped] = useState<Set<number>>(new Set());
+
+  const toggleFlip = useCallback((idx: number) => {
+    setFlipped(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        next.add(idx);
+      }
+      return next;
+    });
+  }, []);
+
+  if (!cards || cards.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center space-x-1.5">
+        <span className="text-sm">🃏</span>
+        <span className="text-[11px] font-bold text-white/50 uppercase tracking-wider">
+          {lang === 'zh' ? '翻转知识卡' : 'Flip Cards'}
+        </span>
+        <span className="text-[9px] text-white/30 ml-auto">
+          {lang === 'zh' ? '点击卡片翻转' : 'Tap to flip'}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {cards.map((card, idx) => {
+          const isFlipped = flipped.has(idx);
+          return (
+            <div
+              key={idx}
+              className="relative h-[88px] cursor-pointer group"
+              style={{ perspective: '800px' }}
+              onClick={() => toggleFlip(idx)}
+            >
+              <div
+                className="relative w-full h-full transition-transform duration-500"
+                style={{
+                  transformStyle: 'preserve-3d',
+                  transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+                }}
+              >
+                {/* 正面 */}
+                <div
+                  className="absolute inset-0 backface-hidden bg-white/[0.04] border border-white/10 rounded-xl p-3 flex items-center space-x-3 hover:border-cyan-500/30 hover:bg-white/[0.06] transition-colors"
+                  style={{ backfaceVisibility: 'hidden' }}
+                >
+                  <span className="text-2xl flex-shrink-0">{card.front.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white font-medium leading-snug">{card.front.question}</p>
+                    {card.front.hint && (
+                      <p className="text-[10px] text-white/40 mt-0.5">{card.front.hint}</p>
+                    )}
+                  </div>
+                  <span className="text-white/20 text-lg flex-shrink-0">↻</span>
+                </div>
+                {/* 背面 */}
+                <div
+                  className="absolute inset-0 backface-hidden bg-gradient-to-br from-cyan-950/40 to-blue-950/40 border border-cyan-500/20 rounded-xl p-3 flex items-center space-x-3"
+                  style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+                >
+                  <span className="text-2xl flex-shrink-0">{card.back.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-cyan-200 font-semibold leading-snug">{card.back.answer}</p>
+                    <p className="text-[10px] text-white/60 mt-0.5 leading-snug">{card.back.explanation}</p>
+                    <p className="text-[10px] text-amber-400/80 mt-0.5 font-medium">{card.back.wowFactor}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 子组件：生活对比卡片
+// ============================================================================
+function ComparisonCardsSection({ cards, lang }: { cards: ComparisonCard[]; lang: 'zh' | 'en' }) {
+  if (!cards || cards.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center space-x-1.5">
+        <span className="text-sm">🌍</span>
+        <span className="text-[11px] font-bold text-white/50 uppercase tracking-wider">
+          {lang === 'zh' ? '生活对比' : 'Life Comparison'}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {cards.map((card, idx) => (
+          <div
+            key={idx}
+            className="bg-white/[0.03] border border-white/10 rounded-xl p-3 hover:border-white/20 transition-colors"
+          >
+            <div className="flex items-center space-x-2 mb-1.5">
+              <span className="text-lg">{card.emoji}</span>
+              <span className="text-xs text-white/80 font-medium">{card.question}</span>
+            </div>
+            <div className="bg-white/[0.04] rounded-lg p-2 text-center">
+              <span className="text-sm font-bold text-amber-400">{card.comparison}</span>
+            </div>
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-[10px] text-white/50">{card.relatable}</span>
+              <span className="text-sm">{card.reaction}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 子组件：冷知识轮播
+// ============================================================================
+function FunFactsSection({ facts, lang }: { facts: FunFact[]; lang: 'zh' | 'en' }) {
+  const [index, setIndex] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!facts || facts.length <= 1) return;
+    intervalRef.current = setInterval(() => {
+      setIndex(prev => (prev + 1) % facts.length);
+    }, 5000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [facts]);
+
+  const goPrev = useCallback(() => {
+    setIndex(prev => (prev - 1 + facts.length) % facts.length);
+  }, [facts.length]);
+
+  const goNext = useCallback(() => {
+    setIndex(prev => (prev + 1) % facts.length);
+  }, [facts.length]);
+
+  if (!facts || facts.length === 0) return null;
+
+  const fact = facts[index];
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center space-x-1.5">
+        <span className="text-sm">✨</span>
+        <span className="text-[11px] font-bold text-white/50 uppercase tracking-wider">
+          {lang === 'zh' ? '趣味冷知识' : 'Fun Facts'}
+        </span>
+      </div>
+      <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3 relative">
+        <div className="flex items-start space-x-2">
+          <span className="text-xl flex-shrink-0">{fact.emoji}</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-white/90 leading-relaxed">{fact.fact}</p>
+            {fact.extra && (
+              <p className="text-[10px] text-white/50 mt-1 leading-relaxed">{fact.extra}</p>
+            )}
+          </div>
+        </div>
+
+        {facts.length > 1 && (
+          <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/5">
+            <button
+              onClick={goPrev}
+              className="p-1 text-white/30 hover:text-white/70 hover:bg-white/5 rounded transition-colors cursor-pointer"
+              aria-label="Previous fact"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div className="flex space-x-1">
+              {facts.map((_, i) => (
+                <div
+                  key={i}
+                  className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                    i === index ? 'bg-cyan-400' : 'bg-white/20'
+                  }`}
+                />
+              ))}
+            </div>
+            <button
+              onClick={goNext}
+              className="p-1 text-white/30 hover:text-white/70 hover:bg-white/5 rounded transition-colors cursor-pointer"
+              aria-label="Next fact"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 子组件：情景想象卡片
+// ============================================================================
+function ImagineSection({ imagine, lang }: { imagine: ImagineCard; lang: 'zh' | 'en' }) {
+  if (!imagine || !imagine.effects || imagine.effects.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center space-x-1.5">
+        <span className="text-sm">🚀</span>
+        <span className="text-[11px] font-bold text-white/50 uppercase tracking-wider">
+          {lang === 'zh' ? '假如你在上面...' : 'Imagine You Were There...'}
+        </span>
+      </div>
+      <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3 space-y-2">
+        <p className="text-xs text-cyan-300/80 font-medium">{imagine.scenario}</p>
+        <div className="space-y-1.5">
+          {imagine.effects.map((effect, idx) => (
+            <div key={idx} className="flex items-start space-x-2">
+              <span className="text-sm flex-shrink-0">{effect.emoji}</span>
+              <span className="text-xs text-white/70 leading-relaxed">{effect.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 主组件
+// ============================================================================
 export default function PlanetInfoPanel({
   planetId,
   crossSectionActive,
@@ -112,8 +392,12 @@ export default function PlanetInfoPanel({
   const isZh = lang === 'zh';
   const isSatellite = !['sun', 'mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'moon'].includes(planetId.toLowerCase());
 
+  // 获取科普数据
+  const profile: CelestialProfile | undefined = CELESTIAL_PROFILES[planetId.toLowerCase()];
+  const hasProfile = !!profile;
+
   // Find satellite definition in SATELLITE_DATA
-  const satRecord = isSatellite 
+  const satRecord = isSatellite
     ? Object.values(SATELLITE_DATA).flat().find(m => m.nameEn.toLowerCase() === planetId.toLowerCase())
     : null;
 
@@ -130,7 +414,7 @@ export default function PlanetInfoPanel({
   const physics = isSatellite ? null : CELESTIAL_PHYSICS[planetId as keyof typeof CELESTIAL_PHYSICS];
   const satPhys = isSatellite ? SATELLITE_PHYSICS_DB[planetId.toLowerCase()] : null;
 
-  // 计算剖面分层卡片展示 (重构，支持高精度个性化学术命名，防止统一“星核/星幔”)
+  // 计算剖面分层卡片展示
   const getLayers = () => {
     switch (planetId) {
       case 'sun':
@@ -207,29 +491,36 @@ export default function PlanetInfoPanel({
 
   const [lockedLayer, setLockedLayer] = React.useState<'core' | 'mantle' | 'crust' | 'atmosphere' | 'ring' | null>(null);
 
-  // Sync lockedLayer with activeLayer if activeLayer is changed externally (e.g. from 3D hover)
-  // Actually, if activeLayer is controlled by 3D, we might want to release the lock.
   React.useEffect(() => {
     if (activeLayer !== lockedLayer && activeLayer !== null) {
-      // If 3D is actively hovering something else, release the UI lock
       setLockedLayer(null);
     }
   }, [activeLayer]);
 
   return (
-    <div 
-      className="bg-black/85 border border-white/10 backdrop-blur-md rounded-2xl p-5 shadow-2xl flex flex-col space-y-4 max-h-[85vh] overflow-y-auto select-none transition-all duration-300 scrollbar"
+    <div
+      className="bg-black/85 border border-white/10 backdrop-blur-md rounded-2xl p-5 shadow-2xl flex flex-col space-y-4 max-h-[80vh] overflow-y-auto select-none transition-all duration-300 scrollbar"
       id="planet-biography-panel"
     >
       {/* 头部：星体面板与关闭、剖切控件、登录按钮 */}
       <div className="flex justify-between items-start border-b border-white/10 pb-3">
         <div>
           <h2 className="text-lg font-bold tracking-tight text-white flex items-center space-x-2">
+            {hasProfile && (
+              <span className="text-xl">{profile.iconEmoji}</span>
+            )}
             <span>{name}</span>
           </h2>
-          <p className="text-[10px] text-cyan-400 tracking-widest uppercase mt-0.5 font-mono">
-            {isSatellite ? 'SATELLITE ORBITAL PROFILE' : `${planetId} SYSTEM COORDS`}
-          </p>
+          {hasProfile && (
+            <p className="text-xs text-cyan-400/80 mt-0.5 italic">
+              {profile.tagline[lang]}
+            </p>
+          )}
+          {!hasProfile && (
+            <p className="text-[10px] text-cyan-400 tracking-widest uppercase mt-0.5 font-mono">
+              {isSatellite ? 'SATELLITE ORBITAL PROFILE' : `${planetId} SYSTEM COORDS`}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center space-x-2">
@@ -237,15 +528,15 @@ export default function PlanetInfoPanel({
           {isLandable && onToggleLanding && (
             <button
               onClick={onToggleLanding}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer border tracking-wider uppercase transition-all duration-300 hover:scale-105 active:scale-95 ${
+              title={landed ? translations[lang].leaveBtn : translations[lang].landBtn}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer border transition-all duration-300 hover:scale-105 active:scale-95 ${
                 landed
                   ? 'border-red-500/40 bg-red-950/30 text-red-400 hover:bg-red-950/45'
                   : 'border-cyan-500/40 bg-cyan-950/30 text-cyan-400 hover:bg-cyan-950/45'
               }`}
               id="btn-login-land-planet"
             >
-              <div className={`w-1.5 h-1.5 rounded-full ${landed ? 'bg-red-400 shadow-[0_0_6px_#f87171]' : 'bg-cyan-400 shadow-[0_0_6px_#22d3ee]'} animate-pulse`} />
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 {landed ? (
                   <>
                     <path d="M12 19V5" /><path d="m5 12 7-7 7 7" /><path d="M19 12H5" />
@@ -256,7 +547,6 @@ export default function PlanetInfoPanel({
                   </>
                 )}
               </svg>
-              <span>{landed ? translations[lang].leaveBtn : translations[lang].landBtn}</span>
             </button>
           )}
 
@@ -265,7 +555,8 @@ export default function PlanetInfoPanel({
             <button
               onClick={onToggleClouds}
               disabled={crossSectionActive}
-              className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+              title={cloudsVisible ? (isZh ? '关闭云层' : 'Hide Clouds') : (isZh ? '显示云层' : 'Show Clouds')}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer transition-all ${
                 crossSectionActive
                   ? 'opacity-30 cursor-not-allowed bg-white/5 text-white/30 border border-white/10'
                   : cloudsVisible
@@ -274,8 +565,7 @@ export default function PlanetInfoPanel({
               }`}
               id="btn-cloud-toggle"
             >
-              <span>{cloudsVisible ? '☁️' : '🌫️'}</span>
-              <span>{cloudsVisible ? (isZh ? '云层开' : 'Clouds On') : (isZh ? '云层关' : 'Clouds Off')}</span>
+              <span className="text-sm">{cloudsVisible ? '☁️' : '🌫️'}</span>
             </button>
           )}
 
@@ -283,15 +573,15 @@ export default function PlanetInfoPanel({
           {!isSatellite && (
             <button
               onClick={() => onToggleCrossSection(!crossSectionActive)}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+              title={crossSectionActive ? translations[lang].normalView : translations[lang].crossSection}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer transition-all ${
                 crossSectionActive
                   ? 'bg-cyan-500/25 border border-cyan-400 text-cyan-300 shadow-md shadow-cyan-950/20'
                   : 'bg-white/5 text-white/70 hover:bg-white/10 border border-white/10'
               }`}
               id="btn-slice-toggle"
             >
-              <span>{crossSectionActive ? '🛡️' : '🔬'}</span>
-              <span>{crossSectionActive ? translations[lang].normalView : translations[lang].crossSection}</span>
+              <span className="text-sm">{crossSectionActive ? '🛡️' : '🔬'}</span>
             </button>
           )}
 
@@ -311,8 +601,27 @@ export default function PlanetInfoPanel({
         </div>
       </div>
 
-      {/* 描述与物性参数卡片 */}
+      {/* ==================== 新增：丰富互动科普内容 ==================== */}
+      {hasProfile && (
+        <div className="space-y-4">
+          <StatCardsSection stats={profile.stats} lang={lang} />
+          <FlipCardsSection cards={profile.flipCards} lang={lang} />
+          <ComparisonCardsSection cards={profile.comparisons} lang={lang} />
+          <FunFactsSection facts={profile.funFacts} lang={lang} />
+          <ImagineSection imagine={profile.imagine} lang={lang} />
+        </div>
+      )}
+
+      {/* ==================== 原有：描述与物性参数卡片 ==================== */}
       <div className="space-y-3">
+        {hasProfile && (
+          <div className="flex items-center space-x-1.5 pt-1">
+            <span className="text-sm">📖</span>
+            <span className="text-[11px] font-bold text-white/50 uppercase tracking-wider">
+              {lang === 'zh' ? '正经科普' : 'Description'}
+            </span>
+          </div>
+        )}
         <div className="text-xs text-white/80 leading-relaxed bg-white/[0.03] p-3 rounded-xl border border-white/5">
           {info}
         </div>
@@ -328,11 +637,11 @@ export default function PlanetInfoPanel({
               {layers.map((layer, idx) => {
                 const isActive = activeLayer === layer.type || lockedLayer === layer.type;
                 return (
-                  <div 
-                    key={idx} 
+                  <div
+                    key={idx}
                     className={`bg-white/[0.02] border rounded-xl p-2.5 flex items-start space-x-3 transition-all duration-300 cursor-pointer ${
-                      isActive 
-                        ? 'border-cyan-500/50 bg-cyan-950/20 shadow-[0_0_15px_rgba(6,182,212,0.15)] -translate-x-2 scale-[1.02]' 
+                      isActive
+                        ? 'border-cyan-500/50 bg-cyan-950/20 shadow-[0_0_15px_rgba(6,182,212,0.15)] -translate-x-2 scale-[1.02]'
                         : 'border-white/5 hover:bg-white/[0.05]'
                     }`}
                     onMouseEnter={() => {
@@ -374,7 +683,7 @@ export default function PlanetInfoPanel({
             <h3 className="text-[10px] font-bold text-white/40 uppercase tracking-widest font-mono">
               📋 {translations[lang].parameters}
             </h3>
-            
+
             <div className="grid grid-cols-2 gap-2 text-[10.5px] font-mono">
               {!isSatellite && physics && (
                 <>

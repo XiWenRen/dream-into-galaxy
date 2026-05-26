@@ -6,7 +6,142 @@ import * as THREE from 'three';
  * Provides procedural canvas textures and a multi-layer sun group
  * that looks impressive both up-close (solar system view) and
  * from galactic scale (bright point with diffraction spikes).
+ *
+ * LOD Architecture (基于场景单位, 1 AU = 22 units):
+ *   - 近距离  (< 66 units = 3 AU):  光球层 Shader + 色球层 + 双层日冕 + Glow
+ *   - 中距离  (66 ~ 22000 units):  简化表面 + Glow + 日冕淡出
+ *   - 远距离  (> 22000 units):      Flare Sprite 星点模式 (衍射尖刺)
  */
+
+// ---------------------------------------------------------------------------
+// Shader Sources
+// ---------------------------------------------------------------------------
+
+const SUN_SURFACE_VERTEX_SHADER = `
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+
+  void main() {
+    vUv = uv;
+    vNormal = normalize(normalMatrix * normal);
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vViewDir = normalize(-mvPosition.xyz);
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+const SUN_SURFACE_FRAGMENT_SHADER = `
+  uniform sampler2D uSunMap;
+  uniform float uTime;
+  uniform float uLimbDarkening;
+  uniform float uTurbulenceScale;
+  uniform float uTurbulenceSpeed;
+
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+
+  // Hash / Value noise
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+      mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+      f.y
+    );
+  }
+
+  float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 5; i++) {
+      v += a * noise(p);
+      p *= 2.0;
+      a *= 0.5;
+    }
+    return v;
+  }
+
+  void main() {
+    // 1. 基础贴图采样
+    vec4 texColor = texture2D(uSunMap, vUv);
+
+    // 2. 临边昏暗 (Limb Darkening): μ = cos(θ) = dot(view, normal)
+    float mu = max(dot(vNormal, vViewDir), 0.0);
+    float limbFactor = pow(mu, uLimbDarkening);
+
+    // 3. 表面湍流 (模拟米粒组织 granulation)
+    vec2 turbUv = vUv * uTurbulenceScale + vec2(uTime * uTurbulenceSpeed, uTime * uTurbulenceSpeed * 0.3);
+    float turbulence = fbm(turbUv) * 0.12;
+
+    // 4. 色球层边缘增强：μ 极小时加入红色/橙色光晕
+    vec3 chromosphereColor = vec3(1.0, 0.30, 0.04);
+    float chromosphereMix = pow(1.0 - mu, 3.0) * 0.45;
+
+    // 5. 合成
+    vec3 baseColor = texColor.rgb * (0.92 + turbulence);
+    baseColor = mix(baseColor * limbFactor, chromosphereColor, chromosphereMix);
+
+    // 6. 中央超亮核心（保持色彩信息，避免死白）
+    float coreGlow = exp(-4.0 * (1.0 - mu));
+    baseColor += vec3(1.0, 0.92, 0.72) * coreGlow * 0.12;
+
+    gl_FragColor = vec4(baseColor, 1.0);
+  }
+`;
+
+const CHROMOSPHERE_VERTEX_SHADER = `
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  varying vec3 vWorldPos;
+
+  void main() {
+    vNormal = normalize(normalMatrix * normal);
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vViewDir = normalize(-mvPosition.xyz);
+    vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+const CHROMOSPHERE_FRAGMENT_SHADER = `
+  uniform float uIntensity;
+  uniform float uTime;
+
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  varying vec3 vWorldPos;
+
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+
+  void main() {
+    float fresnel = pow(1.0 - max(dot(vNormal, vViewDir), 0.0), 2.5);
+
+    // 针状体 (spicules) 随机突起模拟
+    vec2 uv = vWorldPos.xy * 3.5 + vec2(uTime * 0.08, uTime * 0.05);
+    float spicule = hash(uv) * hash(uv * 1.7 + 13.0);
+    spicule = pow(spicule, 5.0) * fresnel * 3.5;
+
+    // 基础色球层颜色：橙红 → 亮黄过渡
+    vec3 baseColor = vec3(1.0, 0.35, 0.06);
+    vec3 brightColor = vec3(1.0, 0.7, 0.25);
+    float brightness = fresnel * uIntensity + spicule;
+    vec3 color = mix(baseColor, brightColor, fresnel * 0.6) * brightness;
+
+    float alpha = fresnel * uIntensity * 0.85 + spicule * 0.5;
+
+    gl_FragColor = vec4(color, clamp(alpha, 0.0, 1.0));
+  }
+`;
 
 // ---------------------------------------------------------------------------
 // Texture Generators
@@ -26,11 +161,11 @@ export function createSunGlowTexture(size = 256): THREE.Texture {
   const r = size / 2;
 
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-  grad.addColorStop(0.0, 'rgba(255, 250, 220, 0.9)');   // bright white-yellow core
-  grad.addColorStop(0.15, 'rgba(255, 230, 160, 0.75)'); // warm yellow
-  grad.addColorStop(0.35, 'rgba(255, 180, 80, 0.5)');   // warm orange
-  grad.addColorStop(0.65, 'rgba(220, 80, 40, 0.2)');    // deep red
-  grad.addColorStop(1.0, 'rgba(80, 10, 0, 0)');         // fade to transparent
+  grad.addColorStop(0.0, 'rgba(255, 250, 235, 0.92)');   // bright white-yellow core
+  grad.addColorStop(0.12, 'rgba(255, 230, 170, 0.72)');  // warm yellow
+  grad.addColorStop(0.35, 'rgba(255, 175, 70, 0.48)');   // warm orange
+  grad.addColorStop(0.65, 'rgba(230, 70, 30, 0.18)');    // deep red
+  grad.addColorStop(1.0, 'rgba(60, 5, 0, 0)');           // fade to transparent
 
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
@@ -121,6 +256,85 @@ export function createSunCoronaTexture(size = 512): THREE.Texture {
 }
 
 /**
+ * Create lens flare texture for close/mid distance viewing.
+ * Multi-layer radial glow that replaces the DOM overlay lens flare.
+ */
+export function createLensFlareTexture(size = 512): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  ctx.clearRect(0, 0, size, size);
+
+  // Layer 1: Wide warm gold outer glow
+  const g1 = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 2);
+  g1.addColorStop(0, 'rgba(255, 240, 200, 0.22)');
+  g1.addColorStop(0.15, 'rgba(255, 200, 100, 0.12)');
+  g1.addColorStop(0.4, 'rgba(255, 100, 40, 0.04)');
+  g1.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = g1;
+  ctx.fillRect(0, 0, size, size);
+
+  // Layer 2: White-gold core glow
+  const g2 = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.3);
+  g2.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
+  g2.addColorStop(0.3, 'rgba(255, 220, 150, 0.2)');
+  g2.addColorStop(0.7, 'rgba(255, 150, 50, 0.08)');
+  g2.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = g2;
+  ctx.fillRect(0, 0, size, size);
+
+  // Layer 3: Intense central core
+  const g3 = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.12);
+  g3.addColorStop(0, 'rgba(255, 255, 255, 0.75)');
+  g3.addColorStop(0.5, 'rgba(255, 200, 100, 0.3)');
+  g3.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = g3;
+  ctx.fillRect(0, 0, size, size);
+
+  // Diffraction spikes (4 primary)
+  const drawSpike = (angle: number, length: number, thickness: number, brightness: number) => {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    const grad = ctx.createLinearGradient(0, 0, 0, -length);
+    grad.addColorStop(0, `rgba(255, 240, 200, ${brightness})`);
+    grad.addColorStop(0.4, `rgba(255, 180, 80, ${brightness * 0.5})`);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(-thickness / 2, 0);
+    ctx.lineTo(0, -length);
+    ctx.lineTo(thickness / 2, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const primaryLen = size * 0.38;
+  const primaryThick = size * 0.022;
+  drawSpike(0, primaryLen, primaryThick, 0.55);
+  drawSpike(Math.PI / 2, primaryLen, primaryThick, 0.55);
+  drawSpike(Math.PI, primaryLen, primaryThick, 0.55);
+  drawSpike(-Math.PI / 2, primaryLen, primaryThick, 0.55);
+
+  // Diagonal secondary spikes
+  const secondaryLen = size * 0.22;
+  const secondaryThick = size * 0.012;
+  drawSpike(Math.PI / 4, secondaryLen, secondaryThick, 0.3);
+  drawSpike(-Math.PI / 4, secondaryLen, secondaryThick, 0.3);
+  drawSpike((3 * Math.PI) / 4, secondaryLen, secondaryThick, 0.3);
+  drawSpike(-(3 * Math.PI) / 4, secondaryLen, secondaryThick, 0.3);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/**
  * Create an intense central bloom texture with star-like diffraction spikes.
  * Designed for far-away viewing: very bright center, rapid falloff, 4+2 spikes.
  */
@@ -200,21 +414,32 @@ export function createSolarFlareTexture(size = 256): THREE.Texture {
 export interface SunGroup extends THREE.Group {
   userData: {
     sunInnerMesh?: THREE.Mesh;
+    sunSurfaceMaterial?: THREE.ShaderMaterial;
+    sunBasicMaterial?: THREE.MeshBasicMaterial;
+    chromosphereMesh?: THREE.Mesh;
+    chromosphereMaterial?: THREE.ShaderMaterial;
     coronaInnerMesh?: THREE.Mesh;
     coronaOuterMesh?: THREE.Mesh;
     coronaRimMesh?: THREE.Mesh;
     glowSprite?: THREE.Sprite;
     flareSprite?: THREE.Sprite;
+    lensFlareSprite?: THREE.Sprite;
     /** Accumulated time for animation */
     elapsedTime?: number;
     /** Initial Y-rotation offsets for corona layers */
     coronaRotationOffset?: number;
+    /** Current LOD distance threshold state */
+    lodState?: 'close' | 'mid' | 'far';
   };
 }
 
 /**
- * Build a multi-layer sun group with inner sphere, multiple corona shells,
- * a glow sprite, and a flare sprite for distant viewing.
+ * Build a multi-layer sun group with:
+ *   - Inner sphere (ShaderMaterial for close-up, MeshBasicMaterial for mid)
+ *   - Chromosphere shell (close-up only)
+ *   - Inner + Outer corona shells
+ *   - Glow sprite (camera-facing photosphere glow)
+ *   - Flare sprite (diffraction spikes for far-away viewing)
  *
  * @param radius  Base radius of the sun sphere.
  * @param sunTexture  Optional texture for the inner sun sphere. If omitted, a solid color is used.
@@ -224,20 +449,96 @@ export function buildSunGroup(
   sunTexture?: THREE.Texture
 ): SunGroup {
   const sunGroup = new THREE.Group() as SunGroup;
-  sunGroup.userData = { elapsedTime: 0, coronaRotationOffset: Math.random() * Math.PI * 2 };
+  sunGroup.userData = {
+    elapsedTime: 0,
+    coronaRotationOffset: Math.random() * Math.PI * 2,
+    lodState: 'close',
+  };
 
-  // a. Inner sun sphere
-  const sunGeo = new THREE.SphereGeometry(radius, 64, 32);
-  const sunMat = new THREE.MeshBasicMaterial({
+  // --- a. 太阳内球体：近距离 ShaderMaterial + 备用 BasicMaterial ---
+  const sunGeo = new THREE.SphereGeometry(radius, 80, 40);
+
+  // 近距离表面 Shader
+  const sunSurfaceMat = new THREE.ShaderMaterial({
+    vertexShader: SUN_SURFACE_VERTEX_SHADER,
+    fragmentShader: SUN_SURFACE_FRAGMENT_SHADER,
+    uniforms: {
+      uSunMap: { value: sunTexture ?? null },
+      uTime: { value: 0.0 },
+      uLimbDarkening: { value: 0.6 },
+      uTurbulenceScale: { value: 8.0 },
+      uTurbulenceSpeed: { value: 0.005 },
+    },
+  });
+
+  // 中距离备用 BasicMaterial
+  const sunBasicMat = new THREE.MeshBasicMaterial({
     map: sunTexture ?? undefined,
     color: sunTexture ? 0xffffff : 0xffdd88,
   });
-  const sunInnerMesh = new THREE.Mesh(sunGeo, sunMat);
+
+  const sunInnerMesh = new THREE.Mesh(sunGeo, sunSurfaceMat);
   sunInnerMesh.name = 'sun-inner-mesh';
   sunGroup.add(sunInnerMesh);
-  sunGroup.userData.sunInnerMesh = sunInnerMesh;
 
-  // e. Glow sprite (always faces camera, soft photosphere glow)
+  sunGroup.userData.sunInnerMesh = sunInnerMesh;
+  sunGroup.userData.sunSurfaceMaterial = sunSurfaceMat;
+  sunGroup.userData.sunBasicMaterial = sunBasicMat;
+
+  // --- b. 色球层 (Chromosphere) — 红色薄壳，仅近距离可见 ---
+  const chromoGeo = new THREE.SphereGeometry(radius * 1.008, 64, 32);
+  const chromoMat = new THREE.ShaderMaterial({
+    vertexShader: CHROMOSPHERE_VERTEX_SHADER,
+    fragmentShader: CHROMOSPHERE_FRAGMENT_SHADER,
+    uniforms: {
+      uIntensity: { value: 0.85 },
+      uTime: { value: 0.0 },
+    },
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.FrontSide,
+  });
+  const chromoMesh = new THREE.Mesh(chromoGeo, chromoMat);
+  chromoMesh.name = 'sun-chromosphere';
+  sunGroup.add(chromoMesh);
+  sunGroup.userData.chromosphereMesh = chromoMesh;
+  sunGroup.userData.chromosphereMaterial = chromoMat;
+
+  // --- c. 内日冕 (Inner Corona) — 使用 procedural 径向射线纹理 ---
+  const coronaTex = createSunCoronaTexture(512);
+  const innerCoronaGeo = new THREE.SphereGeometry(radius * 1.15, 48, 24);
+  const innerCoronaMat = new THREE.MeshBasicMaterial({
+    map: coronaTex,
+    color: 0xffaa66,
+    transparent: true,
+    opacity: 0.32,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.BackSide,
+  });
+  const innerCoronaMesh = new THREE.Mesh(innerCoronaGeo, innerCoronaMat);
+  innerCoronaMesh.name = 'sun-corona-inner';
+  sunGroup.add(innerCoronaMesh);
+  sunGroup.userData.coronaInnerMesh = innerCoronaMesh;
+
+  // --- d. 外日冕 (Outer Corona) — 更稀疏的等离子体 ---
+  const outerCoronaGeo = new THREE.SphereGeometry(radius * 1.45, 48, 24);
+  const outerCoronaMat = new THREE.MeshBasicMaterial({
+    map: coronaTex,
+    color: 0xff8866,
+    transparent: true,
+    opacity: 0.15,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.BackSide,
+  });
+  const outerCoronaMesh = new THREE.Mesh(outerCoronaGeo, outerCoronaMat);
+  outerCoronaMesh.name = 'sun-corona-outer';
+  sunGroup.add(outerCoronaMesh);
+  sunGroup.userData.coronaOuterMesh = outerCoronaMesh;
+
+  // --- e. Glow sprite (always faces camera, soft photosphere glow) ---
   const glowMat = new THREE.SpriteMaterial({
     map: createSunGlowTexture(),
     color: 0xffffff,
@@ -247,14 +548,14 @@ export function buildSunGroup(
   });
   const glowSprite = new THREE.Sprite(glowMat);
   glowSprite.name = 'sun-glow-sprite';
-  glowSprite.scale.set(radius * 4, radius * 4, 1);
+  glowSprite.scale.set(radius * 4.2, radius * 4.2, 1);
   sunGroup.add(glowSprite);
   sunGroup.userData.glowSprite = glowSprite;
 
-  // f. Flare sprite (for very far away viewing)
+  // --- f. Far-distance flare sprite (diffraction spikes for stellar point) ---
   const flareMat = new THREE.SpriteMaterial({
     map: createSolarFlareTexture(),
-    color: 0xffffff,
+    color: 0xfff8e7,
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
@@ -262,22 +563,41 @@ export function buildSunGroup(
   });
   const flareSprite = new THREE.Sprite(flareMat);
   flareSprite.name = 'sun-flare-sprite';
-  flareSprite.scale.set(radius * 6, radius * 6, 1);
+  flareSprite.scale.set(radius * 8, radius * 8, 1);
   sunGroup.add(flareSprite);
   sunGroup.userData.flareSprite = flareSprite;
+
+  // --- g. Lens flare sprite (replaces DOM overlay for frame-synced rendering) ---
+  const lensFlareMat = new THREE.SpriteMaterial({
+    map: createLensFlareTexture(),
+    color: 0xffffff,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    opacity: 0,
+  });
+  const lensFlareSprite = new THREE.Sprite(lensFlareMat);
+  lensFlareSprite.name = 'sun-lens-flare';
+  lensFlareSprite.scale.set(radius * 12, radius * 12, 1);
+  sunGroup.add(lensFlareSprite);
+  sunGroup.userData.lensFlareSprite = lensFlareSprite;
 
   return sunGroup;
 }
 
 // ---------------------------------------------------------------------------
-// Update / Animation
+// Update / Animation (Three-Tier LOD)
 // ---------------------------------------------------------------------------
+
+/** Distance thresholds in scene units (1 AU = 22 units) */
+const LOD_CLOSE = 66;    // 3 AU
+const LOD_MID = 22000;   // 1000 AU
 
 /**
  * Animate the sun group and adjust visibility/opacity based on camera distance.
  *
- * @param sunGroup      The group returned by buildSunGroup.
- * @param deltaTime     Time since last frame (seconds).
+ * @param sunGroup        The group returned by buildSunGroup.
+ * @param deltaTime       Time since last frame (seconds).
  * @param cameraDistance  Distance from camera to the sun group world position.
  */
 export function updateSunEffects(
@@ -289,10 +609,68 @@ export function updateSunEffects(
   data.elapsedTime = (data.elapsedTime ?? 0) + deltaTime;
   const t = data.elapsedTime;
 
-  // Slow corona rotation for dynamic plasma feel
+  // Determine LOD tier
+  let lod: 'close' | 'mid' | 'far';
+  if (cameraDistance < LOD_CLOSE) {
+    lod = 'close';
+  } else if (cameraDistance < LOD_MID) {
+    lod = 'mid';
+  } else {
+    lod = 'far';
+  }
+  data.lodState = lod;
+
+  // --- 1. Surface material swap (close = Shader, mid = Basic) ---
+  const sunInnerMesh = data.sunInnerMesh;
+  const sunSurfaceMat = data.sunSurfaceMaterial;
+  const sunBasicMat = data.sunBasicMaterial;
+
+  if (sunInnerMesh) {
+    if (lod === 'close') {
+      if (sunSurfaceMat && sunInnerMesh.material !== sunSurfaceMat) {
+        sunInnerMesh.material = sunSurfaceMat;
+      }
+      if (sunSurfaceMat) {
+        sunSurfaceMat.uniforms.uTime.value = t;
+      }
+      sunInnerMesh.visible = true;
+    } else if (lod === 'mid') {
+      if (sunBasicMat && sunInnerMesh.material !== sunBasicMat) {
+        sunInnerMesh.material = sunBasicMat;
+      }
+      sunInnerMesh.visible = true;
+    } else {
+      // far: mesh hidden, flare takes over
+      sunInnerMesh.visible = false;
+    }
+  }
+
+  // --- 2. Chromosphere (close only) ---
+  const chromoMesh = data.chromosphereMesh;
+  const chromoMat = data.chromosphereMaterial;
+  if (chromoMesh && chromoMat) {
+    if (lod === 'close') {
+      chromoMat.uniforms.uTime.value = t;
+      const targetInt = 0.85;
+      chromoMat.uniforms.uIntensity.value = THREE.MathUtils.lerp(
+        chromoMat.uniforms.uIntensity.value,
+        targetInt,
+        0.1
+      );
+      chromoMesh.visible = chromoMat.uniforms.uIntensity.value > 0.03;
+    } else {
+      chromoMat.uniforms.uIntensity.value = THREE.MathUtils.lerp(
+        chromoMat.uniforms.uIntensity.value,
+        0.0,
+        0.12
+      );
+      chromoMesh.visible = chromoMat.uniforms.uIntensity.value > 0.03;
+    }
+  }
+
+  // --- 3. Corona rotation (all tiers where visible) ---
   const coronaInner = data.coronaInnerMesh;
   const coronaOuter = data.coronaOuterMesh;
-  const coronaRim = data.coronaRimMesh;
 
   if (coronaInner) {
     coronaInner.rotation.y = t * 0.02 + (data.coronaRotationOffset ?? 0);
@@ -300,43 +678,84 @@ export function updateSunEffects(
   if (coronaOuter) {
     coronaOuter.rotation.y = t * -0.015 + (data.coronaRotationOffset ?? 0) * 0.7;
   }
-  if (coronaRim) {
-    coronaRim.rotation.y = t * 0.008 + (data.coronaRotationOffset ?? 0) * 1.3;
-  }
 
-  // Subtle stellar variability pulse on glow opacity
-  const glowSprite = data.glowSprite;
-  if (glowSprite && glowSprite.material instanceof THREE.SpriteMaterial) {
-    const baseOpacity = 0.85;
-    const pulse = Math.sin(t * 1.5) * 0.08 + Math.sin(t * 3.7) * 0.04;
-    glowSprite.material.opacity = Math.max(0.4, Math.min(1.0, baseOpacity + pulse));
-  }
-
-  // LOD: adjust visibility of corona details vs flare based on camera distance
-  const flareSprite = data.flareSprite;
-  const isFar = cameraDistance > 500;
-
-  if (flareSprite && flareSprite.material instanceof THREE.SpriteMaterial) {
-    // Smooth transition between near and far
-    const farFactor = Math.min(1.0, Math.max(0.0, (cameraDistance - 300) / 400));
-    flareSprite.material.opacity = farFactor;
-    flareSprite.visible = farFactor > 0.02;
-  }
-
-  if (coronaRim && coronaRim.material instanceof THREE.MeshBasicMaterial) {
-    const rimFade = Math.max(0.0, 1.0 - (cameraDistance - 200) / 600);
-    coronaRim.material.opacity = 0.18 * rimFade;
-    coronaRim.visible = rimFade > 0.02;
+  // --- 4. Corona opacity fade with distance (close→mid transition) ---
+  if (coronaInner && coronaInner.material instanceof THREE.MeshBasicMaterial) {
+    if (lod === 'close') {
+      coronaInner.material.opacity = THREE.MathUtils.lerp(coronaInner.material.opacity, 0.32, 0.08);
+      coronaInner.visible = true;
+    } else if (lod === 'mid') {
+      const fade = Math.max(0.0, 1.0 - (cameraDistance - LOD_CLOSE) / 300);
+      coronaInner.material.opacity = 0.32 * fade;
+      coronaInner.visible = fade > 0.02;
+    } else {
+      coronaInner.visible = false;
+    }
   }
 
   if (coronaOuter && coronaOuter.material instanceof THREE.MeshBasicMaterial) {
-    const outerFade = Math.max(0.0, 1.0 - (cameraDistance - 100) / 500);
-    coronaOuter.material.opacity = 0.25 * outerFade;
+    if (lod === 'close') {
+      coronaOuter.material.opacity = THREE.MathUtils.lerp(coronaOuter.material.opacity, 0.15, 0.08);
+      coronaOuter.visible = true;
+    } else if (lod === 'mid') {
+      const fade = Math.max(0.0, 1.0 - (cameraDistance - LOD_CLOSE) / 400);
+      coronaOuter.material.opacity = 0.15 * fade;
+      coronaOuter.visible = fade > 0.02;
+    } else {
+      coronaOuter.visible = false;
+    }
   }
 
-  if (coronaInner && coronaInner.material instanceof THREE.MeshBasicMaterial) {
-    const innerFade = Math.max(0.0, 1.0 - (cameraDistance - 50) / 400);
-    coronaInner.material.opacity = 0.5 * innerFade;
+  // --- 5. Glow sprite (close weakens to avoid blow-out, mid dominant, far hidden) ---
+  const glowSprite = data.glowSprite;
+  if (glowSprite && glowSprite.material instanceof THREE.SpriteMaterial) {
+    let targetOpacity: number;
+    if (lod === 'close') {
+      targetOpacity = 0.4; // weakened to prevent blow-out when near
+    } else if (lod === 'mid') {
+      targetOpacity = 0.88;
+    } else {
+      targetOpacity = 0.0;
+    }
+
+    const pulse = Math.sin(t * 1.5) * 0.06 + Math.sin(t * 3.7) * 0.03;
+    const finalOpacity = Math.max(0.15, Math.min(1.0, targetOpacity + pulse));
+
+    glowSprite.material.opacity = THREE.MathUtils.lerp(glowSprite.material.opacity, finalOpacity, 0.1);
+    glowSprite.visible = glowSprite.material.opacity > 0.02 && lod !== 'far';
+  }
+
+  // --- 6. Flare sprite (far mode star-point with diffraction spikes) ---
+  const flareSprite = data.flareSprite;
+  if (flareSprite && flareSprite.material instanceof THREE.SpriteMaterial) {
+    if (lod === 'far') {
+      // Inverse-square brightness falloff from 10 AU baseline
+      const distAU = Math.max(cameraDistance / 22.0, 1.0);
+      const brightnessRatio = Math.pow(10.0 / distAU, 2);
+      const targetOpacity = Math.min(1.0, brightnessRatio * 1.5);
+
+      flareSprite.material.opacity = THREE.MathUtils.lerp(flareSprite.material.opacity, targetOpacity, 0.08);
+      flareSprite.visible = flareSprite.material.opacity > 0.02;
+
+      // Stellar color temperature: G2V ~ 5778K → warm yellow-white
+      const tempColor = new THREE.Color().setHSL(0.1, 0.35, Math.min(0.95, 0.6 + brightnessRatio * 0.3));
+      flareSprite.material.color.lerp(tempColor, 0.05);
+    } else {
+      flareSprite.material.opacity = THREE.MathUtils.lerp(flareSprite.material.opacity, 0.0, 0.15);
+      flareSprite.visible = flareSprite.material.opacity > 0.02;
+    }
+  }
+
+  // --- 7. Lens flare sprite (close/mid distance, frame-synced with WebGL) ---
+  const lensFlareSprite = data.lensFlareSprite;
+  if (lensFlareSprite && lensFlareSprite.material instanceof THREE.SpriteMaterial) {
+    // Base visibility on LOD; opacity/scale driven externally in UniverseViewer.animate()
+    // Keep sprite visible in close/mid for external opacity control
+    if (lod === 'far') {
+      lensFlareSprite.material.opacity = THREE.MathUtils.lerp(lensFlareSprite.material.opacity, 0.0, 0.12);
+      lensFlareSprite.visible = lensFlareSprite.material.opacity > 0.02;
+    }
+    // close/mid: let UniverseViewer animate() control opacity directly
   }
 }
 

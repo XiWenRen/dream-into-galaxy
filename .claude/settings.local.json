@@ -33,7 +33,11 @@
       "mcp__Claude_in_Chrome__list_connected_browsers",
       "mcp__Claude_in_Chrome__computer",
       "Bash(tasklist)",
-      "Bash(taskkill /F /IM chrome.exe 2>NUL && echo killed || echo \"no chrome to kill\")"
+      "Bash(taskkill /F /IM chrome.exe 2>NUL && echo killed || echo \"no chrome to kill\")",
+      "Bash(cat .claude/launch.json 2>nul || echo \"No launch.json\")",
+      "Bash(dir .claude\\\\launch.json 2>nul || echo not found)",
+      "Bash(mkdir -p .claude && echo ok)",
+      "mcp__Claude_in_Chrome__navigate"
     ]
   }
 }

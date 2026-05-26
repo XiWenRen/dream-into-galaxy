@@ -36,6 +36,23 @@ const SATELLITE_PARENT_MAP: Record<string, string> = (() => {
   return map;
 })();
 
+/**
+ * IAU 2009 planetary rotation poles in J2000.0 equatorial frame.
+ * raDeg = right ascension of north pole (degrees)
+ * decDeg = declination of north pole (degrees)
+ */
+const PLANET_ROTATION_AXES: Record<string, { raDeg: number; decDeg: number }> = {
+  mercury: { raDeg: 281.01, decDeg: 61.45 },
+  venus:   { raDeg: 272.76, decDeg: 67.16 },
+  earth:   { raDeg: 0.00,   decDeg: 90.00 },
+  mars:    { raDeg: 317.68, decDeg: 52.89 },
+  jupiter: { raDeg: 268.05, decDeg: 64.49 },
+  saturn:  { raDeg: 40.59,  decDeg: 83.54 },
+  uranus:  { raDeg: 257.31, decDeg: -15.18 },
+  neptune: { raDeg: 295.36, decDeg: 40.47 },
+  moon:    { raDeg: 266.86, decDeg: 65.64 },
+};
+
 /** Fixed visual properties for planets when seen from other bodies */
 const PLANET_VISUALS: Record<string, { color: number; baseMag: number }> = {
   mercury: { color: 0xb0b0b0, baseMag: -0.4 },
@@ -271,5 +288,103 @@ export class ObserverEngine {
       magnitude: -17.0,
       color: 0x4a90d9,
     };
+  }
+
+  /**
+   * Rotate a direction vector from J2000 Earth equatorial frame to a body's
+   * local equatorial frame (where the body's rotation axis is +z).
+   */
+  static j2000ToBodyEquatorial(
+    bodyId: string,
+    vx: number, vy: number, vz: number
+  ): { x: number; y: number; z: number } {
+    let effectiveBodyId = bodyId;
+    if (!PLANET_ROTATION_AXES[bodyId]) {
+      const parentId = SATELLITE_PARENT_MAP[bodyId];
+      if (parentId && PLANET_ROTATION_AXES[parentId]) {
+        effectiveBodyId = parentId;
+      } else {
+        return { x: vx, y: vy, z: vz };
+      }
+    }
+    if (effectiveBodyId === 'earth') return { x: vx, y: vy, z: vz };
+
+    const pole = PLANET_ROTATION_AXES[effectiveBodyId];
+
+    const ra0 = (pole.raDeg * Math.PI) / 180.0;
+    const dec0 = (pole.decDeg * Math.PI) / 180.0;
+
+    // Planet pole unit vector in J2000 (this becomes +z in body frame)
+    const pz_x = Math.cos(dec0) * Math.cos(ra0);
+    const pz_y = Math.cos(dec0) * Math.sin(ra0);
+    const pz_z = Math.sin(dec0);
+
+    // Choose a temporary vector not parallel to pz
+    const useX = Math.abs(pz_z) < 0.9;
+    const tx = useX ? 0.0 : 1.0;
+    const ty = 0.0;
+    const tz = useX ? 1.0 : 0.0;
+
+    // px_ref = temp × pz
+    const rx = ty * pz_z - tz * pz_y;
+    const ry = tz * pz_x - tx * pz_z;
+    const rz = tx * pz_y - ty * pz_x;
+    const rlen = Math.sqrt(rx * rx + ry * ry + rz * rz);
+    const px_x = rx / rlen;
+    const px_y = ry / rlen;
+    const px_z = rz / rlen;
+
+    // py = pz × px (right-handed)
+    const py_x = pz_y * px_z - pz_z * px_y;
+    const py_y = pz_z * px_x - pz_x * px_z;
+    const py_z = pz_x * px_y - pz_y * px_x;
+
+    // v_body = R^T * v_j2000, where columns of R are (px, py, pz)
+    return {
+      x: px_x * vx + px_y * vy + px_z * vz,
+      y: py_x * vx + py_y * vy + py_z * vz,
+      z: pz_x * vx + pz_y * vy + pz_z * vz,
+    };
+  }
+
+  /**
+   * Convert RA/Dec from J2000 Earth equatorial frame to a body's local
+   * equatorial frame.  This ensures horizontal coordinates are computed in
+   * the correct reference frame for the observer's planet/moon.
+   */
+  static toBodyEquatorial(
+    bodyId: string,
+    ra: number,   // hours, J2000 Earth equatorial
+    dec: number   // degrees, J2000 Earth equatorial
+  ): { ra: number; dec: number } {
+    let effectiveBodyId = bodyId;
+    if (!PLANET_ROTATION_AXES[bodyId]) {
+      const parentId = SATELLITE_PARENT_MAP[bodyId];
+      if (parentId && PLANET_ROTATION_AXES[parentId]) {
+        effectiveBodyId = parentId;
+      } else {
+        return { ra, dec };
+      }
+    }
+    if (effectiveBodyId === 'earth') {
+      return { ra, dec };
+    }
+
+    const raRad = (ra * Math.PI) / 12.0;
+    const decRad = (dec * Math.PI) / 180.0;
+    const cosDec = Math.cos(decRad);
+
+    const v = this.j2000ToBodyEquatorial(
+      effectiveBodyId,
+      cosDec * Math.cos(raRad),
+      cosDec * Math.sin(raRad),
+      Math.sin(decRad)
+    );
+
+    let newRa = Math.atan2(v.y, v.x) * 12.0 / Math.PI;
+    if (newRa < 0) newRa += 24;
+    const newDec = Math.atan2(v.z, Math.sqrt(v.x * v.x + v.y * v.y)) * 180.0 / Math.PI;
+
+    return { ra: newRa, dec: newDec };
   }
 }

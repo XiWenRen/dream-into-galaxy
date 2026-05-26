@@ -65,6 +65,12 @@ interface CommandPanelProps {
   // 曝光亮度相关 props
   exposure: number;
   onChangeExposure: (val: number) => void;
+
+  // 轨道线与坐标轴展示控制
+  showOrbits: boolean;
+  onToggleOrbits: (show: boolean) => void;
+  showAxes: boolean;
+  onToggleAxes: (show: boolean) => void;
 }
 
 // ─── Icons (inline SVG, Lucide-style) ───────────────────────────────────────
@@ -133,6 +139,14 @@ const IconMaximize = ({ className = 'w-4 h-4' }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" />
     <path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+  </svg>
+);
+
+const IconOrbit = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <ellipse cx="12" cy="12" rx="6" ry="10" />
+    <path d="M2 12h20" />
   </svg>
 );
 
@@ -234,11 +248,15 @@ export default function CommandPanel({
   // 曝光亮度相关 props
   exposure,
   onChangeExposure,
+
+  // 轨道线与坐标轴展示控制
+  showOrbits,
+  onToggleOrbits,
+  showAxes,
+  onToggleAxes,
 }: CommandPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
-  const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [showValidation, setShowValidation] = useState(false);
-  const [showSpeedControls, setShowSpeedControls] = useState(false);
 
   const isZh = lang === 'zh';
   const t = translations[lang];
@@ -272,7 +290,7 @@ export default function CommandPanel({
   const handleLevel2Change = (val: string) => {
     if (resolved.level1 === 'satellite') {
       const moons = getPlanetSatellites(val);
-      if (moons.length > 0) onSelectPlanet(moons[0].nameEn);
+      if (moons.length > 0) onSelectPlanet(moons[0].nameEn.toLowerCase());
       else onSelectPlanet(val);
     } else {
       onSelectPlanet(val);
@@ -281,7 +299,7 @@ export default function CommandPanel({
   };
 
   const handleLevel3Change = (val: string) => {
-    onSelectPlanet(val);
+    onSelectPlanet(val.toLowerCase());
     onFocusPlanet?.();
   };
 
@@ -309,7 +327,7 @@ export default function CommandPanel({
   // ─── Expanded state ────────────────────────────────────────────────────────
   return (
     <div className="bg-slate-950/90 border border-slate-800/80 backdrop-blur-xl rounded-xl p-4 shadow-2xl flex flex-col gap-3.5 w-72 text-white font-sans select-none">
-      {/* Header */}
+      {/* Header: title + theme dots + lang switch + close */}
       <div className="flex items-center justify-between border-b border-slate-800/60 pb-2.5">
         <div className="flex items-center gap-2">
           <IconSettings className="w-4 h-4 text-cyan-400" />
@@ -317,13 +335,41 @@ export default function CommandPanel({
             {t.commandPanel}
           </span>
         </div>
-        <button
-          onClick={() => setIsCollapsed(true)}
-          className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
-          title={t.collapse}
-        >
-          <IconX className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Theme selector dots */}
+          <div className="flex items-center gap-1">
+            {THEME_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => onChangeTheme(opt.id)}
+                className={`w-4 h-4 rounded-full border-2 cursor-pointer transition-all hover:scale-110 ${
+                  theme === opt.id ? 'border-white scale-110 shadow-lg' : 'border-transparent'
+                }`}
+                style={{ backgroundColor: opt.color }}
+                title={t[`theme${opt.id.charAt(0).toUpperCase() + opt.id.slice(1).replace(/-([a-z])/g, (_, c) => c.toUpperCase())}` as keyof typeof t] || opt.id}
+              />
+            ))}
+          </div>
+          {/* Language toggle icon switch */}
+          <button
+            onClick={() => onChangeLang(isZh ? 'en' : 'zh')}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-900/70 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 cursor-pointer transition-colors"
+            title={isZh ? 'Switch to English' : '切换到中文'}
+          >
+            <span className={`text-[10px] font-mono font-bold ${isZh ? 'text-cyan-400' : 'text-slate-500'}`}>中</span>
+            <div className={`relative w-6 h-3 rounded-full transition-colors ${isZh ? 'bg-cyan-500/40' : 'bg-slate-700/50'}`}>
+              <div className={`absolute top-[1px] left-[1px] w-[10px] h-[10px] rounded-full transition-transform duration-200 ${isZh ? 'translate-x-3 bg-cyan-400' : 'translate-x-0 bg-slate-400'}`} />
+            </div>
+            <span className={`text-[10px] font-mono font-bold ${!isZh ? 'text-cyan-400' : 'text-slate-500'}`}>EN</span>
+          </button>
+          <button
+            onClick={() => setIsCollapsed(true)}
+            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            title={t.collapse}
+          >
+            <IconX className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Celestial body selector */}
@@ -372,41 +418,6 @@ export default function CommandPanel({
         )}
       </div>
 
-      {/* Theme selector */}
-      <div className="space-y-2">
-        <div className="text-[9px] text-slate-500 uppercase tracking-wider font-mono">{t.themeSelect}</div>
-        <div className="flex items-center gap-2">
-          {THEME_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              onClick={() => onChangeTheme(opt.id)}
-              onMouseEnter={() => setHoveredItem(`theme-${opt.id}`)}
-              onMouseLeave={() => setHoveredItem(null)}
-              className={`w-5 h-5 rounded-full border-2 cursor-pointer transition-all hover:scale-110 ${
-                theme === opt.id ? 'border-white scale-110 shadow-lg' : 'border-transparent'
-              }`}
-              style={{ backgroundColor: opt.color }}
-              title={t[`theme${opt.id.charAt(0).toUpperCase() + opt.id.slice(1).replace(/-([a-z])/g, (_, c) => c.toUpperCase())}` as keyof typeof t] || opt.id}
-            />
-          ))}
-          {hoveredItem?.startsWith('theme-') && (
-            <span className="text-[9px] text-slate-400 font-mono ml-1">
-              {t[`theme${hoveredItem.replace('theme-', '').charAt(0).toUpperCase() + hoveredItem.replace('theme-', '').slice(1).replace(/-([a-z])/g, (_, c) => c.toUpperCase())}` as keyof typeof t]}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Language toggle */}
-      <button
-        onClick={() => onChangeLang(isZh ? 'en' : 'zh')}
-        className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900/70 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-[10.5px] font-semibold text-slate-300 cursor-pointer transition-colors font-mono"
-      >
-        <span className="text-cyan-400">{isZh ? 'ZH' : 'EN'}</span>
-        <span className="text-slate-600">/</span>
-        <span className="text-slate-500">{isZh ? 'EN' : 'ZH'}</span>
-      </button>
-
       {/* Exposure Slider */}
       <div className="space-y-1 pt-1 border-t border-slate-800/60">
         <div className="flex justify-between items-center text-[10px] font-mono text-slate-400">
@@ -451,6 +462,30 @@ export default function CommandPanel({
             />
             <IconEye className="w-3.5 h-3.5 text-slate-500" />
             <span>{isZh ? '行星名称标签' : 'Planet Name Labels'}</span>
+          </label>
+
+          {/* 轨道线展示开关 */}
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="checkbox"
+              checked={showOrbits}
+              onChange={(e) => onToggleOrbits(e.target.checked)}
+              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <IconOrbit className="w-3.5 h-3.5 text-slate-500" />
+            <span>{isZh ? '轨道线' : 'Orbits'}</span>
+          </label>
+
+          {/* 坐标轴展示开关 */}
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="checkbox"
+              checked={showAxes}
+              onChange={(e) => onToggleAxes(e.target.checked)}
+              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <IconMaximize className="w-3.5 h-3.5 text-slate-500" />
+            <span>{isZh ? '坐标轴' : 'Axes'}</span>
           </label>
 
           {!useExponentialSpeed && (
@@ -624,57 +659,41 @@ export default function CommandPanel({
         </div>
       )}
 
-      {/* 🚀 相机穿梭速度控制 (Shuttle Speed) */}
+      {/* 🚀 相机穿梭速度控制 (Shuttle Speed) — 直接展开 */}
       {!landed && (
-        <div className="pt-1.5 border-t border-slate-800/60 flex flex-col gap-1.5">
-          <button
-            onClick={() => setShowSpeedControls(!showSpeedControls)}
-            className="flex items-center justify-between w-full text-[10px] font-bold font-mono text-cyan-400 hover:text-cyan-300 transition-colors uppercase tracking-wider py-1 cursor-pointer"
-          >
-            <span className="flex items-center gap-1.5">
-              <span>🚀</span>
-              <span>{isZh ? '相机穿梭速度控制' : 'SHUTTLE SPEED'}</span>
-            </span>
-            <span className="text-slate-500 font-normal">
-              {showSpeedControls ? '▲' : '▼'}
-            </span>
-          </button>
+        <div className="pt-1.5 border-t border-slate-800/60 flex flex-col gap-2">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold font-mono text-cyan-400 uppercase tracking-wider">
+            <span>🚀</span>
+            <span>{isZh ? '相机穿梭速度' : 'SHUTTLE SPEED'}</span>
+          </div>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-[10.5px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+              <input
+                type="checkbox"
+                checked={useExponentialSpeed}
+                onChange={(e) => onToggleExponentialSpeed(e.target.checked)}
+                className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+              />
+              <span>{isZh ? '等比加速 (越远越快)' : 'Exponential Speed'}</span>
+            </label>
 
-          {showSpeedControls && (
-            <div className="space-y-2 bg-slate-900/40 p-2.5 rounded-lg border border-slate-800/50">
-              <label className="flex items-center gap-2 text-[10.5px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-                <input
-                  type="checkbox"
-                  checked={useExponentialSpeed}
-                  onChange={(e) => onToggleExponentialSpeed(e.target.checked)}
-                  className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
-                />
-                <span>{isZh ? '开启等比加速 (越远越快)' : 'Exponential Speed Scaling'}</span>
-              </label>
-
-              {!useExponentialSpeed && (
-                <div className="flex flex-col space-y-1 pt-1.5 border-t border-slate-800/40">
-                  <span className="text-[9px] text-slate-500 uppercase tracking-wider font-mono">
-                    {isZh ? '预设自定义速度' : 'Custom Base Speed'}
-                  </span>
-                  <select
-                    value={customSpeedPreset}
-                    onChange={(e) => onChangeCustomSpeedPreset(e.target.value)}
-                    className="bg-slate-950 border border-slate-850 hover:border-cyan-500/50 text-white text-[10.5px] rounded-md px-2 py-1 focus:outline-none cursor-pointer outline-none transition-colors w-full font-mono font-bold"
-                  >
-                    <option value="walk">{isZh ? '🚶 步行 (1.4 m/s)' : 'Walking (1.4 m/s)'}</option>
-                    <option value="rocket">{isZh ? '🚀 火箭 (11.2 km/s)' : 'Rocket (11.2 km/s)'}</option>
-                    <option value="meteor">{isZh ? '☄️ 流星 (50 km/s)' : 'Meteor (50 km/s)'}</option>
-                    <option value="light">{isZh ? '✨ 光速 (1c)' : 'Light Speed (1c)'}</option>
-                    <option value="10c">{isZh ? '⚡ 10倍光速 (10c)' : '10x Light Speed (10c)'}</option>
-                    <option value="100c">{isZh ? '⚡ 100倍光速 (100c)' : '100x Light Speed (100c)'}</option>
-                    <option value="1000c">{isZh ? '⚡ 1000倍光速 (1000c)' : '1000x Light Speed (1000c)'}</option>
-                    <option value="10000c">{isZh ? '⚡ 10000倍光速 (10000c)' : '10000x Light Speed (10000c)'}</option>
-                  </select>
-                </div>
-              )}
-            </div>
-          )}
+            {!useExponentialSpeed && (
+              <select
+                value={customSpeedPreset}
+                onChange={(e) => onChangeCustomSpeedPreset(e.target.value)}
+                className="bg-slate-950 border border-slate-850 hover:border-cyan-500/50 text-white text-[10.5px] rounded-md px-2 py-1 focus:outline-none cursor-pointer outline-none transition-colors w-full font-mono"
+              >
+                <option value="walk">{isZh ? '🚶 步行 (1.4 m/s)' : 'Walking (1.4 m/s)'}</option>
+                <option value="rocket">{isZh ? '🚀 火箭 (11.2 km/s)' : 'Rocket (11.2 km/s)'}</option>
+                <option value="meteor">{isZh ? '☄️ 流星 (50 km/s)' : 'Meteor (50 km/s)'}</option>
+                <option value="light">{isZh ? '✨ 光速 (1c)' : 'Light Speed (1c)'}</option>
+                <option value="10c">{isZh ? '⚡ 10倍光速 (10c)' : '10x Light Speed (10c)'}</option>
+                <option value="100c">{isZh ? '⚡ 100倍光速 (100c)' : '100x Light Speed (100c)'}</option>
+                <option value="1000c">{isZh ? '⚡ 1000倍光速 (1000c)' : '1000x Light Speed (1000c)'}</option>
+                <option value="10000c">{isZh ? '⚡ 10000倍光速 (10000c)' : '10000x Light Speed (10000c)'}</option>
+              </select>
+            )}
+          </div>
         </div>
       )}
 

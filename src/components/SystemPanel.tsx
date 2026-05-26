@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { translations } from '../i18n';
+import React from 'react';
 
 interface SystemPanelProps {
   lang: 'zh' | 'en';
@@ -15,18 +14,6 @@ interface SystemPanelProps {
 }
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
-
-const IconChevronUp = ({ className = 'w-4 h-4' }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="m18 15-6-6-6 6" />
-  </svg>
-);
-
-const IconChevronDown = ({ className = 'w-4 h-4' }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="m6 9 6 6 6-6" />
-  </svg>
-);
 
 const IconCpu = ({ className = 'w-4 h-4' }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -66,58 +53,40 @@ export default function SystemPanel({
   helioY,
   helioZ,
 }: SystemPanelProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const isZh = lang === 'zh';
-  const t = translations[lang];
 
   return (
-    <div className="flex flex-col items-center">
-      {/* Expand/collapse trigger */}
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-1 px-3 py-1 rounded-t-lg bg-slate-950/70 border border-slate-800/60 border-b-0 backdrop-blur-md text-[9px] font-mono text-slate-500 hover:text-cyan-400 transition-colors cursor-pointer"
-        title={isExpanded ? t.collapse : t.expand}
+    <div className="w-full bg-slate-950/85 border border-slate-800/60 backdrop-blur-md rounded-lg px-3 py-2 shadow-2xl"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[10px] uppercase font-mono tracking-widest text-white/40"
       >
-        {isExpanded ? <IconChevronDown className="w-3 h-3" /> : <IconChevronUp className="w-3 h-3" />}
-        <span>{isExpanded ? t.systemInfo : t.systemInfo}</span>
-        {!isExpanded && <div className="w-1 h-1 rounded-full bg-green-500 animate-pulse" />}
-      </button>
-
-      {/* Expanded panel */}
-      {isExpanded && (
-        <div className="bg-slate-950/85 border border-slate-800/60 backdrop-blur-md rounded-t-xl px-5 py-2.5 shadow-2xl"
-          style={{ minWidth: 'min(90vw, 800px)' }}
-        >
-          <div className="flex items-center justify-between gap-6 text-[10px] uppercase font-mono tracking-widest text-white/40">
-            {/* Left: System status */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <IconCpu className="w-3 h-3 text-green-500/70" />
-                <span>{isZh ? 'WebGL GPU 加速' : 'WebGL GPU ACCELERATED'}</span>
-              </div>
-              <span className="text-white/10">|</span>
-              <div className="flex items-center gap-1.5">
-                <IconTarget className="w-3 h-3 text-cyan-500/50" />
-                <span>{isZh ? '视角' : 'VIEW'}: {selectedPlanetId}</span>
-              </div>
-              <span className="text-white/10">|</span>
-              <div className="flex items-center gap-1.5">
-                <IconOrbit className="w-3 h-3 text-indigo-400/50" />
-                <span>{isZh ? 'J2000 高精度轨道' : 'J2000 DEEP ORBIT'}</span>
-              </div>
-            </div>
-
-            {/* Right: Heliocentric coordinates */}
-            <div className="flex items-center gap-3 text-cyan-400/70">
-              <IconGlobe className="w-3 h-3" />
-              <span className="text-white/20 lowercase italic">{isZh ? '日地轨道' : 'Heliocentric'} [j2000]:</span>
-              <span>X {helioX.toFixed(4)}</span>
-              <span>Y {helioY.toFixed(4)}</span>
-              <span>Z {helioZ.toFixed(4)} AU</span>
-            </div>
+        {/* Left: System status */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="flex items-center gap-1.5">
+            <IconCpu className="w-3 h-3 text-green-500/70" />
+            <span>{isZh ? 'WebGL GPU 加速' : 'WebGL GPU ACCELERATED'}</span>
+          </div>
+          <span className="text-white/10">|</span>
+          <div className="flex items-center gap-1.5">
+            <IconTarget className="w-3 h-3 text-cyan-500/50" />
+            <span>{isZh ? '视角' : 'VIEW'}: {selectedPlanetId}</span>
+          </div>
+          <span className="text-white/10">|</span>
+          <div className="flex items-center gap-1.5">
+            <IconOrbit className="w-3 h-3 text-indigo-400/50" />
+            <span>{isZh ? 'J2000 高精度轨道' : 'J2000 DEEP ORBIT'}</span>
           </div>
         </div>
-      )}
+
+        {/* Right: Heliocentric coordinates */}
+        <div className="flex items-center gap-2 text-cyan-400/70 flex-wrap">
+          <IconGlobe className="w-3 h-3" />
+          <span className="text-white/20 lowercase italic">{isZh ? '日地轨道' : 'Heliocentric'} [j2000]:</span>
+          <span>X {helioX.toFixed(4)}</span>
+          <span>Y {helioY.toFixed(4)}</span>
+          <span>Z {helioZ.toFixed(4)} AU</span>
+        </div>
+      </div>
     </div>
   );
 }

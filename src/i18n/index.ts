@@ -182,6 +182,49 @@ export interface TranslationDict {
   phase_waning_gibbous: string;
   phase_last_quarter: string;
   phase_waning_crescent: string;
+
+  // Astro Phenomena Module
+  phenomenaTitle: string;
+  phenomenaMoonPhases: string;
+  phenomenaEclipses: string;
+  phenomenaSeasons: string;
+  phenomenaRetrograde: string;
+  phenomenaSolarTerms: string;
+  phenomenaDescMoonPhases: string;
+  phenomenaDescEclipses: string;
+  phenomenaDescSeasons: string;
+  phenomenaDescRetrograde: string;
+  phenomenaDescSolarTerms: string;
+  viewPrinciple: string;
+  viewObservation: string;
+  viewCompare: string;
+  nextStep: string;
+  prevStep: string;
+  switchView: string;
+  whyQuestion: string;
+  whatWouldISee: string;
+  ageRange: string;
+  demoExit: string;
+  demoPlay: string;
+  demoPause: string;
+  demoKeyframe: string;
+  demoToGround: string;
+  demoToSpace: string;
+  stepIndicator: string;
+  moonPhaseStep1Title: string;
+  moonPhaseStep1Body: string;
+  moonPhaseStep2Title: string;
+  moonPhaseStep2Body: string;
+  moonPhaseStep3Title: string;
+  moonPhaseStep3Body: string;
+  eclipseStep1Title: string;
+  eclipseStep1Body: string;
+  eclipseStep2Title: string;
+  eclipseStep2Body: string;
+  eclipseStep3Title: string;
+  eclipseStep3Body: string;
+  eclipseStep4Title: string;
+  eclipseStep4Body: string;
 }
 
 export const translations: Record<'zh' | 'en', TranslationDict> = {
@@ -360,6 +403,49 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     phase_waning_gibbous: "亏凸月",
     phase_last_quarter: "下弦月",
     phase_waning_crescent: "残月",
+
+    // Astro Phenomena in Chinese
+    phenomenaTitle: "天文现象实验室",
+    phenomenaMoonPhases: "月相变化",
+    phenomenaEclipses: "日食与月食",
+    phenomenaSeasons: "四季变化",
+    phenomenaRetrograde: "行星逆行",
+    phenomenaSolarTerms: "二十四节气",
+    phenomenaDescMoonPhases: "为什么月亮每天都有不同的形状？",
+    phenomenaDescEclipses: "太阳或月亮为什么有时会消失？",
+    phenomenaDescSeasons: "为什么有春夏秋冬？",
+    phenomenaDescRetrograde: "为什么行星有时会倒着走？",
+    phenomenaDescSolarTerms: "古人如何根据太阳划分时间？",
+    viewPrinciple: "看原理",
+    viewObservation: "看观测",
+    viewCompare: "对比看",
+    nextStep: "下一步",
+    prevStep: "上一步",
+    switchView: "切换视角",
+    whyQuestion: "为什么？",
+    whatWouldISee: "在这里会看到什么？",
+    ageRange: "适合年龄",
+    demoExit: "退出演示",
+    demoPlay: "播放",
+    demoPause: "暂停",
+    demoKeyframe: "关键帧",
+    demoToGround: "到地面看看",
+    demoToSpace: "到太空看看",
+    stepIndicator: "第 {{current}} 步 / 共 {{total}} 步",
+    moonPhaseStep1Title: "月球是一面大镜子",
+    moonPhaseStep1Body: "月球自己不会发光，它像一面大镜子反射太阳光。我们从地球看过去，只能看到被太阳照亮的那一部分。",
+    moonPhaseStep2Title: "轨道位置决定月相",
+    moonPhaseStep2Body: "当月球转到太阳和地球中间时，亮面朝外、暗面朝我们，就是新月。当月球转到地球另一侧，整个亮面都对着我们，就是满月！",
+    moonPhaseStep3Title: "一个月绕一圈",
+    moonPhaseStep3Body: "月球绕地球转一圈大约需要27.3天，所以每个月我们都会看到一轮完整的月相变化：新月→峨眉→上弦→盈凸→满月→亏凸→下弦→残月→新月。",
+    eclipseStep1Title: "影子游戏",
+    eclipseStep1Body: "日食和月食其实都是影子游戏！日食是月球的影子投射到地球上；月食是地球的影子投射到月球上。",
+    eclipseStep2Title: "为什么不是每个月都有？",
+    eclipseStep2Body: "月球轨道有点倾斜（大约5度），就像跷跷板一样。只有当月球正好运行到黄道面上，并且三者成一直线时，才会发生交食。",
+    eclipseStep3Title: "本影和半影",
+    eclipseStep3Body: "影子有两种：中间深色的叫本影，在这里能看到日全食；边缘浅色的叫半影，在这里只能看到日偏食。",
+    eclipseStep4Title: "为什么月食时月亮是红色的？",
+    eclipseStep4Body: "地球大气层会把阳光中的蓝光散射掉，只剩红光能拐弯照到月球上。所以月食时，月亮会变成暗红色的"血月"！",
   },
   en: {
     title: "Cosmic Odyssey",
@@ -534,5 +620,48 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     phase_waning_gibbous: "Waning Gibbous",
     phase_last_quarter: "Last Quarter",
     phase_waning_crescent: "Waning Crescent",
+
+    // Astro Phenomena in English
+    phenomenaTitle: "Astronomy Lab",
+    phenomenaMoonPhases: "Moon Phases",
+    phenomenaEclipses: "Solar & Lunar Eclipses",
+    phenomenaSeasons: "The Four Seasons",
+    phenomenaRetrograde: "Planetary Retrograde",
+    phenomenaSolarTerms: "24 Solar Terms",
+    phenomenaDescMoonPhases: "Why does the Moon change shape every night?",
+    phenomenaDescEclipses: "Why do the Sun or Moon sometimes disappear?",
+    phenomenaDescSeasons: "Why do we have spring, summer, fall and winter?",
+    phenomenaDescRetrograde: "Why do planets sometimes move backwards?",
+    phenomenaDescSolarTerms: "How did ancient people track time using the Sun?",
+    viewPrinciple: "See the Principle",
+    viewObservation: "See the Observation",
+    viewCompare: "Compare Both",
+    nextStep: "Next Step",
+    prevStep: "Previous Step",
+    switchView: "Switch View",
+    whyQuestion: "Why?",
+    whatWouldISee: "What would I see here?",
+    ageRange: "Ages",
+    demoExit: "Exit Demo",
+    demoPlay: "Play",
+    demoPause: "Pause",
+    demoKeyframe: "Keyframe",
+    demoToGround: "View from Ground",
+    demoToSpace: "View from Space",
+    stepIndicator: "Step {{current}} of {{total}}",
+    moonPhaseStep1Title: "The Moon is a Giant Mirror",
+    moonPhaseStep1Body: "The Moon doesn't glow by itself. It acts like a giant mirror reflecting sunlight. From Earth, we can only see the part that the Sun illuminates.",
+    moonPhaseStep2Title: "Orbit Position Determines Phase",
+    moonPhaseStep2Body: "When the Moon moves between the Sun and Earth, its bright side faces away from us — that's the New Moon. When the Moon is on the opposite side of Earth, its full bright face shines toward us — that's the Full Moon!",
+    moonPhaseStep3Title: "One Orbit Every Month",
+    moonPhaseStep3Body: "The Moon orbits Earth about every 27.3 days. So each month we see a complete cycle of phases: New → Crescent → First Quarter → Gibbous → Full → Gibbous → Last Quarter → Crescent → New.",
+    eclipseStep1Title: "A Game of Shadows",
+    eclipseStep1Body: "Solar and lunar eclipses are both shadow games! A solar eclipse happens when the Moon's shadow falls on Earth. A lunar eclipse happens when Earth's shadow falls on the Moon.",
+    eclipseStep2Title: "Why Don't They Happen Every Month?",
+    eclipseStep2Body: "The Moon's orbit is tilted by about 5 degrees, like a seesaw. Only when the Moon happens to cross the ecliptic plane while perfectly aligned with the Sun and Earth can an eclipse occur.",
+    eclipseStep3Title: "Umbra and Penumbra",
+    eclipseStep3Body: "Shadows have two parts: the dark central umbra where you see a total eclipse, and the lighter outer penumbra where you see only a partial eclipse.",
+    eclipseStep4Title: "Why Does the Moon Turn Red?",
+    eclipseStep4Body: "Earth's atmosphere scatters blue light and bends red sunlight onto the Moon. That's why during a lunar eclipse, the Moon turns a dim red color — a 'blood moon'!",
   }
 };

@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { OrbitEngine, CELESTIAL_PHYSICS, PLANET_ORBITAL_DATA } from '../engine/OrbitEngine';
 import { createAdvancedRingMaterial } from '../engine/PlanetMaterials';
+import { buildSunGroup, updateSunEffects, SunGroup } from '../engine/SunEffects';
 import { ScaleEngine } from '../engine/ScaleEngine';
 import { TimeEngine } from '../engine/TimeEngine';
 import { TeachingModeEngine } from '../engine/TeachingModeEngine';
@@ -141,6 +142,8 @@ interface UniverseViewerProps {
   activeLayer?: 'core' | 'mantle' | 'crust' | 'atmosphere' | 'ring' | null;
   onLayerHover?: (layer: 'core' | 'mantle' | 'crust' | 'atmosphere' | 'ring' | null) => void;
   exposure?: number;
+  showOrbits?: boolean;
+  showAxes?: boolean;
 }
 
 export interface SatelliteDef {
@@ -682,6 +685,8 @@ export default function UniverseViewer({
   activeLayer,
   onLayerHover,
   exposure = 1.5,
+  showOrbits = true,
+  showAxes = false,
 }: UniverseViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -793,7 +798,33 @@ export default function UniverseViewer({
       constellLinesRef.current.visible = !!showConstellLines;
     }
   }, [showConstellLines]);
-  
+
+  // 轨道线可见性控制
+  useEffect(() => {
+    Object.values(orbitLinesRef.current).forEach((line: THREE.Line | undefined) => {
+      if (line) line.visible = showOrbits;
+    });
+  }, [showOrbits]);
+
+  // 坐标轴可见性控制
+  useEffect(() => {
+    Object.values(planetMeshesRef.current).forEach((group: THREE.Group | undefined) => {
+      if (!group) return;
+      group.traverse((node: THREE.Object3D) => {
+        if (node.name === 'axes-helper') {
+          node.visible = showAxes;
+        }
+      });
+    });
+    if (sunMeshRef.current) {
+      sunMeshRef.current.traverse((node: THREE.Object3D) => {
+        if (node.name === 'axes-helper') {
+          node.visible = showAxes;
+        }
+      });
+    }
+  }, [showAxes]);
+
   // 教学模式状态与进度控制
   const [teachingMode, setTeachingMode] = useState<boolean>(true);
   const teachingModeRef = useRef<boolean>(true);
@@ -808,18 +839,22 @@ export default function UniverseViewer({
     teachingModeRef.current = teachingMode;
   }, [teachingMode]);
 
+  // 用于区分首次加载（startEntryAnimation 从 false 变为 true）与组件重新挂载（已经是 true）
+  const startEntryAnimationEverFalseRef = useRef(!startEntryAnimation);
+
   useEffect(() => {
-    if (startEntryAnimation && !startEntryRef.current) {
+    if (!startEntryAnimation) {
+      startEntryAnimationEverFalseRef.current = true;
+    }
+    if (startEntryAnimation && startEntryAnimationEverFalseRef.current && !startEntryRef.current) {
       startEntryRef.current = true;
       isEnteringRef.current = true;
       entryProgressRef.current = 0;
     }
   }, [startEntryAnimation]);
 
-  const flareOpacityRef = useRef(1.0);  // 镜头光晕平滑淡入淡出插值机点
-
-  // 用于计算镜头光晕 (Lens Flare) 的屏幕投影坐标
-  const [sunScreenPos, setSunScreenPos] = useState<{ x: number; y: number; visible: boolean; scale: number; opacity: number } | null>(null);
+  // WebGL lens flare opacity 平滑插值（DOM overlay 已移除，改为 WebGL sprite 渲染）
+  const flareOpacityRef = useRef(1.0);
   const [planetLabels, setPlanetLabels] = useState<Record<string, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }>>({});
   const [zoomLevelText, setZoomLevelText] = useState<string>('1.00 AU');
 
@@ -1509,28 +1544,6 @@ export default function UniverseViewer({
     return texture;
   };
 
-  // 生成太阳耀眼日晕极炽深热发光 (Hyper-Radiant Solar Glare Sprite) 径向渐变贴图
-  const createSunGlowTexture = (): THREE.Texture => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d')!;
-    const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
-    // 超高温核心金色、过渡到火焰明橙色，边缘以高灵敏度散逸至深红，塑造极具层次的热物理日冕质感
-    grad.addColorStop(0, 'rgba(255, 253, 230, 0.85)');
-    grad.addColorStop(0.12, 'rgba(254, 215, 170, 0.55)');
-    grad.addColorStop(0.35, 'rgba(251, 146, 60, 0.22)');
-    grad.addColorStop(0.65, 'rgba(239, 68, 68, 0.05)');
-    grad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(128, 128, 128, 0, Math.PI * 2);
-    ctx.fill();
-
-    const texture = new THREE.CanvasTexture(canvas);
-    return texture;
-  };
-
   // 生成三维宇宙背景星芒 (4-Point Diffraction Spikes) 径向渐变贴图
   const createUniverseStarTexture = (): THREE.Texture => {
     const canvas = document.createElement('canvas');
@@ -1832,40 +1845,20 @@ export default function UniverseViewer({
       console.warn('[UniverseViewer] Failed to load Hipparcos catalog:', err);
     });
 
-    // 7. 渲染太阳 (Sun) 独具日冕层与独立光晕
-    const sunGroup = new THREE.Group();
+    // 7. 渲染太阳 (Sun) — 使用多层 LOD 太阳组
+    const sunRadius = getSunRadius();
+    const sunTex = getPlanetTexture('sun');
+    const sunGroup = buildSunGroup(sunRadius, sunTex);
     scene.add(sunGroup);
     sunMeshRef.current = sunGroup;
-
-    // 宇宙学家视觉尺度修正：根据是否开启“视觉比例优化”或“严格1:1真物理比例”调节太阳几何半径
-    const sunRadius = getSunRadius();
-    const coronaRadius = sunRadius * 1.15;
-
-    // 太阳内球体
-    const sunTex = getPlanetTexture('sun');
-    const sunGeo = new THREE.SphereGeometry(sunRadius, 64, 32);
-    const sunMat = new THREE.MeshBasicMaterial({ map: sunTex });
-    const sunInnerMesh = new THREE.Mesh(sunGeo, sunMat);
-    sunInnerMesh.name = 'sun-inner-mesh';
-    sunGroup.add(sunInnerMesh);
 
     // 增加太阳的 X-Y-Z 坐标轴展示
     const sunAxes = new THREE.AxesHelper(sunRadius * 2.2);
     sunAxes.name = 'axes-helper';
-    sunInnerMesh.add(sunAxes);
-
-    // C. 3D 太阳全向辐射偏振光晕精灵 (3D Camera-Facing Radiant Solar Glare)
-    const solarGlowSpriteMat = new THREE.SpriteMaterial({
-      map: createSunGlowTexture(),
-      color: 0xffffff,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
-    });
-    const solarGlowSprite = new THREE.Sprite(solarGlowSpriteMat);
-    solarGlowSprite.name = 'sun-glow-sprite';
-    solarGlowSprite.scale.set(sunRadius * 3.8, sunRadius * 3.8, 1);
-    sunGroup.add(solarGlowSprite);
+    const sunInnerMesh = sunGroup.userData.sunInnerMesh;
+    if (sunInnerMesh) {
+      sunInnerMesh.add(sunAxes);
+    }
 
     // 8. 创建 8 大行星以及月球
     // 宇宙学家尺度优化：在优化模式下开辟更大星空负空间；在真实尺寸模式下按照真实物理半径幂律压缩
@@ -2452,8 +2445,8 @@ export default function UniverseViewer({
         // 同步更新 tracking target，防止入场结束后触发防穿模逻辑导致镜头突然倒退
         lastTargetPosRef.current.set(0, 0, 0);
         lastRadOfTargetRef.current = getCurrentPlanetRadius(selectedPlanetIdRef.current || 'sun');
-      } else if (!startEntryRef.current) {
-        // 如果还没开始入场，就停在起点 (1.44 ly)
+      } else if (!startEntryRef.current && !startEntryAnimation) {
+        // 仅当尚未开始入场动画时，停在起点 (1.44 ly) 等待
         cameraRef.current.position.set(0, 500000, 1939000);
         controlsRef.current.target.set(0, 0, 0);
         controlsRef.current.update();
@@ -2489,6 +2482,12 @@ export default function UniverseViewer({
         const currentSunRadius = THREE.MathUtils.lerp(realSunRadius, teachingSunRadius, smoothTeachingProgress);
         const sunScale = currentSunRadius / realSunRadius;
         sunMeshRef.current.scale.set(sunScale, sunScale, sunScale);
+
+        // 太阳多层 LOD 效果更新（距离驱动）
+        const sunWorldPos = new THREE.Vector3();
+        sunMeshRef.current.getWorldPosition(sunWorldPos);
+        const distToSun = cameraRef.current.position.distanceTo(sunWorldPos);
+        updateSunEffects(sunMeshRef.current as SunGroup, delta, distToSun);
       }
 
       // 行星公转与自转更新
@@ -3064,13 +3063,19 @@ export default function UniverseViewer({
       // 计算贴切真实宇宙规律的大气衍射微变与宏观缩放关系 (远小近大)
       const targetScale = Math.max(0.12, Math.min(0.65, 1.2 * Math.pow(15 / distToSun, 0.45)));
 
-      setSunScreenPos({
-        x: screenX,
-        y: screenY,
-        visible: flareOpacityRef.current > 0.01,
-        scale: targetScale,
-        opacity: flareOpacityRef.current
-      });
+      // 用 WebGL sprite 渲染镜头光晕，彻底消除 DOM/WebGL 不同步问题
+      const lensFlareSprite = sunMeshRef.current?.userData?.lensFlareSprite as THREE.Sprite | undefined;
+      if (lensFlareSprite && lensFlareSprite.material instanceof THREE.SpriteMaterial) {
+        const targetFlareOpacity = (obscured || isBehind) ? 0.0 : targetOpacity;
+        flareOpacityRef.current = THREE.MathUtils.lerp(flareOpacityRef.current, targetFlareOpacity, 0.12);
+        lensFlareSprite.material.opacity = flareOpacityRef.current;
+        lensFlareSprite.visible = flareOpacityRef.current > 0.01;
+
+        // 动态调整 world-space scale，使 screen-space 大小随距离变化（类似 DOM overlay 行为）
+        const sunRadius = getSunRadius();
+        const worldScale = Math.max(sunRadius * 2, distToSun * 0.5);
+        lensFlareSprite.scale.set(worldScale, worldScale, 1);
+      }
 
       // -------------------------------------------------------------
       // 计算八大行星的名称标签屏幕投影位置
@@ -3477,10 +3482,92 @@ export default function UniverseViewer({
         });
       });
 
-      // 12. 更新控制器与渲染新帧
+      // 12. 更新控制器
       controlsRef.current.update();
+
+      // 在 controls.update() 之后重新投影太阳到屏幕坐标，确保光晕和 3D 渲染使用同一帧相机矩阵
+      if (sunMeshRef.current && cameraRef.current && container) {
+        const sunWorldPos = new THREE.Vector3();
+        sunMeshRef.current.getWorldPosition(sunWorldPos);
+        const sunProj = sunWorldPos.clone().project(cameraRef.current);
+
+        const curWidth = container.clientWidth || 800;
+        const curHeight = container.clientHeight || 600;
+
+        // 重新判定太阳是否在相机前方
+        const toSun = sunWorldPos.clone().sub(cameraRef.current.position);
+        const camDir = new THREE.Vector3();
+        cameraRef.current.getWorldDirection(camDir);
+        const isBehind = toSun.dot(camDir) <= 0 || sunProj.z > 1;
+
+      }
+
       rendererRef.current.render(sceneRef.current, cameraRef.current);
     };
+
+    // 初始化相机位置到选中星体面前（从观测模式返回时直接定位，避免从远处飞入）
+    const initializeCameraToSelectedPlanet = () => {
+      if (!selectedPlanetId || !cameraRef.current || !controlsRef.current) return;
+
+      const initDaysSinceJ2000 = TimeEngine.getDaysSinceJ2000(currentTimestampRef.current);
+
+      let targetPos = new THREE.Vector3();
+
+      if (selectedPlanetId === 'sun') {
+        targetPos.set(0, 0, 0);
+      } else if (selectedPlanetId === 'moon') {
+        const earthPosRaw = OrbitEngine.getHeliocentricPosition('earth', initDaysSinceJ2000);
+        const moonRelPosRaw = OrbitEngine.getLunarRelativePosition(initDaysSinceJ2000);
+        const earthPos = toThreePos(earthPosRaw, ORBIT_SCALE);
+        const moonRelPos = toThreePos(moonRelPosRaw, ORBIT_SCALE);
+        if (!strictPhysics) {
+          const earthStrictRad = ScaleEngine.getStrictRadius('earth');
+          const earthObsRad = ScaleEngine.getObservableRadius('earth');
+          const scaleFactor = earthObsRad / earthStrictRad;
+          moonRelPos.multiplyScalar(scaleFactor);
+        }
+        targetPos.copy(earthPos).add(moonRelPos);
+      } else {
+        const posRaw = OrbitEngine.getHeliocentricPosition(selectedPlanetId, initDaysSinceJ2000);
+        targetPos = toThreePos(posRaw, ORBIT_SCALE);
+      }
+
+      const radOfTarget = getCurrentPlanetRadius(selectedPlanetId);
+      let offset: number;
+      if (strictPhysics) {
+        offset = radOfTarget * 3.5;
+        if (selectedPlanetId === 'sun') {
+          offset = radOfTarget * 4.0;
+        }
+      } else {
+        offset = radOfTarget * 2.15;
+      }
+
+      let idealCameraPos: THREE.Vector3;
+      if (selectedPlanetId === 'sun') {
+        idealCameraPos = new THREE.Vector3(targetPos.x, targetPos.y, targetPos.z + offset);
+      } else {
+        const sunToPlanetDir = targetPos.clone().normalize();
+        if (sunToPlanetDir.lengthSq() < 0.0001) {
+          sunToPlanetDir.set(0, 0, 1);
+        }
+        idealCameraPos = targetPos.clone().sub(sunToPlanetDir.multiplyScalar(offset));
+      }
+
+      cameraRef.current.position.copy(idealCameraPos);
+      controlsRef.current.target.copy(targetPos);
+      lastTargetPosRef.current.copy(targetPos);
+      lastSelectedPlanetIdRef.current = selectedPlanetId;
+      lastRadOfTargetRef.current = radOfTarget;
+
+      // 如果从观测模式返回（startEntryAnimation 已为 true 但 startEntryRef 为 false），
+      // 标记为已完成入场，使正常跟随逻辑生效，避免每帧被重置到 1.44 ly 起点
+      if (startEntryAnimation && !startEntryRef.current) {
+        startEntryRef.current = true;
+      }
+    };
+
+    initializeCameraToSelectedPlanet();
 
     animate();
 
@@ -3749,31 +3836,8 @@ export default function UniverseViewer({
         </div>
       )}
       
-      {/* 2. 核心高度仿真：直视光源时所产生的镜头光晕 (Lens Flare Overlays) */}
-      {/* 镜头光晕现与缩放视野高度挂钩，支持在太阳特写尺度等不同情境展现，结合 3D 物理 Raycaster 呈现真实遮蔽防穿模效果 */}
-      {sunScreenPos && sunScreenPos.visible && (
-        <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
-          {/* A. 强光中心炫目日光球 */}
-          <div 
-            className="absolute"
-            style={{
-              left: `${sunScreenPos.x}px`,
-              top: `${sunScreenPos.y}px`,
-              // 结合动态相对距离进行比例缩小，较此前显著调小，更加柔和逼真 (Request 3)
-              transform: `translate(-50%, -50%) scale(${sunScreenPos.scale * 0.45})`,
-              opacity: sunScreenPos.opacity,
-            }}
-          >
-            {/* 暖金色渐变多层光晕星爆 (Diffraction Starburst) */}
-            <div className="absolute top-1/2 left-1/2 w-[340px] h-[340px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(251,191,36,0.3)_0%,rgba(244,63,94,0.1)_30%,rgba(249,115,22,0.04)_55%,rgba(0,0,0,0)_75%)] mix-blend-screen blur-[6px]" />
-            <div className="absolute top-1/2 left-1/2 w-52 h-52 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.4)_0%,rgba(251,191,36,0.15)_35%,rgba(0,0,0,0)_65%)] mix-blend-screen blur-[3px]" />
-            <div className="absolute top-1/2 left-1/2 w-24 h-24 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.65)_0%,rgba(217,119,6,0.25)_40%,rgba(0,0,0,0)_100%)] mix-blend-screen" />
-
-            {/* 柔亮多重同心光圈 (Multi-layer concentric halo rings - Cinematic Diffraction Rings) */}
-            <div className="absolute top-1/2 left-1/2 w-[380px] h-[380px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-orange-500/12 bg-[radial-gradient(circle,rgba(249,115,22,0.15)_0%,rgba(244,63,94,0.05)_45%,rgba(0,0,0,0)_80%)] mix-blend-screen" />
-          </div>
-        </div>
-      )}
+      {/* 2. 镜头光晕已移至 WebGL 渲染（SunEffects.ts 中的 sun-lens-flare sprite），
+           彻底消除 DOM/WebGL 不同步问题 */}
 
       {/* 3. 八大行星名称标签 (Planet Name Labels) */}
       <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
@@ -3819,9 +3883,9 @@ export default function UniverseViewer({
           <span className={`transition-colors ${teachingMode ? 'text-cyan-400 font-bold' : 'text-slate-500'}`}>
             {lang === 'zh' ? '教学' : 'TEACH'}
           </span>
-          
+
           <div className={`relative w-8 h-4 rounded-full transition-colors ${teachingMode ? 'bg-cyan-500/40' : 'bg-slate-700/50'}`}>
-            <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full transition-transform duration-300 ${teachingMode ? 'translate-x-4 bg-cyan-400 shadow-[0_0_5px_#22d3ee]' : 'translate-x-0 bg-slate-400'}`} />
+            <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full transition-transform duration-300 ${teachingMode ? 'translate-x-0 bg-cyan-400 shadow-[0_0_5px_#22d3ee]' : 'translate-x-4 bg-slate-400'}`} />
           </div>
 
           <span className={`transition-colors ${!teachingMode ? 'text-cyan-400 font-bold' : 'text-slate-500'}`}>

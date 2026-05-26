@@ -57,6 +57,12 @@ export default function App() {
   // 行星/卫星名称标签开关
   const [showPlanetLabels, setShowPlanetLabels] = useState<boolean>(true);
 
+  // 轨道线展示/隐藏开关
+  const [showOrbits, setShowOrbits] = useState<boolean>(true);
+
+  // 星体坐标轴展示/隐藏开关
+  const [showAxes, setShowAxes] = useState<boolean>(false);
+
   // 望远镜模式（仅在星空模式下生效）
   const [telescopeActive, setTelescopeActive] = useState<boolean>(false);
 
@@ -243,6 +249,10 @@ export default function App() {
           onChangeCustomSpeedPreset={setCustomSpeedPreset}
           exposure={exposure}
           onChangeExposure={setExposure}
+          showOrbits={showOrbits}
+          onToggleOrbits={setShowOrbits}
+          showAxes={showAxes}
+          onToggleAxes={setShowAxes}
         />
       </div>
 
@@ -314,13 +324,15 @@ export default function App() {
               activeLayer={activeLayer}
               onLayerHover={setActiveLayer}
               exposure={exposure}
+              showOrbits={showOrbits}
+              showAxes={showAxes}
             />
           )}
         </div>
 
         {/* 右侧：悬浮天体结构剖析与物理常数面板 (仅在 3D 宇宙模式、且选择特定星球时悬浮在右侧) */}
         {!landed && selectedPlanetId && showPlanetInfo && (
-          <div className="absolute top-20 right-5 w-80 max-h-[calc(100vh-180px)] overflow-y-auto bg-black/75 border border-white/10 rounded-2xl p-0 shadow-2xl z-20 backdrop-blur-md hidden md:block select-none animate-in fade-in-0 slide-in-from-right-5 duration-300">
+          <div className="absolute top-20 right-5 w-[22rem] max-h-[calc(100vh-180px)] bg-black/75 border border-white/10 rounded-2xl p-0 shadow-2xl z-20 backdrop-blur-md hidden md:block select-none animate-in fade-in-0 slide-in-from-right-5 duration-300">
             <PlanetInfoPanel
               planetId={selectedPlanetId}
               crossSectionActive={crossSectionActive}

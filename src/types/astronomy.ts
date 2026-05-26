@@ -90,3 +90,65 @@ export interface RingData {
   color?: number;
   opacity: number;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 天文现象演示模块类型定义 (Astro Phenomena Demo Module)
+// ═══════════════════════════════════════════════════════════════
+
+export type PhenomenonId = 'moon-phases' | 'eclipses' | 'seasons' | 'retrograde' | 'solar-terms';
+
+export type DemoViewMode = 'universe' | 'starry' | 'split';
+
+export interface DemoStep {
+  stepIndex: number;
+  titleKey: string;
+  bodyKey: string;
+  targetTime?: number;      // 该步骤推荐的时间戳（用于自动跳转）
+  cameraPreset?: string;    // 相机预设位置
+  highlightBody?: string;   // 高亮的天体ID
+}
+
+export interface PhenomenonConfig {
+  id: PhenomenonId;
+  icon: string;
+  nameKey: string;
+  descKey: string;
+  ageRange: string;
+  steps: DemoStep[];
+  keyframes: { labelKey: string; timeOffset: number }[];
+}
+
+export interface PhenomenaDemoState {
+  activePhenomenon: PhenomenonId | null;
+  demoPhase: number;           // 当前步骤索引
+  viewMode: DemoViewMode;
+  cameraPreset: string | null;
+  isPlaying: boolean;
+  playbackSpeed: number;       // 演示播放倍速
+  showGuidePanel: boolean;
+}
+
+// 演示渲染辅助类型
+export interface ShadowConeParams {
+  apexPos: { x: number; y: number; z: number };
+  axisDir: { x: number; y: number; z: number };
+  umbraAngle: number;          // 本影锥半顶角（弧度）
+  penumbraAngle: number;       // 半影锥半顶角（弧度）
+  coneLength: number;
+  colorUmbra: number;
+  colorPenumbra: number;
+}
+
+export interface SunlightBeamParams {
+  direction: { x: number; y: number; z: number };
+  origin: { x: number; y: number; z: number };
+  length: number;
+  color: number;
+}
+
+export interface DemoCameraPreset {
+  name: string;
+  position: { x: number; y: number; z: number };
+  target: { x: number; y: number; z: number };
+  description: string;
+}
