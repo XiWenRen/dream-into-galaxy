@@ -63,6 +63,9 @@ export default function App() {
   // 剖面模式下的当前悬停层级 (联动 3D 模型与详情卡片)
   const [activeLayer, setActiveLayer] = useState<'core' | 'mantle' | 'crust' | 'atmosphere' | 'ring' | null>(null);
 
+  // 曝光亮度相关状态
+  const [exposure, setExposure] = useState<number>(1.5);
+
   // 轨道计算时间基础状态 (默认 43200x 倍速 = 1秒过去12小时，方便直接看出星体位移)
   const [timeState, setTimeState] = useState<TimeState>({
     currentTimestamp: Date.now(),
@@ -238,6 +241,8 @@ export default function App() {
           onToggleExponentialSpeed={setUseExponentialSpeed}
           customSpeedPreset={customSpeedPreset}
           onChangeCustomSpeedPreset={setCustomSpeedPreset}
+          exposure={exposure}
+          onChangeExposure={setExposure}
         />
       </div>
 
@@ -289,6 +294,7 @@ export default function App() {
                 onTelescopeChange={setTelescopeActive}
                 textureOffsets={textureOffsets}
                 onChangeTextureOffset={(id, offset) => setTextureOffsets(prev => ({ ...prev, [id]: offset }))}
+                exposure={exposure}
               />
             </>
           ) : (
@@ -307,6 +313,7 @@ export default function App() {
               textureOffsets={textureOffsets}
               activeLayer={activeLayer}
               onLayerHover={setActiveLayer}
+              exposure={exposure}
             />
           )}
         </div>

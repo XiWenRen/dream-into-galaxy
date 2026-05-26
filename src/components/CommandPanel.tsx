@@ -61,6 +61,10 @@ interface CommandPanelProps {
   onToggleExponentialSpeed: (val: boolean) => void;
   customSpeedPreset: string;
   onChangeCustomSpeedPreset: (val: string) => void;
+
+  // 曝光亮度相关 props
+  exposure: number;
+  onChangeExposure: (val: number) => void;
 }
 
 // ─── Icons (inline SVG, Lucide-style) ───────────────────────────────────────
@@ -226,6 +230,10 @@ export default function CommandPanel({
   onToggleExponentialSpeed,
   customSpeedPreset,
   onChangeCustomSpeedPreset,
+
+  // 曝光亮度相关 props
+  exposure,
+  onChangeExposure,
 }: CommandPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
@@ -398,6 +406,26 @@ export default function CommandPanel({
         <span className="text-slate-600">/</span>
         <span className="text-slate-500">{isZh ? 'EN' : 'ZH'}</span>
       </button>
+
+      {/* Exposure Slider */}
+      <div className="space-y-1 pt-1 border-t border-slate-800/60">
+        <div className="flex justify-between items-center text-[10px] font-mono text-slate-400">
+          <span className="flex items-center gap-1">
+            <IconSettings className="w-3 h-3" />
+            {isZh ? '曝光亮度' : 'Exposure'}
+          </span>
+          <span className="text-cyan-400 font-bold">{exposure.toFixed(2)}</span>
+        </div>
+        <input
+          type="range"
+          min="0.1"
+          max="3.0"
+          step="0.05"
+          value={exposure}
+          onChange={(e) => onChangeExposure(parseFloat(e.target.value))}
+          className="w-full accent-cyan-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
+        />
+      </div>
 
       {/* Mode-specific controls */}
       {!landed ? (

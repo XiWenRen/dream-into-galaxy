@@ -140,6 +140,7 @@ interface UniverseViewerProps {
   cloudsVisible?: boolean;
   activeLayer?: 'core' | 'mantle' | 'crust' | 'atmosphere' | 'ring' | null;
   onLayerHover?: (layer: 'core' | 'mantle' | 'crust' | 'atmosphere' | 'ring' | null) => void;
+  exposure?: number;
 }
 
 export interface SatelliteDef {
@@ -680,6 +681,7 @@ export default function UniverseViewer({
   cloudsVisible = true,
   activeLayer,
   onLayerHover,
+  exposure = 1.5,
 }: UniverseViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -721,6 +723,9 @@ export default function UniverseViewer({
     glideTime: 0,
     totalDistance: 0
   });
+
+  const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
+  const hemiLightRef = useRef<THREE.HemisphereLight | null>(null);
 
   const getSunRadius = (): number => {
     return ScaleEngine.getRadius('sun', strictPhysics);
@@ -1566,6 +1571,19 @@ export default function UniverseViewer({
 
   // 初始化 Three 场景
   useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.toneMappingExposure = exposure;
+    }
+    // 动态调整暗部补光：曝光值越高，环境光与半球光也按比例增强，确保背光面细节清晰
+    if (ambientLightRef.current) {
+      ambientLightRef.current.intensity = 0.15 * exposure;
+    }
+    if (hemiLightRef.current) {
+      hemiLightRef.current.intensity = 0.35 * exposure;
+    }
+  }, [exposure]);
+
+  useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
@@ -1655,6 +1673,8 @@ export default function UniverseViewer({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.localClippingEnabled = true;
     renderer.shadowMap.enabled = true;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = exposure;
     
     // Style the canvas physically to fill container and display as block (prevent baseline gap / squeeze)
     renderer.domElement.style.position = 'absolute';
@@ -1682,14 +1702,18 @@ export default function UniverseViewer({
     (window as any).__scene = scene;
 
     // 4. 环境光 + 核心太阳光源点光源 (直面展示星体暗面与照亮面)
-    const ambientLight = new THREE.AmbientLight(0x1a1a2e);
+    // 提升基础环境光亮度，使得背光面能看到细节
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.15);
     scene.add(ambientLight);
-    // 微弱的半球光填充背阳面，避免全黑
-    const hemiLight = new THREE.HemisphereLight(0x1a1a2e, 0x080810, 0.4);
-    scene.add(hemiLight);
+    ambientLightRef.current = ambientLight;
 
-    // 增大光照直照范围至 2500
-    const sunPointLight = new THREE.PointLight(0xffffff, 2.5, 2500, 0.1);
+    // 半球光提供更柔和的背光面填充（顶部偏蓝，底部偏深色）
+    const hemiLight = new THREE.HemisphereLight(0x88bbff, 0x111122, 0.35);
+    scene.add(hemiLight);
+    hemiLightRef.current = hemiLight;
+
+    // 增大光照直照范围至 2500，主光源强度
+    const sunPointLight = new THREE.PointLight(0xffffff, 3.5, 2500, 0.1);
     sunPointLight.position.set(0, 0, 0);
     sunPointLight.castShadow = true;
     scene.add(sunPointLight);
@@ -2673,44 +2697,6 @@ export default function UniverseViewer({
             }
           }
 
-          if (config.id === 'moon') {
-            const glowGeo = new THREE.SphereGeometry(r * 1.15, 32, 16);
-            const glowMat = new THREE.MeshBasicMaterial({
-              color: 0xdae6ff,
-              transparent: true,
-              opacity: 0.35,
-              blending: THREE.AdditiveBlending,
-              side: THREE.BackSide
-            });
-            const glowMesh = new THREE.Mesh(glowGeo, glowMat);
-            glowMesh.name = 'planet-moon-glow';
-            bodyGroup.add(glowMesh);
-
-            const glowOuterGeo = new THREE.SphereGeometry(r * 1.45, 32, 16);
-            const glowOuterMat = new THREE.MeshBasicMaterial({
-              color: 0x93c5fd,
-              transparent: true,
-              opacity: 0.15,
-              blending: THREE.AdditiveBlending,
-              side: THREE.BackSide
-            });
-            const glowOuterMesh = new THREE.Mesh(glowOuterGeo, glowOuterMat);
-            glowOuterMesh.name = 'planet-moon-outer-glow';
-            bodyGroup.add(glowOuterMesh);
-
-            const glowSpriteMat = new THREE.SpriteMaterial({
-              map: createMoonGlowTexture(),
-              color: 0xffffff,
-              transparent: true,
-              blending: THREE.AdditiveBlending,
-              depthWrite: false
-            });
-            const glowSprite = new THREE.Sprite(glowSpriteMat);
-            glowSprite.name = 'planet-moon-glow-sprite';
-            glowSprite.scale.set(r * 4.2, r * 4.2, 1);
-            bodyGroup.add(glowSprite);
-          }
-
           const axes = new THREE.AxesHelper(r * 2.2);
           axes.name = 'axes-helper';
           bodyGroup.add(axes);
@@ -3142,7 +3128,7 @@ export default function UniverseViewer({
               
               // 收集所有参与遮挡的实体
               const occluders: THREE.Object3D[] = [];
-              Object.values(planetMeshesRef.current).forEach(g => {
+              Object.values(planetMeshesRef.current).forEach((g: any) => {
                 if (g && g.visible) {
                   g.traverse(node => {
                     if (node instanceof THREE.Mesh && !node.name.includes('orbit') && !node.name.includes('ring')) {
@@ -3816,7 +3802,7 @@ export default function UniverseViewer({
 
       {/* 3. 八大行星名称标签 (Planet Name Labels) */}
       <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
-        {Object.entries(planetLabels).map(([id, label]) => {
+        {Object.entries(planetLabels).map(([id, label]: [string, any]) => {
           if (!label.visible) return null;
           return (
             <div

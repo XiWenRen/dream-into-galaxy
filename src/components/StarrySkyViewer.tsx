@@ -541,6 +541,7 @@ interface StarrySkyViewerProps {
   onTelescopeChange?: (active: boolean) => void;
   textureOffsets?: Record<string, { u: number; v: number }>;
   onChangeTextureOffset?: (planetId: string, offset: { u: number; v: number }) => void;
+  exposure?: number;
 }
 
 export default function StarrySkyViewer({
@@ -556,7 +557,8 @@ export default function StarrySkyViewer({
   telescopeActive = false,
   onTelescopeChange,
   textureOffsets = {},
-  onChangeTextureOffset
+  onChangeTextureOffset,
+  exposure = 1.5
 }: StarrySkyViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -866,6 +868,19 @@ export default function StarrySkyViewer({
   const isZh = lang === 'zh';
 
   useEffect(() => {
+    if (rendererRef.current) {
+      rendererRef.current.toneMappingExposure = exposure;
+    }
+    // 同步增强环境暗部细节
+    if (ambientLightRef.current) {
+      ambientLightRef.current.intensity = 0.15 * exposure;
+      if ((ambientLightRef as any).hemiLight) {
+        (ambientLightRef as any).hemiLight.intensity = 0.35 * exposure;
+      }
+    }
+  }, [exposure]);
+
+  useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
@@ -883,6 +898,8 @@ export default function StarrySkyViewer({
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = exposure;
     
     renderer.domElement.style.position = 'absolute';
     renderer.domElement.style.top = '0';
@@ -932,13 +949,17 @@ export default function StarrySkyViewer({
     });
 
     // 4. 环境及平行天体光照
-    const ambientLight = new THREE.AmbientLight(0x020617);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.15);
     scene.add(ambientLight);
     ambientLightRef.current = ambientLight;
 
-    const light = new THREE.DirectionalLight(0xffffff, 1.2);
+    const light = new THREE.DirectionalLight(0xffffff, 2.5);
     scene.add(light);
     lightRef.current = light;
+
+    const hemiLight = new THREE.HemisphereLight(0x88bbff, 0x111122, 0.35);
+    scene.add(hemiLight);
+    (ambientLightRef as any).hemiLight = hemiLight; // 暂存，方便下面统一调整
 
     // 5. 绘制地平线地面：半透明草地网格
     const groundGeo = new THREE.CylinderGeometry(150, 150, 2, 64);
@@ -1169,15 +1190,8 @@ export default function StarrySkyViewer({
     scene.add(moonSky);
     moonSkyRef.current = moonSky;
 
-    const lunarHazeTex = createLunarHazeTexture();
-    const lunarHazeMat = new THREE.SpriteMaterial({
-      map: lunarHazeTex,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      opacity: 0.7
-    });
-    const moonHazeSprite = new THREE.Sprite(lunarHazeMat);
-    moonHazeSprite.scale.set(42.0, 42.0, 1.0);
+    // 月球没有大气层，去除原有的发光雾效 (Lunar Haze/Glow) 保持真空质感
+    const moonHazeSprite = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false }));
     moonSky.add(moonHazeSprite);
     moonHazeSpriteRef.current = moonHazeSprite;
 
