@@ -2116,7 +2116,7 @@ export default function UniverseViewer({
           moonMesh.add(wing);
         } else {
           // 天然卫星：高精度球体质感
-          const sphereGeo = new THREE.SphereGeometry(config.radius * sizeRatio, 16, 12);
+          const sphereGeo = new THREE.SphereGeometry(config.radius * sizeRatio, 64, 32);
           const sphereMat = new THREE.MeshStandardMaterial({
             color: m.color,
             roughness: 0.85,
@@ -2948,7 +2948,7 @@ export default function UniverseViewer({
           };
           const baseColor = colorMap[config.sourceId] || 0xf59e0b;
 
-          const packGeom = new THREE.SphereGeometry(packRad, 18, 14);
+          const packGeom = new THREE.SphereGeometry(packRad, 64, 32);
           const packWireMat = new THREE.MeshBasicMaterial({
             color: baseColor,
             transparent: true,
