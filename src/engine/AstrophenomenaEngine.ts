@@ -189,32 +189,25 @@ export class AstrophenomenaEngine {
     const startOfYear = new Date(year, 0, 1);
     const endOfYear = new Date(year, 11, 31, 23, 59, 59);
 
-    const startDays = (startOfYear.getTime() / 86400000) - 10957.5;
-    const endDays = (endOfYear.getTime() / 86400000) - 10957.5;
+    let left = (startOfYear.getTime() / 86400000) - 10957.5;
+    let right = (endOfYear.getTime() / 86400000) - 10957.5;
 
-    let bestDays = startDays;
-    let bestDiff = Infinity;
+    // 二分搜索：太阳黄经随时间单调增加，利用 longitudeDiff 的符号确定方向
+    for (let i = 0; i < 50; i++) {
+      const mid = (left + right) / 2;
+      const lon = this.getSolarLongitude(mid);
+      const diff = this.longitudeDiff(lon, targetLongitude);
 
-    // 粗搜：0.5 天步进
-    for (let d = startDays; d <= endDays; d += 0.5) {
-      const lon = this.getSolarLongitude(d);
-      const diff = Math.abs(this.longitudeDiff(lon, targetLongitude));
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        bestDays = d;
+      if (diff > 0) {
+        right = mid;
+      } else {
+        left = mid;
       }
+
+      if (Math.abs(diff) < 1e-6 || right - left < 1e-7) break;
     }
 
-    // 精搜：在最佳值附近 0.01 天步进
-    for (let d = bestDays - 0.5; d <= bestDays + 0.5; d += 0.01) {
-      const lon = this.getSolarLongitude(d);
-      const diff = Math.abs(this.longitudeDiff(lon, targetLongitude));
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        bestDays = d;
-      }
-    }
-
+    const bestDays = (left + right) / 2;
     return Math.round((bestDays + 10957.5) * 86400000);
   }
 
@@ -270,14 +263,14 @@ export class AstrophenomenaEngine {
 
     // 判定逻辑:
     // 日食 (Solar Eclipse)：新月期。月球正好处于地球和太阳正中央。
-    // 这时，地月向量与地日向量的夹角 angleDeg 接近 0 且月球处在向日侧。
-    // 考虑到月球轨道面有 5.14度 倾角，夹角小于 0.6 度时即发生日盘遮挡。
-    const solarEclipse = angleDeg < 0.6;
+    // 地月向量与地日向量同向 (dot > 0) 且夹角小于两视半径之和时发生。
+    // 太阳视半径 ~0.2666°，月球视半径 ~0.259°，和约 0.526°
+    const solarEclipse = dot > 0 && angleDeg < 0.55;
 
-    // 月食 (Lunar Eclipse)：满月期。地日向量与地月向量正好反向。
-    // 这时，地月向量背向太阳。夹角 angleDeg 接近 180 度。
-    // 此时月球进入地球本影/半影。夹角与 180 度的偏差小于 0.85 度时即发生月食。
-    const lunarEclipse = (180 - angleDeg) < 0.85;
+    // 月食 (Lunar Eclipse)：满月期。地日向量与地月向量正好反向 (dot < 0)。
+    // 此时月球进入地球本影/半影。地心处地球本影锥半顶角约 0.46°-0.75°，
+    // 取保守阈值 0.8°。
+    const lunarEclipse = dot < 0 && (180 - angleDeg) < 0.8;
 
     return {
       solarEclipse,

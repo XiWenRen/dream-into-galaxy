@@ -72,9 +72,9 @@ export default function App() {
   const [validationPairKey, setValidationPairKey] = useState<string>('sun-earth');
   const [focusTrigger, setFocusTrigger] = useState<number>(0);
 
-  // 相机穿梭倍速及自定义速度状态
-  const [useExponentialSpeed, setUseExponentialSpeed] = useState<boolean>(true);
-  const [customSpeedPreset, setCustomSpeedPreset] = useState<string>('light');
+  // 穿梭模式等比加速
+  const [useExponentialSpeed, setUseExponentialSpeed] = useState<boolean>(false);
+  const [customSpeedPreset, setCustomSpeedPreset] = useState<string>('1x');
 
   // 地面登录观测站参数 (纬度和经度)
   const [landed, setLanded] = useState<boolean>(false);
@@ -447,14 +447,14 @@ export default function App() {
           onChangePackingMode={setPackingMode}
           strictPhysics={strictPhysics}
           onToggleStrictPhysics={setStrictPhysics}
-          useExponentialSpeed={useExponentialSpeed}
-          onToggleExponentialSpeed={setUseExponentialSpeed}
-          customSpeedPreset={customSpeedPreset}
-          onChangeCustomSpeedPreset={setCustomSpeedPreset}
           exposure={exposure}
           onChangeExposure={setExposure}
           showOrbits={showOrbits}
           onToggleOrbits={setShowOrbits}
+          useExponentialSpeed={useExponentialSpeed}
+          onToggleExponentialSpeed={setUseExponentialSpeed}
+          customSpeedPreset={customSpeedPreset}
+          onChangeCustomSpeedPreset={setCustomSpeedPreset}
           showAxes={showAxes}
           onToggleAxes={setShowAxes}
         />
@@ -522,6 +522,7 @@ export default function App() {
               cloudsVisible={cloudsVisible}
               lang={lang}
               showConstellLines={showConstellLines}
+              showPlanetLabels={showPlanetLabels}
               magLimit={magLimit}
               strictPhysics={strictPhysics}
               setStrictPhysics={setStrictPhysics}

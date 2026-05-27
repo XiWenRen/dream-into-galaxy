@@ -17,6 +17,16 @@ import { SOLAR_TERMS } from '../data/solarTerms';
 import { STAR_LIST, CONSTELLATIONS } from '../engine/StarDatabase';
 import { EXTRA_STARS, EXTRA_CONSTELLATIONS } from '../engine/ExtraStarsDatabase';
 import { loadHipparcosCatalog, HipparcosStar, bvToRgb } from '../engine/HipparcosLoader';
+import type { PhenomenaDemoState } from '../types/astronomy';
+import {
+  createProceduralTexture,
+  createProceduralRingTexture,
+  createMoonGlowTexture,
+  createUniverseStarTexture,
+} from '../engine/TextureFactory';
+
+/** 全局共享 TextureLoader 实例，避免重复创建与 window 污染 */
+const sharedTextureLoader = new THREE.TextureLoader();
 
 /** 合并基础亮星与额外星座星表 */
 const ALL_STARS = [...STAR_LIST, ...EXTRA_STARS];
@@ -145,9 +155,9 @@ interface UniverseViewerProps {
   exposure?: number;
   showOrbits?: boolean;
   showAxes?: boolean;
-  demoState?: any;
-  selectedSolarTermIndex?: any;
-  onSelectSolarTerm?: any;
+  demoState?: PhenomenaDemoState;
+  selectedSolarTermIndex?: number | null;
+  onSelectSolarTerm?: (index: number) => void;
 }
 
 export interface SatelliteDef {
@@ -420,7 +430,8 @@ const CROSS_PALETTE: Record<string, { core: number; mantle: number; crust: numbe
 const injectPlanetShader = (mat: THREE.Material, planetId?: string, radius?: number) => {
   mat.userData.uniforms = {
     uShowStructure: { value: false },
-    uLocalSunDirection: { value: new THREE.Vector3(1.0, 0.0, 0.0) }
+    uLocalSunDirection: { value: new THREE.Vector3(1.0, 0.0, 0.0) },
+    uRadius: { value: radius ?? 1.0 }
   };
   
   let hasRing = false;
@@ -441,6 +452,7 @@ const injectPlanetShader = (mat: THREE.Material, planetId?: string, radius?: num
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uShowStructure = mat.userData.uniforms.uShowStructure;
     shader.uniforms.uLocalSunDirection = mat.userData.uniforms.uLocalSunDirection;
+    shader.uniforms.uRadius = mat.userData.uniforms.uRadius;
     shader.uniforms.uHasRing = mat.userData.uniforms.uHasRing;
     shader.uniforms.uRingInnerRadius = mat.userData.uniforms.uRingInnerRadius;
     shader.uniforms.uRingOuterRadius = mat.userData.uniforms.uRingOuterRadius;
@@ -455,11 +467,11 @@ const injectPlanetShader = (mat: THREE.Material, planetId?: string, radius?: num
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
-      `#include <common>\n uniform bool uShowStructure;\n varying vec3 vLocalPosition;\n uniform vec3 uLocalSunDirection;\n uniform bool uHasRing;\n uniform float uRingInnerRadius;\n uniform float uRingOuterRadius;\n\n float getRingShadow(vec3 localPos, vec3 lightDirLocal) {\n if (!uHasRing) return 1.0;\n float d = lightDirLocal.y;\n if (abs(d) < 0.001) return 1.0;\n float t = -localPos.y / d;\n if (t < 0.0) return 1.0;\n vec3 p = localPos + t * lightDirLocal;\n float dist = length(p);\n if (dist >= uRingInnerRadius && dist <= uRingOuterRadius) { return 0.25; }\n return 1.0;\n }`
+      `#include <common>\n uniform bool uShowStructure;\n varying vec3 vLocalPosition;\n uniform float uRadius;\n uniform vec3 uLocalSunDirection;\n uniform bool uHasRing;\n uniform float uRingInnerRadius;\n uniform float uRingOuterRadius;\n\n float getRingShadow(vec3 localPos, vec3 lightDirLocal) {\n if (!uHasRing) return 1.0;\n float d = lightDirLocal.y;\n if (abs(d) < 0.001) return 1.0;\n float t = -localPos.y / d;\n if (t < 0.0) return 1.0;\n vec3 p = localPos + t * lightDirLocal;\n float dist = length(p);\n if (dist >= uRingInnerRadius && dist <= uRingOuterRadius) { return 0.25; }\n return 1.0;\n }`
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       'void main() {',
-      `void main() {\n if (uShowStructure && vLocalPosition.x > -0.01 && vLocalPosition.y > -0.01 && vLocalPosition.z > -0.01) { discard; }`
+      `void main() {\n float nx = vLocalPosition.x / uRadius;\n float ny = vLocalPosition.y / uRadius;\n float nz = vLocalPosition.z / uRadius;\n if (uShowStructure && nx > -0.01 && ny > -0.01 && nz > -0.01) { discard; }`
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <dithering_fragment>',
@@ -592,6 +604,145 @@ const createSectorPlane = (radius: number, pc: any) => {
   });
   return new THREE.Mesh(geo, mat);
 };
+
+function createFatArrow(color: number, length: number, thickness: number): THREE.Group {
+  const group = new THREE.Group();
+  const headLength = length * 0.12;
+  const shaftLength = length - headLength;
+  
+  // 杆子
+  const shaftGeo = new THREE.CylinderGeometry(thickness, thickness, shaftLength, 32);
+  shaftGeo.rotateZ(-Math.PI / 2);
+  shaftGeo.translate(shaftLength / 2, 0, 0);
+  const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
+  const shaft = new THREE.Mesh(shaftGeo, mat);
+  group.add(shaft);
+  
+  // 头部
+  const headGeo = new THREE.ConeGeometry(thickness * 2.5, headLength, 32);
+  headGeo.rotateZ(-Math.PI / 2);
+  headGeo.translate(shaftLength + headLength / 2, 0, 0);
+  const head = new THREE.Mesh(headGeo, mat);
+  group.add(head);
+  
+  return group;
+}
+
+function createTextSprite(text: string, colorStr: string, fontSize = 28): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  
+  const metrics = ctx.measureText(text);
+  const textWidth = metrics.width;
+  
+  canvas.width = THREE.MathUtils.ceilPowerOfTwo(textWidth + 24);
+  canvas.height = THREE.MathUtils.ceilPowerOfTwo(fontSize + 24);
+  
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  
+  // 描边
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
+  ctx.lineWidth = 5;
+  ctx.strokeText(text, canvas.width / 2, canvas.height / 2);
+  
+  // 填充
+  ctx.fillStyle = colorStr;
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true
+  });
+  
+  const sprite = new THREE.Sprite(mat);
+  const aspect = canvas.width / canvas.height;
+  sprite.scale.set(0.08 * aspect, 0.08, 1);
+  return sprite;
+}
+
+function updateSpriteTextTexture(sprite: THREE.Sprite, text: string, colorStr: string, fontSize = 28) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  
+  const metrics = ctx.measureText(text);
+  const textWidth = metrics.width;
+  
+  canvas.width = THREE.MathUtils.ceilPowerOfTwo(textWidth + 24);
+  canvas.height = THREE.MathUtils.ceilPowerOfTwo(fontSize + 24);
+  
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  
+  // 描边
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
+  ctx.lineWidth = 5;
+  ctx.strokeText(text, canvas.width / 2, canvas.height / 2);
+  
+  // 填充
+  ctx.fillStyle = colorStr;
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  
+  const newTexture = new THREE.CanvasTexture(canvas);
+  newTexture.minFilter = THREE.LinearFilter;
+  
+  const oldMat = sprite.material;
+  if (oldMat.map) {
+    oldMat.map.dispose();
+  }
+  oldMat.map = newTexture;
+  oldMat.needsUpdate = true;
+  
+  const aspect = canvas.width / canvas.height;
+  sprite.scale.set(0.08 * aspect, 0.08, 1);
+}
+
+/**
+ * 根据轨道上的点序列，生成一个闭合且具有一定宽度的椭圆带状 RibbonGeometry
+ */
+function createEllipticalRibbonGeometry(points: THREE.Vector3[], width: number): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  const vertices: number[] = [];
+  const indices: number[] = [];
+
+  const len = points.length;
+  for (let i = 0; i < len; i++) {
+    const p = points[i];
+    const nextP = points[(i + 1) % len];
+    const dir = new THREE.Vector3().subVectors(nextP, p).normalize();
+    // 轨道在水平面上运行，法线向量计算
+    const normal = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
+
+    const inner = p.clone().sub(normal.clone().multiplyScalar(width / 2));
+    const outer = p.clone().add(normal.clone().multiplyScalar(width / 2));
+
+    vertices.push(inner.x, inner.y, inner.z); // 顶点索引 2*i
+    vertices.push(outer.x, outer.y, outer.z); // 顶点索引 2*i + 1
+
+    const i0 = 2 * i;
+    const i1 = 2 * i + 1;
+    const i2 = 2 * ((i + 1) % len);
+    const i3 = 2 * ((i + 1) % len) + 1;
+
+    // 三角形面 1: i0, i2, i1
+    indices.push(i0, i2, i1);
+    // 三角形面 2: i1, i2, i3
+    indices.push(i1, i2, i3);
+  }
+
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
 
 /**
  * 带有 Jerk (加加速度) 控制的非线性物理运动学曲线 (S-Curve Kinematic Profile)
@@ -743,18 +894,27 @@ export default function UniverseViewer({
   const solarTermGhostsRef = useRef<THREE.Group | null>(null);
   const solarTermGhostMeshesRef = useRef<THREE.Group[]>([]);
   const selectedSolarTermRef = useRef<number | null>(null);
+  const lastAngleTextRef = useRef<string>('');
 
   // ═══════════════════════════════════════════════════════════════
   // 天文现象演示辅助视觉效果 (Shadow cones, light beams, ecliptic plane)
   // ═══════════════════════════════════════════════════════════════
   const visualAidsRef = useRef<{
-    sunBeam: THREE.Line | null;
+    sunBeam: THREE.Mesh | null;
     earthShadowCone: THREE.Mesh | null;
     moonShadowCone: THREE.Mesh | null;
-    eclipticPlane: THREE.Mesh | null;
+    eclipticPlane: THREE.LineLoop | THREE.Mesh | null;
     earthAxis: THREE.Line | null;
     earthEquator: THREE.Mesh | null;
     obliquityArc: THREE.Line | null;
+    eclipticProjLine: THREE.Object3D | null;
+    equatorProjLine: THREE.Object3D | null;
+    tropicOfCancer: THREE.Line | null;
+    tropicOfCapricorn: THREE.Line | null;
+    eclipticLabel: THREE.Sprite | null;
+    eclipticLabelRight: THREE.Sprite | null;
+    equatorLabel: THREE.Sprite | null;
+    obliquityLabel: THREE.Sprite | null;
   }>({
     sunBeam: null,
     earthShadowCone: null,
@@ -763,6 +923,14 @@ export default function UniverseViewer({
     earthAxis: null,
     earthEquator: null,
     obliquityArc: null,
+    eclipticProjLine: null,
+    equatorProjLine: null,
+    tropicOfCancer: null,
+    tropicOfCapricorn: null,
+    eclipticLabel: null,
+    eclipticLabelRight: null,
+    equatorLabel: null,
+    obliquityLabel: null,
   });
 
   const getSunRadius = (): number => {
@@ -805,6 +973,7 @@ export default function UniverseViewer({
   const selectedPlanetIdRef = useRef(selectedPlanetId);
   const crossSectionActiveRef = useRef(crossSectionActive);
   const cloudsVisibleRef = useRef(cloudsVisible);
+  const showAxesRef = useRef(showAxes);
 
   const lastSelectedPlanetIdRef = useRef<string>(selectedPlanetId);
   const lastTargetPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
@@ -825,6 +994,10 @@ export default function UniverseViewer({
   useEffect(() => {
     cloudsVisibleRef.current = cloudsVisible;
   }, [cloudsVisible]);
+
+  useEffect(() => {
+    showAxesRef.current = showAxes;
+  }, [showAxes]);
 
   useEffect(() => {
     if (constellLinesRef.current) {
@@ -910,11 +1083,6 @@ export default function UniverseViewer({
 
   const [planetLabels, setPlanetLabels] = useState<Record<string, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }>>({});
   const [solarTermLabels, setSolarTermLabels] = useState<Record<number, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }>>({});
-  const [visualAidLabels, setVisualAidLabels] = useState<{
-    ecliptic: { x: number; y: number; visible: boolean } | null;
-    equator: { x: number; y: number; visible: boolean } | null;
-    obliquity: { x: number; y: number; visible: boolean } | null;
-  }>({ ecliptic: null, equator: null, obliquity: null });
   const [zoomLevelText, setZoomLevelText] = useState<string>('1.00 AU');
 
   // == 日地距离几何排列验证系统 (Sun-Earth Distance Validation Simulation System) ==
@@ -1044,16 +1212,10 @@ export default function UniverseViewer({
         break;
       }
       case 'solar-terms': {
-        // View from side showing Earth's orbit and axial tilt
-        const camDist = 25;
-        const camHeight = 12;
-        const angle = (phase / 24) * Math.PI * 2 + Math.PI / 4;
-        pos.set(
-          Math.cos(angle) * camDist,
-          camHeight,
-          Math.sin(angle) * camDist
-        );
-        look.set(0, 0, 0);
+        // 聚焦于地球，并将相机放置在能直观看到自转轴倾角（X-Y平面偏转）的侧偏上方向（Z 轴方向偏移）
+        const earthRad = getCurrentPlanetRadius('earth');
+        pos.copy(earthPos).add(new THREE.Vector3(0, earthRad * 0.8, earthRad * 3.8));
+        look.copy(earthPos);
         break;
       }
       default: {
@@ -1095,12 +1257,6 @@ export default function UniverseViewer({
     hoveredLayerRef.current = effectiveHoveredLayer;
   }, [effectiveHoveredLayer]);
 
-  useEffect(() => {
-    if (constellLinesRef.current) {
-      constellLinesRef.current.visible = !!showConstellLines;
-    }
-  }, [showConstellLines]);
-
   // 本地纹理资源库 (public/textures/ 目录，通过根路径引用)
   const REAL_TEXTURE_URLS: Record<string, string> = {
     sun: '/textures/8k_sun.jpg',
@@ -1132,10 +1288,8 @@ export default function UniverseViewer({
 
     const realUrl = REAL_TEXTURE_URLS[id];
     if (realUrl) {
-      // 复用全局 TextureLoader 避免重复实例化开销
-      const loader = (window as any).__galaxyTextureLoader || new THREE.TextureLoader();
-      (window as any).__galaxyTextureLoader = loader;
-      loader.load(
+      // 复用模块级 TextureLoader 避免重复实例化开销
+      sharedTextureLoader.load(
         realUrl,
         (loadedTex) => {
           loadedTex.colorSpace = THREE.SRGBColorSpace;
@@ -1173,579 +1327,7 @@ export default function UniverseViewer({
     return fallbackTex;
   };
 
-  // 生成程序化丰富高精度(HD)贴图，防止加载外部文件跨域或不存在的问题 (升级为 HD 超清 2048x1024 纹理画板)
-  const createProceduralTexture = (id: string): THREE.Texture => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 2048;
-    canvas.height = 1024;
-    const ctx = canvas.getContext('2d')!;
-    ctx.scale(2, 2); // 自动对齐坐标实现高分辨率平滑渲染 (4K超清级清晰度)
 
-    if (id === 'sun') {
-      // 太阳：暗红色背景配超高亮度金黄色热流
-      const grad = ctx.createLinearGradient(0, 0, 0, 512);
-      grad.addColorStop(0, '#ff1a00');
-      grad.addColorStop(0.3, '#ffaa00');
-      grad.addColorStop(0.7, '#ffcc00');
-      grad.addColorStop(1, '#e11d48');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 1024, 512);
-
-      // 叠加活跃热浪泡 (granulation noise layer)
-      for (let i = 0; i < 400; i++) {
-        const x = Math.random() * 1024;
-        const y = Math.random() * 512;
-        const r = Math.random() * 25 + 5;
-        const gradBubble = ctx.createRadialGradient(x, y, 0, x, y, r);
-        gradBubble.addColorStop(0, 'rgba(254, 240, 138, 0.45)');
-        gradBubble.addColorStop(1, 'rgba(239, 68, 68, 0)');
-        ctx.fillStyle = gradBubble;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 绘制日冕耀斑磁线 (Coronal Loop Threads)
-      ctx.shadowColor = '#fbbf24';
-      ctx.shadowBlur = 12;
-      for (let i = 0; i < 6; i++) {
-        ctx.strokeStyle = 'rgba(255, 255, 230, 0.7)';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        const startX = 120 + i * 160 + Math.random() * 40;
-        const startY = 160 + Math.random() * 200;
-        ctx.moveTo(startX, startY);
-        ctx.bezierCurveTo(startX + 40, startY - 50, startX + 80, startY - 50, startX + 120, startY);
-        ctx.stroke();
-
-        // 磁力焦点上的深色太阳黑子 (Spots)
-        ctx.fillStyle = 'rgba(40, 5, 0, 0.9)';
-        ctx.beginPath();
-        ctx.arc(startX + 60, startY - 10, 6 + Math.random() * 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.shadowBlur = 0; // 重置
-    } else if (id === 'mercury') {
-      // 水星：粗糙撞击坑地貌，配合白色的极地溅射条纹
-      ctx.fillStyle = '#4b5563';
-      ctx.fillRect(0, 0, 1024, 512);
-
-      // 暗黑色玄武岩低地月海
-      for (let i = 0; i < 8; i++) {
-        const x = Math.random() * 1024;
-        const y = Math.random() * 512;
-        const r = Math.random() * 110 + 30;
-        const gradBasalt = ctx.createRadialGradient(x, y, 0, x, y, r);
-        gradBasalt.addColorStop(0, '#1f2937');
-        gradBasalt.addColorStop(1, 'rgba(75, 85, 99, 0)');
-        ctx.fillStyle = gradBasalt;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 喷发坑与大断流
-      for (let i = 0; i < 280; i++) {
-        const x = Math.random() * 1024;
-        const y = Math.random() * 512;
-        const r = Math.random() * 10 + 2;
-
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = 'rgba(209, 213, 219, 0.45)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // 为大月坑绘制辐射发射线
-        if (r > 7 && Math.random() > 0.6) {
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
-          ctx.lineWidth = 0.8;
-          for (let k = 0; k < 6; k++) {
-            const angle = (k / 6) * Math.PI * 2;
-            const length = Math.random() * 90 + 20;
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
-            ctx.stroke();
-          }
-        }
-      }
-    } else if (id === 'venus') {
-      // 金星：浓绸的铜黄色硫酸巨暴风带
-      const grad = ctx.createLinearGradient(0, 0, 0, 512);
-      grad.addColorStop(0, '#78350f');
-      grad.addColorStop(0.3, '#eab308');
-      grad.addColorStop(0.6, '#fef08a');
-      grad.addColorStop(0.85, '#ca8a04');
-      grad.addColorStop(1, '#451a03');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 1024, 512);
-
-      // 极地大型漩涡与大气横流
-      ctx.lineWidth = 14;
-      for (let i = 0; i < 12; i++) {
-        ctx.strokeStyle = `rgba(255, 255, 255, ${Math.random() * 0.16})`;
-        ctx.beginPath();
-        const baseH = 50 + i * 40;
-        ctx.moveTo(0, baseH);
-        ctx.bezierCurveTo(256, baseH + 45, 768, baseH - 45, 1024, baseH);
-        ctx.stroke();
-      }
-    } else if (id === 'earth') {
-      // 地球：蔚蓝色大洋、精细大陆地形和飞旋白色云层
-      ctx.fillStyle = '#1d4ed8'; // 浅蓝色大陆海岸架
-      ctx.fillRect(0, 0, 1024, 512);
-
-      // 深色洋底
-      ctx.fillStyle = '#1e3a8a';
-      for (let i = 0; i < 12; i++) {
-        ctx.beginPath();
-        ctx.arc(160 + i * 80, 260 + Math.random() * 80, 120, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 绘制几块巨大的森林绿大陆轮廓
-      ctx.fillStyle = '#15803d'; // 肥沃森山绿
-      
-      // 1. 亚欧非板块
-      ctx.beginPath();
-      ctx.moveTo(200, 80);
-      ctx.bezierCurveTo(260, 90, 340, 40, 480, 50); // 西伯利亚
-      ctx.bezierCurveTo(550, 75, 500, 160, 490, 200); // 东南亚
-      ctx.lineTo(430, 180);
-      ctx.lineTo(410, 240); // 印度与阿拉伯
-      ctx.bezierCurveTo(390, 250, 360, 200, 320, 210);
-      ctx.bezierCurveTo(300, 230, 290, 350, 240, 380); // 非洲
-      ctx.bezierCurveTo(180, 330, 170, 210, 220, 180);
-      ctx.lineTo(180, 150);
-      ctx.closePath();
-      ctx.fill();
-
-      // 加上金黄色的撒哈拉大沙漠和西亚大平原
-      ctx.fillStyle = '#b45309'; // 荒漠沙黄
-      ctx.beginPath();
-      ctx.moveTo(210, 150);
-      ctx.lineTo(340, 145);
-      ctx.lineTo(330, 210);
-      ctx.lineTo(200, 190);
-      ctx.closePath();
-      ctx.fill();
-
-      // 2. 美洲大陆
-      ctx.fillStyle = '#166534';
-      ctx.beginPath();
-      ctx.moveTo(680, 60);
-      ctx.bezierCurveTo(760, 80, 900, 60, 880, 130); // 北美
-      ctx.lineTo(800, 140);
-      ctx.lineTo(760, 220); // 墨西哥湾
-      ctx.bezierCurveTo(770, 230, 840, 250, 870, 290); // 巴西
-      ctx.lineTo(820, 410); // 阿根廷
-      ctx.lineTo(780, 310);
-      ctx.lineTo(740, 240);
-      ctx.bezierCurveTo(680, 210, 620, 130, 680, 60);
-      ctx.closePath();
-      ctx.fill();
-
-      // 3. 澳大利亚
-      ctx.fillStyle = '#ca8a04';
-      ctx.beginPath();
-      ctx.ellipse(560, 330, 60, 40, Math.PI / 8, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 4. 南极大陆
-      ctx.fillStyle = '#f3f4f6';
-      ctx.fillRect(0, 480, 1024, 32);
-
-      // 叠加白色羽状云气
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-      for (let i = 0; i < 35; i++) {
-        const cx = Math.random() * 1024;
-        const cy = 60 + Math.random() * 380;
-        const cr = Math.random() * 32 + 10;
-        ctx.beginPath();
-        ctx.arc(cx, cy, cr, 0, Math.PI * 2);
-        ctx.arc(cx + cr * 0.7, cy + cr * 0.1, cr * 0.8, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else if (id === 'moon') {
-      // 月球：银灰、黑白相间的玄武岩和高地
-      ctx.fillStyle = '#9ca3af';
-      ctx.fillRect(0, 0, 1024, 512);
-
-      ctx.fillStyle = '#4b5563'; // 黑色月海月面
-      const craters = [
-        { x: 300, y: 160, rx: 110, ry: 70 },
-        { x: 480, y: 220, rx: 100, ry: 80 },
-        { x: 740, y: 140, rx: 130, ry: 60 },
-        { x: 200, y: 310, rx: 70, ry: 50 },
-        { x: 620, y: 320, rx: 80, ry: 50 }
-      ];
-      craters.forEach(c => {
-        ctx.beginPath();
-        ctx.ellipse(c.x, c.y, c.rx, c.ry, Math.PI / 4, 0, Math.PI * 2);
-        ctx.fill();
-      });
-
-      // 月表丰富密集的微陨击坑 (crater system)
-      for (let i = 0; i < 200; i++) {
-        const x = Math.random() * 1024;
-        const y = Math.random() * 512;
-        const r = Math.random() * 8 + 1.5;
-
-        ctx.fillStyle = 'rgba(31, 41, 55, 0.4)';
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = 'rgba(243, 244, 246, 0.45)';
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.stroke();
-
-        if (r > 6 && Math.random() > 0.7) {
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-          ctx.lineWidth = 0.8;
-          for (let j = 0; j < 8; j++) {
-            const angle = (j / 8) * Math.PI * 2;
-            const len = Math.random() * 100 + 30;
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
-            ctx.stroke();
-          }
-        }
-      }
-    } else if (id === 'mars') {
-      // 火星：氧化铁荒漠沙尘大地、干冰雪白极冠、及深沙黑海
-      ctx.fillStyle = '#b45309'; // 浓厚氧化铁红
-      ctx.fillRect(0, 0, 1024, 512);
-
-      // 深褐色低海
-      ctx.fillStyle = '#451a03';
-      for (let i = 0; i < 6; i++) {
-        const x = 150 + i * 160 + Math.random() * 40;
-        const y = 200 + Math.random() * 100;
-        ctx.beginPath();
-        ctx.ellipse(x, y, 100 + Math.random() * 40, 60 + Math.random() * 15, Math.PI / 6, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 著名的水手号大峡谷裂痕 (Valles Marineris)
-      ctx.strokeStyle = '#1e0b00';
-      ctx.lineWidth = 10;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(340, 260);
-      ctx.bezierCurveTo(440, 240, 540, 280, 640, 250);
-      ctx.stroke();
-
-      // 南北两极晶莹剔透的水冰极冠 (Mars Cap)
-      ctx.fillStyle = '#f9fafb';
-      // 北极
-      ctx.beginPath();
-      ctx.ellipse(512, 0, 150, 35, 0, 0, Math.PI * 2);
-      ctx.fill();
-      // 南极
-      ctx.beginPath();
-      ctx.ellipse(512, 512, 120, 28, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 稀薄黑蚀洞
-      for (let i = 0; i < 90; i++) {
-        ctx.fillStyle = 'rgba(69, 26, 3, 0.3)';
-        ctx.beginPath();
-        ctx.arc(Math.random() * 1024, Math.random() * 512, Math.random() * 8 + 1.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else if (id === 'jupiter') {
-      // 木星：气态巨行星霸道的金黄茶褐和纯白条纹层，大红斑，以及大量气流花结
-      const grad = ctx.createLinearGradient(0, 0, 0, 512);
-      grad.addColorStop(0, '#451a03');
-      grad.addColorStop(0.16, '#ca8a04');
-      grad.addColorStop(0.3, '#fef08a');
-      grad.addColorStop(0.48, '#b45309');
-      grad.addColorStop(0.52, '#fde047');
-      grad.addColorStop(0.68, '#78350f');
-      grad.addColorStop(0.85, '#fef9c3');
-      grad.addColorStop(1, '#6b21a8');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 1024, 512);
-
-      // 一系列横向紊动巨暴风纹
-      ctx.lineWidth = 15;
-      for (let i = 0; i < 16; i++) {
-        ctx.strokeStyle = `rgba(255, 255, 255, ${Math.random() * 0.22})`;
-        ctx.beginPath();
-        const baseH = 30 + i * 29;
-        ctx.moveTo(0, baseH);
-        ctx.bezierCurveTo(256, baseH + 30, 768, baseH - 30, 1024, baseH);
-        ctx.stroke();
-      }
-
-      // 经典木星大红斑 (Great Red Spot)
-      const gx = 650;
-      const gy = 350;
-
-      // 巨幅热力带
-      const rGrad = ctx.createRadialGradient(gx, gy, 5, gx, gy, 45);
-      rGrad.addColorStop(0, '#991b1b'); // 赤红核心
-      rGrad.addColorStop(0.5, '#dc2626'); // 橘红
-      rGrad.addColorStop(1, '#450a0a'); // 边缘
-      ctx.fillStyle = rGrad;
-      ctx.beginPath();
-      ctx.ellipse(gx, gy, 55, 30, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 大红斑环线气旋
-      ctx.strokeStyle = '#fef3c7';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.ellipse(gx, gy, 68, 40, 0, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // 巨行星上的次级白色暴风漩涡点 (White Storms)
-      for (let i = 0; i < 8; i++) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-        ctx.beginPath();
-        ctx.ellipse(100 + i * 120, 180 + (i % 2) * 80, 15, 9, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else if (id === 'saturn') {
-      // 土星：平滑温柔的米金色淡彩条带
-      const grad = ctx.createLinearGradient(0, 0, 0, 512);
-      grad.addColorStop(0, '#854d0e');
-      grad.addColorStop(0.24, '#fde047');
-      grad.addColorStop(0.5, '#fef08a');
-      grad.addColorStop(0.76, '#ca8a04');
-      grad.addColorStop(1, '#713f12');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 1024, 512);
-
-      // 大气横线
-      ctx.lineWidth = 8;
-      for (let i = 0; i < 14; i++) {
-        ctx.strokeStyle = `rgba(255, 255, 240, ${0.1 + Math.random() * 0.1})`;
-        ctx.beginPath();
-        const baseH = 40 + i * 32;
-        ctx.moveTo(0, baseH);
-        ctx.bezierCurveTo(256, baseH + 15, 768, baseH - 15, 1024, baseH);
-        ctx.stroke();
-      }
-    } else if (id === 'uranus') {
-      // 天王星：冰冷剔透的宁静青蓝色
-      const grad = ctx.createLinearGradient(0, 0, 0, 512);
-      grad.addColorStop(0, '#0369a1');
-      grad.addColorStop(0.45, '#06b6d4');
-      grad.addColorStop(0.55, '#22d3ee');
-      grad.addColorStop(1, '#0e7490');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 1024, 512);
-
-      // 微弱水平气体纹
-      ctx.lineWidth = 12;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-      ctx.beginPath();
-      ctx.moveTo(0, 140);
-      ctx.bezierCurveTo(256, 155, 768, 125, 1024, 140);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, 310);
-      ctx.bezierCurveTo(256, 295, 768, 325, 1024, 310);
-      ctx.stroke();
-    } else if (id === 'neptune') {
-      // 海王星：神秘深海宝蓝色、高空 cirrus 斜纹和独特的深色核心气旋
-      const grad = ctx.createLinearGradient(0, 0, 0, 512);
-      grad.addColorStop(0, '#1e3a8a');
-      grad.addColorStop(0.35, '#1d4ed8');
-      grad.addColorStop(0.65, '#2563eb');
-      grad.addColorStop(1, '#1e1b4b');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 1024, 512);
-
-      // 横条
-      ctx.lineWidth = 6;
-      for (let i = 0; i < 10; i++) {
-        ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 + Math.random() * 0.08})`;
-        ctx.beginPath();
-        const baseH = 50 + i * 42;
-        ctx.moveTo(0, baseH);
-        ctx.bezierCurveTo(256, baseH + 18, 768, baseH - 18, 1024, baseH);
-        ctx.stroke();
-      }
-
-      // 海王星大暗斑 (Great Dark Spot)
-      const dx = 710;
-      const dy = 280;
-
-      const dGrad = ctx.createRadialGradient(dx, dy, 3, dx, dy, 35);
-      dGrad.addColorStop(0, '#030712'); // 极暗黑蓝
-      dGrad.addColorStop(0.5, '#172554');
-      dGrad.addColorStop(1, '#1d4ed8');
-      ctx.fillStyle = dGrad;
-      ctx.beginPath();
-      ctx.ellipse(dx, dy, 36, 22, Math.PI / 10, 0, Math.PI * 2);
-      ctx.fill();
-
-      // “疾行者”白云纹
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(dx - 50, dy + 50);
-      ctx.bezierCurveTo(dx, dy + 60, dx + 30, dy + 30, dx + 60, dy + 45);
-      ctx.stroke();
-    } else if (id === 'earth_clouds') {
-      // 简易云气层：随机渲染白色晕光云团作为备选云层
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, 1024, 512);
-
-      // 绘制松散的白云气旋
-      for (let i = 0; i < 45; i++) {
-        const x = Math.random() * 1024;
-        const y = Math.random() * 512;
-        const r = Math.random() * 110 + 35;
-        const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-        grad.addColorStop(0, 'rgba(255, 255, 255, 0.72)');
-        grad.addColorStop(0.35, 'rgba(240, 248, 255, 0.38)');
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else if (id === 'earth_specular') {
-      // 地球高反光细节：海洋反光强(高亮灰度)，陆地反光弱(暗黑色)
-      ctx.fillStyle = '#1e1e1e'; // 陆地不反光
-      ctx.fillRect(0, 0, 1024, 512);
-      ctx.fillStyle = '#eaeaea'; // 大洋强反光
-      // 渲染基本的拼合海洋块板，供离线反射兜底
-      ctx.beginPath();
-      ctx.arc(160, 240, 170, 0, Math.PI * 2);
-      ctx.arc(480, 200, 140, 0, Math.PI * 2);
-      ctx.arc(820, 310, 160, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    return texture;
-  };
-
-  // 生成 1D 线性纹理用于各行星的解析式星环
-  const createProceduralRingTexture = (planetId: string): THREE.Texture => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 2; // 1D texture
-    const ctx = canvas.getContext('2d')!;
-    const grad = ctx.createLinearGradient(0, 0, 512, 0);
-
-    if (planetId === 'uranus') {
-      // 天王星环（暗淡、多窄环，主要由暗色物质组成）
-      grad.addColorStop(0.0, 'rgba(180, 220, 230, 0.0)');
-      grad.addColorStop(0.2, 'rgba(180, 220, 230, 0.25)'); // Zeta
-      grad.addColorStop(0.3, 'rgba(180, 220, 230, 0.0)');
-      grad.addColorStop(0.5, 'rgba(180, 220, 230, 0.45)'); // Alpha, Beta
-      grad.addColorStop(0.6, 'rgba(180, 220, 230, 0.15)');
-      grad.addColorStop(0.8, 'rgba(180, 220, 230, 0.55)'); // Eta, Gamma, Delta
-      grad.addColorStop(0.9, 'rgba(180, 220, 230, 0.15)');
-      grad.addColorStop(0.95, 'rgba(180, 220, 230, 0.95)'); // Epsilon ring (最亮最外)
-      grad.addColorStop(1.0, 'rgba(180, 220, 230, 0.0)');
-    } else if (planetId === 'jupiter') {
-      // 木星光环（极度暗淡的尘埃环）
-      grad.addColorStop(0.0, 'rgba(255, 200, 150, 0.0)');
-      grad.addColorStop(0.3, 'rgba(255, 200, 150, 0.35)'); // Halo ring
-      grad.addColorStop(0.7, 'rgba(255, 200, 150, 0.1)');
-      grad.addColorStop(0.9, 'rgba(255, 200, 150, 0.55)'); // Main ring
-      grad.addColorStop(1.0, 'rgba(255, 200, 150, 0.0)');
-    } else if (planetId === 'neptune') {
-      // 海王星环（含有亮弧段的暗环）
-      grad.addColorStop(0.0, 'rgba(150, 180, 255, 0.0)');
-      grad.addColorStop(0.2, 'rgba(150, 180, 255, 0.25)'); // Galle
-      grad.addColorStop(0.4, 'rgba(150, 180, 255, 0.05)');
-      grad.addColorStop(0.6, 'rgba(150, 180, 255, 0.45)'); // Le Verrier
-      grad.addColorStop(0.8, 'rgba(150, 180, 255, 0.05)');
-      grad.addColorStop(0.95, 'rgba(150, 180, 255, 0.75)'); // Adams (含弧段)
-      grad.addColorStop(1.0, 'rgba(150, 180, 255, 0.0)');
-    } else {
-      // Fallback
-      grad.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
-      grad.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-    }
-
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 2);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
-    return texture;
-  };
-
-  // 生成月球朦胧雾态光晕 (Misty Moonlight Glow Sprite) 径向渐变贴图
-  const createMoonGlowTexture = (): THREE.Texture => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 128;
-    const ctx = canvas.getContext('2d')!;
-    const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-    // 从极透亮淡蓝白色，过度到柔和的冰蓝色，随后呈对数曲线完全弥散，创造清幽、有厚度感的「朦胧白月光」效果
-    grad.addColorStop(0, 'rgba(240, 246, 255, 0.7)');
-    grad.addColorStop(0.18, 'rgba(224, 242, 254, 0.45)');
-    grad.addColorStop(0.42, 'rgba(186, 230, 253, 0.16)');
-    grad.addColorStop(0.75, 'rgba(147, 197, 253, 0.04)');
-    grad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(64, 64, 64, 0, Math.PI * 2);
-    ctx.fill();
-
-    const texture = new THREE.CanvasTexture(canvas);
-    return texture;
-  };
-
-  // 生成三维宇宙背景星芒 (4-Point Diffraction Spikes) 径向渐变贴图
-  const createUniverseStarTexture = (): THREE.Texture => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 32;
-    canvas.height = 32;
-    const ctx = canvas.getContext('2d')!;
-    const imgData = ctx.createImageData(32, 32);
-    const data = imgData.data;
-    
-    const decay_radius = 2.2;
-    const thickness_decay = 0.55;
-    const length_decay = 9.0;
-    
-    for (let y = 0; y < 32; y++) {
-      for (let x = 0; x < 32; x++) {
-        const dx = x - 15.5;
-        const dy = y - 15.5;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        
-        const glow = Math.exp(-dist / decay_radius);
-        const spikeH = Math.exp(-Math.abs(dy) / thickness_decay) * Math.exp(-Math.abs(dx) / length_decay);
-        const spikeV = Math.exp(-Math.abs(dx) / thickness_decay) * Math.exp(-Math.abs(dy) / length_decay);
-        
-        let intensity = glow + 0.65 * (spikeH + spikeV);
-        intensity = Math.max(0.0, Math.min(1.0, intensity));
-        
-        const idx = (y * 32 + x) * 4;
-        data[idx] = 255;
-        data[idx + 1] = 255;
-        data[idx + 2] = 255;
-        data[idx + 3] = Math.floor(intensity * 255);
-      }
-    }
-    ctx.putImageData(imgData, 0, 0);
-    const texture = new THREE.CanvasTexture(canvas);
-    return texture;
-  };
 
   // 初始化 Three 场景
   useEffect(() => {
@@ -1873,11 +1455,6 @@ export default function UniverseViewer({
     controls.maxDistance = 2000000;
     controls.minDistance = 0.5;
     controlsRef.current = controls;
-
-    // DEBUG: expose for automated verification
-    (window as any).__camera = camera;
-    (window as any).__controls = controls;
-    (window as any).__scene = scene;
 
     // 4. 环境光 + 核心太阳光源点光源 (直面展示星体暗面与照亮面)
     // 提升基础环境光亮度，使得背光面能看到细节
@@ -2041,11 +1618,18 @@ export default function UniverseViewer({
       0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee,
     ];
 
+    const e = 0.0167;
+    const longPeriRad = (102.937 * Math.PI) / 180;
+
     SOLAR_TERMS.forEach((term, index) => {
       // eclipticLongitude 是太阳黄经（从地球看太阳的方向），地球实际在相反位置
       const lonRad = ((term.eclipticLongitude + 180) * Math.PI) / 180;
-      const x = EARTH_ORBIT_RADIUS * Math.cos(lonRad);
-      const z = EARTH_ORBIT_RADIUS * Math.sin(lonRad);
+      // 极坐标椭圆方程计算极径 r
+      const theta = lonRad - longPeriRad;
+      const r = (EARTH_ORBIT_RADIUS * (1 - e * e)) / (1 + e * Math.cos(theta));
+      
+      const x = r * Math.cos(lonRad);
+      const z = r * Math.sin(lonRad);
       const y = 0;
 
       const ghostColor = new THREE.Color(SEASON_COLORS[index]);
@@ -2114,6 +1698,7 @@ export default function UniverseViewer({
     // 增加太阳的 X-Y-Z 坐标轴展示
     const sunAxes = new THREE.AxesHelper(sunRadius * 2.2);
     sunAxes.name = 'axes-helper';
+    sunAxes.visible = showAxesRef.current;
     const sunInnerMesh = sunGroup.userData.sunInnerMesh;
     if (sunInnerMesh) {
       sunInnerMesh.add(sunAxes);
@@ -2150,6 +1735,118 @@ export default function UniverseViewer({
       const obliquityRad = ((CELESTIAL_PHYSICS[config.id as keyof typeof CELESTIAL_PHYSICS]?.obliquity || 0) * Math.PI) / 180;
       tiltGroup.rotation.z = obliquityRad;
       planetGroup.add(tiltGroup);
+
+      if (config.id === 'earth') {
+        const equatorGeo = new THREE.RingGeometry(config.radius * 1.03, config.radius * 1.07, 64);
+        equatorGeo.rotateX(Math.PI / 2);
+        const equatorMat = new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false });
+        const earthEquator = new THREE.Mesh(equatorGeo, equatorMat);
+        earthEquator.name = 'visual-aid-earth-equator';
+        earthEquator.visible = false;
+        tiltGroup.add(earthEquator);
+        visualAidsRef.current.earthEquator = earthEquator;
+
+        // 1. 黄道方向网格大粗箭头 (沿水平 +X 轴指向右侧)
+        const eclArrow = createFatArrow(0xffcc00, config.radius * 3.0, config.radius * 0.012);
+        eclArrow.name = 'visual-aid-ecliptic-proj-line';
+        eclArrow.visible = false;
+        planetGroup.add(eclArrow); // 挂载到公转组（水平不倾斜，指向 +X）
+        visualAidsRef.current.eclipticProjLine = eclArrow;
+
+        // 2. 赤道方向网格大粗箭头 (在自转 tiltGroup 中沿本地 +X 轴指向右侧，随赤道面倾斜)
+        const equArrow = createFatArrow(0xff3333, config.radius * 3.0, config.radius * 0.012);
+        equArrow.name = 'visual-aid-equator-proj-line';
+        equArrow.visible = false;
+        tiltGroup.add(equArrow); // 挂载到自转倾斜组（绕 Z 轴倾斜，自动成角）
+        visualAidsRef.current.equatorProjLine = equArrow;
+
+        // 3. 黄赤交角夹角圆弧线 (在公转组中，从水平 +X 扫向倾斜的 +X 方向)
+        const arcPoints: THREE.Vector3[] = [];
+        const arcSegments = 32;
+        const arcRadius = config.radius * 1.8;
+        for (let j = 0; j <= arcSegments; j++) {
+          const t = (j / arcSegments) * obliquityRad;
+          arcPoints.push(new THREE.Vector3(Math.cos(t) * arcRadius, Math.sin(t) * arcRadius, 0));
+        }
+        const arcGeo = new THREE.BufferGeometry().setFromPoints(arcPoints);
+        const arcMat = new THREE.LineBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.85 });
+        const obliquityArc = new THREE.Line(arcGeo, arcMat);
+        obliquityArc.name = 'visual-aid-obliquity-arc';
+        obliquityArc.visible = false;
+        planetGroup.add(obliquityArc); // 挂载到公转组，不随地球自转自旋
+        visualAidsRef.current.obliquityArc = obliquityArc;
+
+        // 4. 北回归线 (Tropic of Cancer: +23.44度维度圈，挂在自转 tiltGroup)
+        const cancerPoints: THREE.Vector3[] = [];
+        const cancerH = config.radius * Math.sin(obliquityRad);
+        const cancerR = config.radius * Math.cos(obliquityRad);
+        for (let j = 0; j <= 64; j++) {
+          const phi = (j / 64) * Math.PI * 2;
+          cancerPoints.push(new THREE.Vector3(Math.cos(phi) * cancerR, cancerH, Math.sin(phi) * cancerR));
+        }
+        const cancerGeo = new THREE.BufferGeometry().setFromPoints(cancerPoints);
+        const cancerMat = new THREE.LineBasicMaterial({ color: 0x55ffaa, transparent: true, opacity: 0.65 });
+        const tropicOfCancer = new THREE.Line(cancerGeo, cancerMat);
+        tropicOfCancer.name = 'visual-aid-tropic-of-cancer';
+        tropicOfCancer.visible = false;
+        tiltGroup.add(tropicOfCancer);
+        visualAidsRef.current.tropicOfCancer = tropicOfCancer;
+
+        // 5. 南回归线 (Tropic of Capricorn: -23.44度维度圈，挂在自转 tiltGroup)
+        const capricornPoints: THREE.Vector3[] = [];
+        const capricornH = -config.radius * Math.sin(obliquityRad);
+        const capricornR = config.radius * Math.cos(obliquityRad);
+        for (let j = 0; j <= 64; j++) {
+          const phi = (j / 64) * Math.PI * 2;
+          capricornPoints.push(new THREE.Vector3(Math.cos(phi) * capricornR, capricornH, Math.sin(phi) * capricornR));
+        }
+        const capricornGeo = new THREE.BufferGeometry().setFromPoints(capricornPoints);
+        const capricornMat = new THREE.LineBasicMaterial({ color: 0x55ffaa, transparent: true, opacity: 0.65 });
+        const tropicOfCapricorn = new THREE.Line(capricornGeo, capricornMat);
+        tropicOfCapricorn.name = 'visual-aid-tropic-of-capricorn';
+        tropicOfCapricorn.visible = false;
+        tiltGroup.add(tropicOfCapricorn);
+        visualAidsRef.current.tropicOfCapricorn = tropicOfCapricorn;
+
+        // 6. 黄道 3D 精灵文字标签 (地球两侧，挂在 planetGroup)
+        const eclLabelText = lang === 'zh' ? '黄道' : 'Ecliptic';
+        const eclLabel = createTextSprite(eclLabelText, '#ffcc00', 32);
+        eclLabel.name = 'visual-aid-ecliptic-label';
+        eclLabel.visible = false;
+        eclLabel.position.set(config.radius * 1.08, 0, 0);
+        const aspectEcl = eclLabel.material.map ? (eclLabel.material.map.image as any).width / (eclLabel.material.map.image as any).height : 1.0;
+        eclLabel.scale.set(config.radius * 0.25 * aspectEcl, config.radius * 0.25, 1);
+        planetGroup.add(eclLabel);
+        visualAidsRef.current.eclipticLabel = eclLabel;
+
+        const eclLabelRight = createTextSprite(eclLabelText, '#ffcc00', 32);
+        eclLabelRight.name = 'visual-aid-ecliptic-label-right';
+        eclLabelRight.visible = false;
+        eclLabelRight.position.set(-config.radius * 1.08, 0, 0);
+        eclLabelRight.scale.set(config.radius * 0.25 * aspectEcl, config.radius * 0.25, 1);
+        planetGroup.add(eclLabelRight);
+        visualAidsRef.current.eclipticLabelRight = eclLabelRight;
+
+        // 7. 赤道 3D 精灵文字标签 (挂在 tiltGroup，贴在地球赤道线上)
+        const equLabelText = lang === 'zh' ? '赤道' : 'Equator';
+        const equLabel = createTextSprite(equLabelText, '#ff5555', 32);
+        equLabel.name = 'visual-aid-equator-label';
+        equLabel.visible = false;
+        equLabel.position.set(config.radius * 1.08, 0, 0);
+        const aspectEqu = equLabel.material.map ? (equLabel.material.map.image as any).width / (equLabel.material.map.image as any).height : 1.0;
+        equLabel.scale.set(config.radius * 0.25 * aspectEqu, config.radius * 0.25, 1);
+        tiltGroup.add(equLabel);
+        visualAidsRef.current.equatorLabel = equLabel;
+
+        // 8. 直射纬度 3D 精灵文字标签 (挂在 planetGroup)
+        const obqLabel = createTextSprite(lang === 'zh' ? '直射纬度: 0.0°' : 'Solar Declination: 0.0°', '#ffffff', 32);
+        obqLabel.name = 'visual-aid-obliquity-label';
+        obqLabel.visible = false;
+        const aspectObq = obqLabel.material.map ? (obqLabel.material.map.image as any).width / (obqLabel.material.map.image as any).height : 1.0;
+        obqLabel.scale.set(config.radius * 0.25 * aspectObq, config.radius * 0.25, 1);
+        planetGroup.add(obqLabel);
+        visualAidsRef.current.obliquityLabel = obqLabel;
+      }
 
       // 绘制公转运行轨道 (除了月球，月球轨道单独绘制在地球Group内)
       if (!isMoon) {
@@ -2370,10 +2067,17 @@ export default function UniverseViewer({
     // ═══════════════════════════════════════════════════════════════
     // 天文现象演示辅助视觉效果初始化
     // ═══════════════════════════════════════════════════════════════
-    // 1. 太阳光照辅助线 (Sun → Earth)
-    const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
-    const beamMat = new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.4 });
-    const sunBeam = new THREE.Line(beamGeo, beamMat);
+    // 1. 太阳光照辅助光束 (Sun → Earth)
+    const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 32, 1, true);
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: 0xffbb00,
+      transparent: true,
+      opacity: 0.08,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const sunBeam = new THREE.Mesh(beamGeo, beamMat);
     sunBeam.name = 'visual-aid-sun-beam';
     sunBeam.visible = false;
     scene.add(sunBeam);
@@ -2397,11 +2101,17 @@ export default function UniverseViewer({
     scene.add(moonShadowCone);
     visualAidsRef.current.moonShadowCone = moonShadowCone;
 
-    // 4. 黄道线（细黄色圆环，地球轨道位置）
-    const eclipticGeo = new THREE.RingGeometry(21.85, 22.15, 256);
-    const eclipticMat = new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
+    // 4. 黄道面（使用地球真实椭圆轨道点生成带状几何体，使其粗细与赤道一致）
+    const eclipticPoints: THREE.Vector3[] = [];
+    const eclipticSamples = 1000;
+    for (let j = 0; j <= eclipticSamples; j++) {
+      const daysEquivalent = (j / eclipticSamples) * (PLANET_ORBITAL_DATA['earth']?.period || 365.256);
+      const pos = OrbitEngine.getHeliocentricPosition('earth', daysEquivalent);
+      eclipticPoints.push(toThreePos(pos, 22.0)); // 22.0 为轨道公转比例常数 (ORBIT_SCALE)
+    }
+    const eclipticGeo = createEllipticalRibbonGeometry(eclipticPoints, 0.025); // 0.025 场景单位宽度，与地球赤道线条粗细一致
+    const eclipticMat = new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.65, side: THREE.DoubleSide, depthWrite: false });
     const eclipticPlane = new THREE.Mesh(eclipticGeo, eclipticMat);
-    eclipticPlane.rotation.x = Math.PI / 2;
     eclipticPlane.name = 'visual-aid-ecliptic';
     eclipticPlane.visible = false;
     scene.add(eclipticPlane);
@@ -2415,32 +2125,6 @@ export default function UniverseViewer({
     earthAxis.visible = false;
     scene.add(earthAxis);
     visualAidsRef.current.earthAxis = earthAxis;
-
-    // 5.5 真实地球赤道环（红色，仅在 solar-terms 演示时显示）
-    const equatorGeo = new THREE.RingGeometry(0.01, 0.01, 64);
-    const equatorMat = new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false });
-    const earthEquator = new THREE.Mesh(equatorGeo, equatorMat);
-    earthEquator.name = 'visual-aid-earth-equator';
-    earthEquator.visible = false;
-    scene.add(earthEquator);
-    visualAidsRef.current.earthEquator = earthEquator;
-
-    // 5.6 黄赤交角标注弧线（23.5°）
-    const obliquityRad = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
-    const arcPoints: THREE.Vector3[] = [];
-    const arcSegments = 32;
-    const arcRadius = 2.2;
-    for (let i = 0; i <= arcSegments; i++) {
-      const t = (i / arcSegments) * obliquityRad;
-      arcPoints.push(new THREE.Vector3(0, Math.cos(t) * arcRadius, Math.sin(t) * arcRadius));
-    }
-    const arcGeo = new THREE.BufferGeometry().setFromPoints(arcPoints);
-    const arcMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
-    const obliquityArc = new THREE.Line(arcGeo, arcMat);
-    obliquityArc.name = 'visual-aid-obliquity-arc';
-    obliquityArc.visible = false;
-    scene.add(obliquityArc);
-    visualAidsRef.current.obliquityArc = obliquityArc;
 
     // 处理窗口/容器尺寸调整 (使用 ResizeObserver 确保响应性)
     const resizeObserver = new ResizeObserver((entries) => {
@@ -3020,6 +2704,7 @@ export default function UniverseViewer({
 
           const axes = new THREE.AxesHelper(r * 2.2);
           axes.name = 'axes-helper';
+          axes.visible = showAxesRef.current;
           bodyGroup.add(axes);
 
           const pc = CROSS_PALETTE[config.id] || CROSS_PALETTE.earth;
@@ -3428,10 +3113,10 @@ export default function UniverseViewer({
               const raycaster = new THREE.Raycaster();
               raycaster.set(cameraRef.current!.position, tempVec.clone().normalize());
               
-              // 收集所有参与遮挡的实体
+              // 收集所有参与遮挡的实体（排除目标行星自身，避免自遮挡导致标签被错误隐藏）
               const occluders: THREE.Object3D[] = [];
               Object.values(planetMeshesRef.current).forEach((g: any) => {
-                if (g && g.visible) {
+                if (g && g.visible && g !== group) {
                   g.traverse(node => {
                     if (node instanceof THREE.Mesh && !node.name.includes('orbit') && !node.name.includes('ring')) {
                       occluders.push(node);
@@ -3471,7 +3156,13 @@ export default function UniverseViewer({
             // 距离非常近时隐藏（例如相机距离小于 4.0 倍半径开始变淡，小于 2.0 倍完全消失）
             let labelOpacity = 1.0;
             if (distToPlanet < radius * 4.0) {
-              labelOpacity = Math.max(0, (distToPlanet - radius * 2.0) / (radius * 2.0));
+              labelOpacity *= Math.max(0, (distToPlanet - radius * 2.0) / (radius * 2.0));
+            }
+            
+            // 视野拉出太阳系时隐藏行星名称 (相机到太阳距离大于 40 AU 开始变淡，> 50 AU 完全消失)
+            const distAU = distToSun / 22.0;
+            if (distAU > 40.0) {
+              labelOpacity *= Math.max(0, 1.0 - (distAU - 40.0) / 10.0);
             }
             
             if (!isBehindCam && !isOccluded && proj.z <= 1 && labelOpacity > 0.01) {
@@ -3650,24 +3341,33 @@ export default function UniverseViewer({
 
         if (aids.sunBeam) {
           aids.sunBeam.visible = showAids;
-          if (showAids) {
-            const positions = (aids.sunBeam.geometry as THREE.BufferGeometry).attributes.position.array as Float32Array;
-            positions[0] = 0; positions[1] = 0; positions[2] = 0;
-            positions[3] = earthPos.x; positions[4] = earthPos.y; positions[5] = earthPos.z;
-            (aids.sunBeam.geometry as THREE.BufferGeometry).attributes.position.needsUpdate = true;
+          if (showAids && earthGroup) {
+            const earthRad = getCurrentPlanetRadius('earth');
+            aids.sunBeam.position.copy(earthPos).multiplyScalar(0.5);
+            aids.sunBeam.lookAt(earthPos);
+            aids.sunBeam.rotateX(Math.PI / 2);
+            aids.sunBeam.scale.set(earthRad, earthPos.length(), earthRad);
           }
         }
 
         if (aids.eclipticPlane) {
-          aids.eclipticPlane.visible = showAids;
+          aids.eclipticPlane.visible = isSolarTermsDemo;
+          if (isSolarTermsDemo) {
+            const earthOrbitScale = THREE.MathUtils.lerp(1.0, TeachingModeEngine.getOrbitScaleFactor('earth'), smoothTeachingProgress);
+            aids.eclipticPlane.scale.set(earthOrbitScale, earthOrbitScale, earthOrbitScale);
+            // 同步缩放二十四节气虚影组，使其在轨道放大或缩小模式下也能完美落轨
+            if (solarTermGhostsRef.current) {
+              solarTermGhostsRef.current.scale.set(earthOrbitScale, earthOrbitScale, earthOrbitScale);
+            }
+          }
         }
 
         if (aids.earthAxis) {
-          aids.earthAxis.visible = showAids;
-          if (showAids && earthGroup) {
+          aids.earthAxis.visible = isSolarTermsDemo;
+          if (isSolarTermsDemo && earthGroup) {
             const earthTilt = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
             const r = Math.max(getCurrentPlanetRadius('earth') * 4, 1.5);
-            const axisDir = new THREE.Vector3(0, Math.cos(earthTilt), Math.sin(earthTilt)).normalize();
+            const axisDir = new THREE.Vector3(-Math.sin(earthTilt), Math.cos(earthTilt), 0).normalize();
             const positions = (aids.earthAxis.geometry as THREE.BufferGeometry).attributes.position.array as Float32Array;
             positions[0] = earthPos.x - axisDir.x * r;
             positions[1] = earthPos.y - axisDir.y * r;
@@ -3691,31 +3391,72 @@ export default function UniverseViewer({
           }
         }
 
-        // 动态赤道环（跟随地球的独立 Mesh）
+        // 动态赤道环（跟随地球的独立 Mesh，已挂载至地球 tiltGroup，自动对齐与缩放，无需手动更新位置与旋转）
         if (aids.earthEquator) {
-          aids.earthEquator.visible = showAids;
-          if (showAids && earthGroup) {
-            const r = Math.max(getCurrentPlanetRadius('earth') * 1.2, 0.5);
-            // 更新几何半径以匹配当前地球大小
-            const oldGeo = aids.earthEquator.geometry as THREE.RingGeometry;
-            if (Math.abs(oldGeo.parameters.innerRadius - r * 1.03) > 0.001) {
-              oldGeo.dispose();
-              const newGeo = new THREE.RingGeometry(r * 1.03, r * 1.07, 64);
-              newGeo.rotateX(Math.PI / 2);
-              aids.earthEquator.geometry = newGeo;
-            }
-            aids.earthEquator.position.copy(earthPos);
-            // 赤道环需要与地球相同的倾斜
-            const earthTilt = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
-            aids.earthEquator.rotation.set(Math.PI / 2, 0, earthTilt);
-          }
+          aids.earthEquator.visible = isSolarTermsDemo;
         }
 
-        // 黄赤交角标注弧线
-        if (aids.obliquityArc) {
-          aids.obliquityArc.visible = isSolarTermsDemo;
-          if (isSolarTermsDemo && earthGroup) {
-            aids.obliquityArc.position.copy(earthPos);
+        // 黄赤交角标注辅助线及弧线更新（展示指向太阳方向的黄道线、赤道投影线及交角弧线）
+        const showObliquityAids = isSolarTermsDemo;
+        if (aids.eclipticProjLine) aids.eclipticProjLine.visible = showObliquityAids;
+        if (aids.equatorProjLine) aids.equatorProjLine.visible = showObliquityAids;
+        if (aids.obliquityArc) aids.obliquityArc.visible = showObliquityAids;
+
+        let displayObliquityAngle = 0;
+
+        if (showObliquityAids && earthGroup) {
+          const earthRad = getCurrentPlanetRadius('earth');
+          const earthTilt = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
+          
+          // 指向太阳的方向向量 (世界坐标系)
+          const toSunWorld = earthPos.clone().normalize().negate();
+          if (toSunWorld.lengthSq() < 0.0001) toSunWorld.set(1, 0, 0);
+
+          // 1. 更新黄道方向大粗箭头 (在地球公转组的本地空间中，黄道面为水平 X-Z 面)
+          const eclDirLocal = new THREE.Vector3(toSunWorld.x, 0, toSunWorld.z).normalize();
+          if (aids.eclipticProjLine) {
+            const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), eclDirLocal);
+            aids.eclipticProjLine.quaternion.copy(q);
+          }
+
+          // 2. 更新赤道方向大粗箭头 (在 tiltGroup 空间中，赤道面为本地 X-Z 面)
+          const tiltGroup = earthGroup.getObjectByName('planet-tilt-root') as THREE.Group;
+          if (tiltGroup) {
+            const toSunTiltLocal = toSunWorld.clone().applyQuaternion(tiltGroup.quaternion.clone().invert());
+            const equDirTiltLocal = new THREE.Vector3(toSunTiltLocal.x, 0, toSunTiltLocal.z).normalize();
+            
+            if (aids.equatorProjLine) {
+              const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), equDirTiltLocal);
+              aids.equatorProjLine.quaternion.copy(q);
+            }
+
+            // 3. 更新交角弧线 (在 planetGroup 本地空间中，从 eclDirLocal 扫向赤道方向)
+            const equDirWorld = equDirTiltLocal.clone().applyQuaternion(tiltGroup.quaternion);
+
+            // 计算直射夹角
+            const angleRad = eclDirLocal.angleTo(equDirWorld);
+            const angleDeg = (angleRad * 180) / Math.PI;
+
+            // 用 dot 点积确定直射南北半球
+            const axisDir = new THREE.Vector3(-Math.sin(earthTilt), Math.cos(earthTilt), 0).normalize();
+            const isNorth = toSunWorld.dot(axisDir) >= 0;
+            displayObliquityAngle = isNorth ? angleDeg : -angleDeg;
+
+            if (aids.obliquityArc) {
+              aids.obliquityArc.visible = showObliquityAids && (angleDeg > 0.1);
+              if (angleDeg > 0.1) {
+                const arcPoints: THREE.Vector3[] = [];
+                const R_arc = earthRad * 1.8;
+                for (let i = 0; i <= 32; i++) {
+                  const t = i / 32;
+                  const dir = new THREE.Vector3().lerpVectors(eclDirLocal, equDirWorld, t).normalize();
+                  arcPoints.push(dir.multiplyScalar(R_arc));
+                }
+                aids.obliquityArc.geometry.setFromPoints(arcPoints);
+              }
+              aids.obliquityArc.position.set(0, 0, 0);
+              aids.obliquityArc.rotation.set(0, 0, 0);
+            }
           }
         }
 
@@ -3754,42 +3495,76 @@ export default function UniverseViewer({
           }
         }
 
-        // 天文现象辅助视觉文字标注投影（黄道 / 赤道 / 黄赤交角）
-        const newVisualAidLabels = { ecliptic: null as any, equator: null as any, obliquity: null as any };
-        if (showAids && cameraRef.current) {
-          // 黄道标签：放在黄道环外侧某一点
-          const eclipticPos = new THREE.Vector3(23, 0.3, 0);
-          const eclipticProj = eclipticPos.project(cameraRef.current);
-          if (eclipticProj.z <= 1) {
-            const ex = (eclipticProj.x * 0.5 + 0.5) * curWidth;
-            const ey = (-(eclipticProj.y * 0.5) + 0.5) * curHeight;
-            newVisualAidLabels.ecliptic = { x: ex, y: ey, visible: true };
-          }
-          // 赤道标签：放在真实地球赤道环上方
-          if (earthGroup) {
-            const equatorOffset = new THREE.Vector3(0, 0.8, 0);
-            const earthTilt = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
-            equatorOffset.applyAxisAngle(new THREE.Vector3(0, 0, 1), earthTilt);
-            const equatorPos = earthPos.clone().add(equatorOffset);
-            const equatorProj = equatorPos.project(cameraRef.current);
-            if (equatorProj.z <= 1) {
-              const eqx = (equatorProj.x * 0.5 + 0.5) * curWidth;
-              const eqy = (-(equatorProj.y * 0.5) + 0.5) * curHeight;
-              newVisualAidLabels.equator = { x: eqx, y: eqy, visible: true };
+        // 天文现象辅助视觉文字标注与回归线更新
+        if (isSolarTermsDemo && earthGroup) {
+          const realRad = getPlanetRadius('earth');
+          const earthTilt = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
+
+          // 指向太阳的方向向量 (世界坐标系)
+          const toSunWorld = earthPos.clone().normalize().negate();
+          if (toSunWorld.lengthSq() < 0.0001) toSunWorld.set(1, 0, 0);
+
+          const eclDirWorld = new THREE.Vector3(toSunWorld.x, 0, toSunWorld.z).normalize();
+          
+          const tiltGroup = earthGroup.getObjectByName('planet-tilt-root') as THREE.Group;
+          if (tiltGroup) {
+            const toSunTiltLocal = toSunWorld.clone().applyQuaternion(tiltGroup.quaternion.clone().invert());
+            const equDirTiltLocal = new THREE.Vector3(toSunTiltLocal.x, 0, toSunTiltLocal.z).normalize();
+            const equDirWorld = equDirTiltLocal.clone().applyQuaternion(tiltGroup.quaternion);
+
+            // 1. 黄道 3D Sprite 标签：在地球的两侧，垂直于日地轴线，正好在黄道线上，贴在地球上
+            const eclSideDir = new THREE.Vector3(-eclDirWorld.z, 0, eclDirWorld.x).normalize();
+            if (aids.eclipticLabel) {
+              aids.eclipticLabel.visible = true;
+              aids.eclipticLabel.position.copy(eclSideDir).multiplyScalar(realRad * 1.08);
+            }
+            if (aids.eclipticLabelRight) {
+              aids.eclipticLabelRight.visible = true;
+              aids.eclipticLabelRight.position.copy(eclSideDir).multiplyScalar(-realRad * 1.08);
+            }
+
+            // 2. 赤道 3D Sprite 标签：挂在 tiltGroup 下，贴在地球的赤道线上
+            if (aids.equatorLabel) {
+              aids.equatorLabel.visible = true;
+              aids.equatorLabel.position.copy(equDirTiltLocal).multiplyScalar(realRad * 1.08);
+            }
+
+            // 3. 回归线可见性：二十四节气时高亮显示
+            if (aids.tropicOfCancer) aids.tropicOfCancer.visible = true;
+            if (aids.tropicOfCapricorn) aids.tropicOfCapricorn.visible = true;
+
+            // 4. 直射纬度 3D Sprite 标签：挂在 planetGroup 下，方向是夹角弧线中段，距地心 2.1 * realRad
+            const angleVal = displayObliquityAngle;
+            const hasObq = Math.abs(angleVal) >= 0.1;
+            if (aids.obliquityLabel) {
+              aids.obliquityLabel.visible = hasObq;
+              if (hasObq) {
+                const midDir = new THREE.Vector3().lerpVectors(eclDirWorld, equDirWorld, 0.5).normalize();
+                aids.obliquityLabel.position.copy(midDir).multiplyScalar(realRad * 2.1);
+
+                // 动态更新直射纬度文本纹理
+                const angleText = lang === 'zh'
+                  ? `直射纬度: ${angleVal.toFixed(1)}°`
+                  : `Solar Declination: ${angleVal.toFixed(1)}°`;
+
+                if (lastAngleTextRef.current !== angleText) {
+                  lastAngleTextRef.current = angleText;
+                  updateSpriteTextTexture(aids.obliquityLabel, angleText, '#ffffff', 32);
+                  const aspect = aids.obliquityLabel.material.map ? (aids.obliquityLabel.material.map.image as any).width / (aids.obliquityLabel.material.map.image as any).height : 1.0;
+                  aids.obliquityLabel.scale.set(realRad * 0.25 * aspect, realRad * 0.25, 1);
+                }
+              }
             }
           }
-          // 黄赤交角标签：放在轴线中段偏上
-          if (earthGroup) {
-            const obliquityPos = earthPos.clone().add(new THREE.Vector3(0.6, 1.6, 0.4));
-            const obliquityProj = obliquityPos.project(cameraRef.current);
-            if (obliquityProj.z <= 1) {
-              const ox = (obliquityProj.x * 0.5 + 0.5) * curWidth;
-              const oy = (-(obliquityProj.y * 0.5) + 0.5) * curHeight;
-              newVisualAidLabels.obliquity = { x: ox, y: oy, visible: true };
-            }
-          }
+        } else {
+          // 非节气演示模式下，隐藏所有的 3D 文字标签与回归线
+          if (aids.eclipticLabel) aids.eclipticLabel.visible = false;
+          if (aids.eclipticLabelRight) aids.eclipticLabelRight.visible = false;
+          if (aids.equatorLabel) aids.equatorLabel.visible = false;
+          if (aids.obliquityLabel) aids.obliquityLabel.visible = false;
+          if (aids.tropicOfCancer) aids.tropicOfCancer.visible = false;
+          if (aids.tropicOfCapricorn) aids.tropicOfCapricorn.visible = false;
         }
-        setVisualAidLabels(newVisualAidLabels);
       } else {
         // 非演示模式：隐藏所有辅助视觉效果
         const aids = visualAidsRef.current;
@@ -3800,6 +3575,15 @@ export default function UniverseViewer({
         if (aids.earthAxis) aids.earthAxis.visible = false;
         if (aids.earthEquator) aids.earthEquator.visible = false;
         if (aids.obliquityArc) aids.obliquityArc.visible = false;
+        if (aids.eclipticProjLine) aids.eclipticProjLine.visible = false;
+        if (aids.equatorProjLine) aids.equatorProjLine.visible = false;
+        if (aids.tropicOfCancer) aids.tropicOfCancer.visible = false;
+        if (aids.tropicOfCapricorn) aids.tropicOfCapricorn.visible = false;
+        if (aids.eclipticLabel) aids.eclipticLabel.visible = false;
+        if (aids.eclipticLabelRight) aids.eclipticLabelRight.visible = false;
+        if (aids.equatorLabel) aids.equatorLabel.visible = false;
+        if (aids.obliquityLabel) aids.obliquityLabel.visible = false;
+        
         // 同时隐藏真实地球赤道环
         const earthGroup = planetMeshesRef.current['earth'];
         const earthBodyGroup = earthGroup ? earthGroup.getObjectByName('planet-body-root') : null;
@@ -3807,9 +3591,10 @@ export default function UniverseViewer({
           const eqRing = earthBodyGroup.getObjectByName('planet-earth-equator-ring') as THREE.Mesh;
           if (eqRing) eqRing.visible = false;
         }
-        // 隐藏辅助视觉文字标注
-        if (visualAidLabels.ecliptic || visualAidLabels.equator || visualAidLabels.obliquity) {
-          setVisualAidLabels({ ecliptic: null, equator: null, obliquity: null });
+
+        // 释放演示模式下的缩放限制 (Reset zoom lock when exiting demo)
+        if (controlsRef.current && controlsRef.current.maxDistance !== 2000000) {
+          controlsRef.current.maxDistance = 2000000;
         }
       }
 
@@ -4193,13 +3978,38 @@ export default function UniverseViewer({
       hipparcosCatalogRef.current = null;
       // 清理天文现象辅助视觉效果
       const aids = visualAidsRef.current;
+      const disposeObject = (obj: THREE.Object3D | null) => {
+        if (!obj) return;
+        obj.parent?.remove(obj);
+        obj.traverse((child) => {
+          if (child instanceof THREE.Mesh || child instanceof THREE.Sprite || child instanceof THREE.Line) {
+            child.geometry?.dispose();
+            if (child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(m => m.dispose());
+              } else {
+                child.material.dispose();
+              }
+            }
+          }
+        });
+      };
+
       if (aids.sunBeam) { scene.remove(aids.sunBeam); aids.sunBeam.geometry.dispose(); (aids.sunBeam.material as THREE.Material).dispose(); }
       if (aids.earthShadowCone) { scene.remove(aids.earthShadowCone); aids.earthShadowCone.geometry.dispose(); (aids.earthShadowCone.material as THREE.Material).dispose(); }
       if (aids.moonShadowCone) { scene.remove(aids.moonShadowCone); aids.moonShadowCone.geometry.dispose(); (aids.moonShadowCone.material as THREE.Material).dispose(); }
       if (aids.eclipticPlane) { scene.remove(aids.eclipticPlane); aids.eclipticPlane.geometry.dispose(); (aids.eclipticPlane.material as THREE.Material).dispose(); }
       if (aids.earthAxis) { scene.remove(aids.earthAxis); aids.earthAxis.geometry.dispose(); (aids.earthAxis.material as THREE.Material).dispose(); }
-      if (aids.earthEquator) { scene.remove(aids.earthEquator); aids.earthEquator.geometry.dispose(); (aids.earthEquator.material as THREE.Material).dispose(); }
-      if (aids.obliquityArc) { scene.remove(aids.obliquityArc); aids.obliquityArc.geometry.dispose(); (aids.obliquityArc.material as THREE.Material).dispose(); }
+      disposeObject(aids.earthEquator);
+      disposeObject(aids.obliquityArc);
+      disposeObject(aids.eclipticProjLine);
+      disposeObject(aids.equatorProjLine);
+      disposeObject(aids.tropicOfCancer);
+      disposeObject(aids.tropicOfCapricorn);
+      disposeObject(aids.eclipticLabel);
+      disposeObject(aids.eclipticLabelRight);
+      disposeObject(aids.equatorLabel);
+      disposeObject(aids.obliquityLabel);
       // 清理节气虚影地球
       solarTermGhostMeshesRef.current.forEach(group => {
         group.traverse((node) => {
@@ -4404,6 +4214,23 @@ export default function UniverseViewer({
     }
   };
 
+  // Resize handler
+  useEffect(() => {
+    const handleResize = () => {
+      if (mountRef.current && rendererRef.current && cameraRef.current) {
+        const width = mountRef.current.clientWidth || window.innerWidth;
+        const height = mountRef.current.clientHeight || window.innerHeight;
+        
+        rendererRef.current.setSize(width, height);
+        
+        cameraRef.current.aspect = width / height;
+        cameraRef.current.updateProjectionMatrix();
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   return (
     <div 
       className="relative w-full h-full cursor-grab active:cursor-grabbing overflow-hidden select-none"
@@ -4509,51 +4336,7 @@ export default function UniverseViewer({
         })}
       </div>
 
-      {/* 3.5 天文现象辅助视觉文字标注 */}
-      <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
-        {visualAidLabels.ecliptic?.visible && (
-          <div
-            className="absolute"
-            style={{
-              left: `${visualAidLabels.ecliptic.x}px`,
-              top: `${visualAidLabels.ecliptic.y}px`,
-              transform: 'translate(-50%, -50%)',
-            }}
-          >
-            <span className="text-[10px] font-bold text-yellow-400 drop-shadow-[0_0_4px_rgba(0,0,0,0.9)] tracking-wider">
-              {lang === 'zh' ? '黄道' : 'Ecliptic'}
-            </span>
-          </div>
-        )}
-        {visualAidLabels.equator?.visible && (
-          <div
-            className="absolute"
-            style={{
-              left: `${visualAidLabels.equator.x}px`,
-              top: `${visualAidLabels.equator.y}px`,
-              transform: 'translate(-50%, -50%)',
-            }}
-          >
-            <span className="text-[10px] font-bold text-red-400 drop-shadow-[0_0_4px_rgba(0,0,0,0.9)] tracking-wider">
-              {lang === 'zh' ? '赤道' : 'Equator'}
-            </span>
-          </div>
-        )}
-        {visualAidLabels.obliquity?.visible && (
-          <div
-            className="absolute"
-            style={{
-              left: `${visualAidLabels.obliquity.x}px`,
-              top: `${visualAidLabels.obliquity.y}px`,
-              transform: 'translate(-50%, -50%)',
-            }}
-          >
-            <span className="text-[10px] font-bold text-white drop-shadow-[0_0_4px_rgba(0,0,0,0.9)] tracking-wider">
-              {lang === 'zh' ? '黄赤交角 23.5°' : 'Obliquity 23.5°'}
-            </span>
-          </div>
-        )}
-      </div>
+
 
       {/* 4. 二十四节气虚影名称标签 (Solar Term Ghost Labels) */}
       <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">

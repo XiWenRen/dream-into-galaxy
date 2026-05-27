@@ -255,8 +255,6 @@ export function createSunCoronaTexture(size = 512): THREE.Texture {
   return texture;
 }
 
-
-
 /**
  * Create an intense central bloom texture with star-like diffraction spikes.
  * Designed for far-away viewing: very bright center, rapid falloff, 4+2 spikes.
@@ -489,8 +487,6 @@ export function buildSunGroup(
   sunGroup.add(flareSprite);
   sunGroup.userData.flareSprite = flareSprite;
 
-
-
   return sunGroup;
 }
 
@@ -654,7 +650,6 @@ export function updateSunEffects(
       flareSprite.visible = flareSprite.material.opacity > 0.02;
     }
   }
-
 
 }
 

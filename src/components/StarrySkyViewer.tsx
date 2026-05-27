@@ -15,13 +15,23 @@ import type { PhenomenaDemoState } from '../types/astronomy';
 import { SATELLITE_CATALOG } from '../engine/SatelliteData';
 import { STAR_LIST, CONSTELLATIONS, BRIGHT_STAR_COUNT, DetailedStar } from '../engine/StarDatabase';
 import { EXTRA_STARS, EXTRA_CONSTELLATIONS } from '../engine/ExtraStarsDatabase';
+import {
+  createProceduralMoonTexture,
+  createSaturnRingTexture,
+  createSolarCoronaTexture,
+  createBrightStarGlowTexture,
+  createCircleTexture,
+  createConstellationLabelTexture,
+  createConstellationLabelSprite,
+} from '../engine/TextureFactory';
+
+import { loadHipparcosCatalog, bvToRgb } from '../engine/HipparcosLoader';
+import TelescopeOverlay from './TelescopeOverlay';
 
 // 建立 star id 到 star 数据的统一映射（用于 EXTRA_CONSTELLATIONS 连线查找）
 const ALL_STARS_MAP = new Map<number, DetailedStar>();
 STAR_LIST.forEach(s => ALL_STARS_MAP.set(s.id, s));
 EXTRA_STARS.forEach(s => ALL_STARS_MAP.set(s.id, s));
-import { loadHipparcosCatalog, bvToRgb } from '../engine/HipparcosLoader';
-import TelescopeOverlay from './TelescopeOverlay';
 
 // Planet Definition for Interactive Sprites
 interface PlanetInfo {
@@ -333,143 +343,8 @@ const getAtmosphereColors = (bodyId: string, sunAlt: number): { r: number; g: nu
   };
 };
 
-// J2000 Geocentric Planetary Coordinate Solver
-const getGeocentricPlanetCoords = (planetId: string, days: number) => {
-  const pPlanet = OrbitEngine.getHeliocentricPosition(planetId, days);
-  const pEarth = OrbitEngine.getHeliocentricPosition('earth', days);
-  
-  const dx = pPlanet.x - pEarth.x;
-  const dy = pPlanet.y - pEarth.y;
-  const dz = pPlanet.z - pEarth.z;
-  
-  const distAU = Math.sqrt(dx * dx + dy * dy + dz * dz);
-  
-  const cosObliq = Math.cos(23.439 * Math.PI / 180.0);
-  const sinObliq = Math.sin(23.439 * Math.PI / 180.0);
-  
-  const dEqX = dx;
-  const dEqY = dy * cosObliq - dz * sinObliq;
-  const dEqZ = dy * sinObliq + dz * cosObliq;
-  
-  let ra = Math.atan2(dEqY, dEqX) * 12.0 / Math.PI;
-  if (ra < 0) ra += 24;
-  const dec = Math.atan2(dEqZ, Math.sqrt(dEqX * dEqX + dEqY * dEqY)) * 180.0 / Math.PI;
-  
-  return { ra, dec, distAU };
-};
-
-// Procedural textures generator
-const createProceduralMoonTexture = (): THREE.Texture => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d')!;
-
-  ctx.fillStyle = '#b5bac4';
-  ctx.fillRect(0, 0, 512, 256);
-
-  const maria = [
-    { x: 120, y: 130, r: 42 },
-    { x: 180, y: 150, r: 36 },
-    { x: 230, y: 160, r: 32 },
-    { x: 280, y: 180, r: 27 },
-    { x: 90, y: 180, r: 48 },
-    { x: 380, y: 100, r: 32 },
-  ];
-  maria.forEach(m => {
-    const grad = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, m.r);
-    grad.addColorStop(0, '#666d78');
-    grad.addColorStop(0.7, '#78808d');
-    grad.addColorStop(1, '#b5bac4');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
-    ctx.fill();
-  });
-
-  const craters = [
-    { x: 150, y: 80, r: 8 },
-    { x: 180, y: 220, r: 12 },
-    { x: 110, y: 160, r: 9 },
-    { x: 290, y: 110, r: 7 },
-    { x: 320, y: 200, r: 10 },
-    { x: 420, y: 140, r: 6 },
-    { x: 450, y: 180, r: 5 },
-    { x: 50, y: 100, r: 8 }
-  ];
-  craters.forEach(c => {
-    ctx.strokeStyle = '#eef0f3';
-    ctx.lineWidth = 1.8;
-    ctx.fillStyle = '#9aa1ad';
-    ctx.beginPath();
-    ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
-    ctx.stroke();
-
-    if (c.r >= 11) {
-      ctx.strokeStyle = 'rgba(238, 240, 243, 0.45)';
-      ctx.lineWidth = 0.8;
-      for (let i = 0; i < 12; i++) {
-        const angle = (i * Math.PI) / 6;
-        ctx.beginPath();
-        ctx.moveTo(c.x + Math.cos(angle) * c.r, c.y + Math.sin(angle) * c.r);
-        ctx.lineTo(c.x + Math.cos(angle) * (c.r + 45), c.y + Math.sin(angle) * (c.r + 45));
-        ctx.stroke();
-      }
-    }
-  });
-
-  for (let i = 0; i < 120; i++) {
-    const rx = Math.random() * 512;
-    const ry = Math.random() * 256;
-    const rr = Math.random() * 2.0 + 0.5;
-    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(245, 245, 250, 0.5)' : 'rgba(80, 85, 95, 0.3)';
-    ctx.beginPath();
-    ctx.arc(rx, ry, rr, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  // 校准：SphereGeometry +z 面对应 u=0.25，将纹理向右平移 0.25 使正面(u=0.5)对准 +z
-  texture.offset.x = 0.25;
-  return texture;
-};
-
-/** Create a procedural Saturn ring texture with banded structure.
- *  RingGeometry UVs: u=angle, v=radius(0=inner,1=outer). We vary along Y. */
-const createSaturnRingTexture = (): THREE.Texture => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 1;
-  canvas.height = 512;
-  const ctx = canvas.getContext('2d')!;
-
-  // Bands defined by v coordinate (0 = inner radius, 1 = outer radius)
-  const bands = [
-    { v0: 0.00, v1: 0.22, color: 'rgba(200, 190, 170, 0.75)' },   // C ring
-    { v0: 0.22, v1: 0.48, color: 'rgba(230, 220, 195, 0.90)' },   // B ring (bright)
-    { v0: 0.48, v1: 0.52, color: 'rgba(60, 50, 45, 0.30)' },      // Cassini division
-    { v0: 0.52, v1: 0.82, color: 'rgba(220, 210, 185, 0.85)' },   // A ring
-    { v0: 0.82, v1: 1.00, color: 'rgba(180, 170, 150, 0.40)' },   // F ring (faint)
-  ];
-
-  bands.forEach(band => {
-    const y0 = (1 - band.v1) * 512;
-    const y1 = (1 - band.v0) * 512;
-    ctx.fillStyle = band.color;
-    ctx.fillRect(0, y0, 1, y1 - y0);
-  });
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.ClampToEdgeWrapping;
-  return texture;
-};
-
 /**
+ * 设置潮汐锁定天体的稳定朝向：
  * 设置潮汐锁定天体的稳定朝向：
  * - +z 轴始终精确指向观察者（正面朝向地球）
  * - +y 轴始终指向天球北天极（世界 Y 轴），避免 gimbal lock
@@ -497,159 +372,6 @@ function setTidallyLockedOrientation(
   const matrix = new THREE.Matrix4().makeBasis(right, trueUp, toObserver.clone().negate());
   body.quaternion.setFromRotationMatrix(matrix);
 }
-
-const createSolarCoronaTexture = (): THREE.Texture => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d')!;
-  const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grad.addColorStop(0, 'rgba(255, 255, 245, 1.0)');
-  grad.addColorStop(0.12, 'rgba(254, 215, 120, 0.9)');
-  grad.addColorStop(0.35, 'rgba(251, 146, 50, 0.55)');
-  grad.addColorStop(0.65, 'rgba(239, 68, 68, 0.22)');
-  grad.addColorStop(1.0, 'rgba(127, 29, 29, 0.0)');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(64, 64, 64, 0, Math.PI * 2);
-  ctx.fill();
-  return new THREE.CanvasTexture(canvas);
-};
-
-const createLunarHazeTexture = (): THREE.Texture => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d')!;
-  const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grad.addColorStop(0, 'rgba(240, 246, 255, 0.95)');
-  grad.addColorStop(0.18, 'rgba(219, 234, 254, 0.7)');
-  grad.addColorStop(0.45, 'rgba(147, 197, 253, 0.3)');
-  grad.addColorStop(0.75, 'rgba(59, 130, 246, 0.1)');
-  grad.addColorStop(1.0, 'rgba(30, 58, 138, 0.0)');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(64, 64, 64, 0, Math.PI * 2);
-  ctx.fill();
-  return new THREE.CanvasTexture(canvas);
-};
-
-const createBrightStarGlowTexture = (): THREE.Texture => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d')!;
-  const imgData = ctx.createImageData(64, 64);
-  const data = imgData.data;
-  
-  const decay_radius = 4.5;
-  const thickness_decay = 0.7;
-  const length_decay = 18.0;
-  
-  for (let y = 0; y < 64; y++) {
-    for (let x = 0; x < 64; x++) {
-      const dx = x - 31.5;
-      const dy = y - 31.5;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      
-      const glow = Math.exp(-dist / decay_radius);
-      const spikeH = Math.exp(-Math.abs(dy) / thickness_decay) * Math.exp(-Math.abs(dx) / length_decay);
-      const spikeV = Math.exp(-Math.abs(dx) / thickness_decay) * Math.exp(-Math.abs(dy) / length_decay);
-      
-      let intensity = glow + 0.65 * (spikeH + spikeV);
-      intensity = Math.max(0.0, Math.min(1.0, intensity));
-      
-      const idx = (y * 64 + x) * 4;
-      data[idx] = 255;
-      data[idx + 1] = 255;
-      data[idx + 2] = 255;
-      data[idx + 3] = Math.floor(intensity * 255);
-    }
-  }
-  ctx.putImageData(imgData, 0, 0);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-};
-
-const createCircleTexture = (): THREE.Texture => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 16;
-  canvas.height = 16;
-  const ctx = canvas.getContext('2d')!;
-  const imgData = ctx.createImageData(16, 16);
-  const data = imgData.data;
-
-  const decay_radius = 1.2;
-  const thickness_decay = 0.4;
-  const length_decay = 5.0;
-
-  for (let y = 0; y < 16; y++) {
-    for (let x = 0; x < 16; x++) {
-      const dx = x - 7.5;
-      const dy = y - 7.5;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      const glow = Math.exp(-dist / decay_radius);
-      const spikeH = Math.exp(-Math.abs(dy) / thickness_decay) * Math.exp(-Math.abs(dx) / length_decay);
-      const spikeV = Math.exp(-Math.abs(dx) / thickness_decay) * Math.exp(-Math.abs(dy) / length_decay);
-
-      let intensity = glow + 0.65 * (spikeH + spikeV);
-      intensity = Math.max(0.0, Math.min(1.0, intensity));
-
-      const idx = (y * 16 + x) * 4;
-      data[idx] = 255;
-      data[idx + 1] = 255;
-      data[idx + 2] = 255;
-      data[idx + 3] = Math.floor(intensity * 255);
-    }
-  }
-  ctx.putImageData(imgData, 0, 0);
-  const texture = new THREE.CanvasTexture(canvas);
-  return texture;
-};
-
-// 创建星座标签纹理
-const createConstellationLabelTexture = (text: string): { texture: THREE.CanvasTexture; width: number; height: number } => {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d')!;
-  const fontSize = 22;
-  ctx.font = `bold ${fontSize}px sans-serif`;
-  const metrics = ctx.measureText(text);
-  const width = Math.ceil(metrics.width) + 20;
-  const height = fontSize + 14;
-  canvas.width = width;
-  canvas.height = height;
-
-  ctx.font = `bold ${fontSize}px sans-serif`;
-  ctx.fillStyle = 'rgba(180, 210, 255, 0.9)';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, width / 2, height / 2);
-
-  // subtle glow
-  ctx.shadowColor = 'rgba(100, 160, 255, 0.5)';
-  ctx.shadowBlur = 8;
-  ctx.fillText(text, width / 2, height / 2);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.minFilter = THREE.LinearFilter;
-  return { texture, width, height };
-};
-
-// 创建星座名称文字Sprite
-const createConstellationLabelSprite = (text: string): THREE.Sprite => {
-  const { texture, width, height } = createConstellationLabelTexture(text);
-  const mat = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false
-  });
-  const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(width * 0.06, height * 0.06, 1);
-  return sprite;
-};
 
 /** Texture URLs for dominant body rendering */
 const DOMINANT_BODY_TEXTURES: Record<string, string> = {
@@ -832,6 +554,15 @@ export default function StarrySkyViewer({
   // 三维FOV缩放控制 (3° ~ 65°)
   const fovRef = useRef(65);
   const preTelescopeFovRef = useRef(65);
+
+  // 本地 FOV 设置函数（替代全局 window 污染）
+  const setFov = (fov: number) => {
+    if (!cameraRef.current) return;
+    cameraRef.current.fov = fov;
+    cameraRef.current.updateProjectionMatrix();
+    fovRef.current = fov;
+  };
+
   const textureCacheRef = useRef<Record<string, THREE.Texture>>({});
   const observerBodyIdRef = useRef(observerBodyId);
 
@@ -1059,9 +790,7 @@ export default function StarrySkyViewer({
     if (telescopeActive) {
       preTelescopeFovRef.current = fovRef.current;
     } else {
-      if ((window as any).__starrySkySetFov) {
-        (window as any).__starrySkySetFov(preTelescopeFovRef.current);
-      }
+      setFov(preTelescopeFovRef.current);
     }
   }, [telescopeActive]);
 
@@ -1186,18 +915,6 @@ export default function StarrySkyViewer({
       fovRef.current = newFov;
     };
     renderer.domElement.addEventListener('wheel', handleWheel, { passive: false });
-
-    // 外部FOV控制（望远镜模块回调）——择需要合并到此处
-    (window as any).__starrySkySetFov = (fov: number) => {
-      if (!cameraRef.current) return;
-      cameraRef.current.fov = Math.max(5.0, Math.min(65.0, fov));
-      cameraRef.current.updateProjectionMatrix();
-      fovRef.current = cameraRef.current.fov;
-    };
-    Object.defineProperty(window, '__starrySkyCurrentFov', {
-      get: () => fovRef.current,
-      configurable: true,
-    });
 
     // 4. 环境及平行天体光照
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.15);
@@ -1457,7 +1174,7 @@ export default function StarrySkyViewer({
     scene.add(moonSky);
     moonSkyRef.current = moonSky;
 
-    // 月球没有大气层，去除原有的发光雾效 (Lunar Haze/Glow) 保持真空质感
+    // 月球无大气层，使用 Sprite 模拟动态月晕（初始隐藏，根据观测状态动态控制可见性）
     const moonHazeSprite = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false }));
     moonSky.add(moonHazeSprite);
     moonHazeSpriteRef.current = moonHazeSprite;
@@ -1847,8 +1564,6 @@ export default function StarrySkyViewer({
     return () => {
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener('wheel', handleWheel);
-      delete (window as any).__starrySkySetFov;
-      delete (window as any).__starrySkyCurrentFov;
       if (container) {
         container.removeEventListener('pointerdown', onPointerDown as EventListener);
         container.removeEventListener('pointerup', onPointerUp as EventListener);
@@ -2160,8 +1875,24 @@ export default function StarrySkyViewer({
         });
       }
 
-      constellLinesRef.current.geometry.dispose();
-      constellLinesRef.current.geometry = new THREE.BufferGeometry().setFromPoints(linePoints);
+      const geometry = constellLinesRef.current.geometry;
+      const currentCount = geometry.attributes.position ? geometry.attributes.position.count : 0;
+
+      if (linePoints.length !== currentCount) {
+        // 可见连线数量变化时才重建 geometry
+        geometry.dispose();
+        constellLinesRef.current.geometry = new THREE.BufferGeometry().setFromPoints(linePoints);
+      } else if (linePoints.length > 0) {
+        // 数量不变时直接更新顶点数据，避免每帧创建新对象
+        const positions = geometry.attributes.position.array as Float32Array;
+        for (let i = 0; i < linePoints.length; i++) {
+          positions[i * 3] = linePoints[i].x;
+          positions[i * 3 + 1] = linePoints[i].y;
+          positions[i * 3 + 2] = linePoints[i].z;
+        }
+        geometry.attributes.position.needsUpdate = true;
+        geometry.computeBoundingSphere();
+      }
 
       const lineMat = constellLinesRef.current.material as THREE.LineBasicMaterial;
       lineMat.opacity = 0.35 * Math.max(0, 1 - skyBrightness);
@@ -2817,11 +2548,7 @@ export default function StarrySkyViewer({
       <TelescopeOverlay
         active={telescopeActive}
         currentFov={fovRef.current}
-        onFovChange={(fov) => {
-          if ((window as any).__starrySkySetFov) {
-            (window as any).__starrySkySetFov(fov);
-          }
-        }}
+        onFovChange={setFov}
         onClose={() => onTelescopeChange?.(false)}
         lang={lang}
       />

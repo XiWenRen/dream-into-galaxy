@@ -149,26 +149,55 @@ export class OrbitEngine {
    * @returns 真实物理相对坐标 (AU)
    */
   static getLunarRelativePosition(days: number): { x: number; y: number; z: number } {
-    // 月球主要公转根数 (近似周期为 27.322 天)
+    // 月球轨道根数 (基于 J2000.0 epoch 的简化模型)
     // 真实物理半长轴：约 384,400 km = 0.00257 AU
-    // 此函数始终返回真实物理距离（单位 AU），任何渲染缩放由调用方统一处理。
     const moonA = 0.00257;
+    const e = 0.0549; // 月球轨道偏心率
 
-    // 月球升交点黄经和近地点黄经是快速顺时针/逆时针自转移动的，这里给出一个近似快速计算方式：
-    // 周期 ~ 27.3天，轨道角速度 ~ 13.176 度/天
-    const n = 13.176396 * days;
-    const rad = ((n + 135) * Math.PI) / 180.0; // 设定 135 作为特定 epoch 的黄经初始偏置
+    // 平均近点角角速度 ~ 13.176396 度/天
+    const n = 13.176396;
+    const M = ((135 + n * days) % 360) * Math.PI / 180.0;
 
-    // 倾角： 约 5.14
+    // 解克卜勒方程求离心近点角 E
+    let E = M;
+    for (let i = 0; i < 5; i++) {
+      const delta = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+      E -= delta;
+    }
+
+    // 真近点角与瞬时距离
+    const trueAnomaly = 2 * Math.atan2(
+      Math.sqrt(1 + e) * Math.sin(E / 2),
+      Math.sqrt(1 - e) * Math.cos(E / 2)
+    );
+    const r = moonA * (1 - e * Math.cos(E));
+
+    // 轨道平面坐标 (以近地点为参考)
+    const xOrbit = r * Math.cos(trueAnomaly);
+    const yOrbit = r * Math.sin(trueAnomaly);
+
+    // 倾角：约 5.145°
     const iRad = (5.145 * Math.PI) / 180.0;
 
-    const xOrbit = moonA * Math.cos(rad);
-    const yOrbit = moonA * Math.sin(rad);
+    // 近地点黄经与升交点黄经的长期进动 (简化)
+    const periDeg = (318.15 + 0.1114 * days) % 360;
+    const nodeDeg = (125.08 - 0.05295 * days) % 360;
+    const omega = ((periDeg - nodeDeg) * Math.PI) / 180.0;
+    const node = (nodeDeg * Math.PI) / 180.0;
 
-    // 月地坐标平面绕黄道也带一定倾斜
-    const x = xOrbit;
-    const y = yOrbit * Math.cos(iRad);
-    const z = yOrbit * Math.sin(iRad);
+    const cosOmega = Math.cos(omega);
+    const sinOmega = Math.sin(omega);
+    const cosNode = Math.cos(node);
+    const sinNode = Math.sin(node);
+    const cosI = Math.cos(iRad);
+    const sinI = Math.sin(iRad);
+
+    const x1 = cosOmega * xOrbit - sinOmega * yOrbit;
+    const y1 = sinOmega * xOrbit + cosOmega * yOrbit;
+
+    const x = cosNode * x1 - sinNode * y1 * cosI;
+    const y = sinNode * x1 + cosNode * y1 * cosI;
+    const z = y1 * sinI;
 
     return { x, y, z };
   }
@@ -191,14 +220,12 @@ export class OrbitEngine {
     // 太阳光线是从 (0,0,0) 发射向地球 (xE, yE, zE)，
     // 我们假设纹理的中心(经度0)需要根据当前的 UTC 12点完成正对迎光
     if (id === 'earth') {
-      const utcHours = (timestamp / 3600000) % 24;
-      // 在标准中午12时，中国(经度~110-120°) 处于下午，已经转过了120度左右
-      // 这里的绝对旋转角由：天的时间百分比 + 累积的自转数构成
-      // 360度 * 累积自转数 + 每日时间偏移
-      // 地球的每日自传对应 24小时，这让我们可以极度精准锁定！
-      const days = (timestamp - J2000_TIMESTAMP) / 86400000;
-      const angle = (days * 2 * Math.PI) + ((utcHours - 12) / 24) * 2 * Math.PI;
-      return angle;
+      // 使用恒星日 (Sidereal Day ≈ 23h 56m 4.0905s) 计算地球自转，
+      // 避免太阳日 (24h) 与恒星时混用导致的长期累积误差。
+      const SIDEREAL_DAY_MS = 86164.0905 * 1000;
+      const siderealDays = (timestamp - J2000_TIMESTAMP) / SIDEREAL_DAY_MS;
+      // J2000 epoch (2000-01-01 12:00 UTC) 时 0° 经线正对太阳，以此为基准
+      return siderealDays * 2 * Math.PI;
     }
 
     // 其他星球使用直接线型自转计算

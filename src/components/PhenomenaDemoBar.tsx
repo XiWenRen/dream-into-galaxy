@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { translations } from '../i18n';
+import { getThemeBtn, getThemeAccent, getThemeBtnSolid } from '../utils/themeStyles';
 import type { PhenomenonId, DemoViewMode, ThemeType } from '../types/astronomy';
 
 interface PhenomenaDemoBarProps {
@@ -25,32 +26,6 @@ interface PhenomenaDemoBarProps {
   onSelectPhase?: (phase: number) => void;
 }
 
-const getThemeBtn = (theme: ThemeType) => {
-  switch (theme) {
-    case 'space-tech': return 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/25';
-    case 'cosmic-dark': return 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25';
-    case 'neon-hologram': return 'bg-fuchsia-500/15 border-fuchsia-500/40 text-fuchsia-300 hover:bg-fuchsia-500/25';
-    case 'solar-gold': return 'bg-orange-500/15 border-orange-500/40 text-orange-300 hover:bg-orange-500/25';
-  }
-};
-
-const getThemeAccent = (theme: ThemeType) => {
-  switch (theme) {
-    case 'space-tech': return 'text-cyan-400';
-    case 'cosmic-dark': return 'text-amber-400';
-    case 'neon-hologram': return 'text-fuchsia-400';
-    case 'solar-gold': return 'text-orange-400';
-  }
-};
-
-const getThemeBtnSolid = (theme: ThemeType) => {
-  switch (theme) {
-    case 'space-tech': return 'bg-cyan-500/80 text-black hover:bg-cyan-400';
-    case 'cosmic-dark': return 'bg-amber-500/80 text-black hover:bg-amber-400';
-    case 'neon-hologram': return 'bg-fuchsia-500/80 text-black hover:bg-fuchsia-400';
-    case 'solar-gold': return 'bg-orange-500/80 text-black hover:bg-orange-400';
-  }
-};
 
 const SPEED_OPTIONS = [
   { value: 0.5, labelZh: '慢速', labelEn: 'Slow' },

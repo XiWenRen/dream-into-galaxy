@@ -7,6 +7,7 @@ import React, { useMemo } from 'react';
 import { translations } from '../i18n';
 import { SOLAR_TERMS } from '../data/solarTerms';
 import { AstrophenomenaEngine } from '../engine/AstrophenomenaEngine';
+import { getThemeAccent, getThemeBtn, getThemeBtnSolid, getThemeTrack } from '../utils/themeStyles';
 import type { PhenomenonId, PhenomenaDemoState, DemoViewMode, ThemeType } from '../types/astronomy';
 
 interface PhenomenaGuidePanelProps {
@@ -60,9 +61,9 @@ const PHENOMENA_STEPS: Record<PhenomenonId, StepContent[]> = {
 };
 
 const SPEED_OPTIONS = [
-  { value: 0.5, labelZh: '慢', labelEn: '慢' },
-  { value: 1, labelZh: '中', labelEn: '中' },
-  { value: 2, labelZh: '快', labelEn: '快' },
+  { value: 0.5, labelZh: '慢', labelEn: 'Slow' },
+  { value: 1, labelZh: '中', labelEn: 'Normal' },
+  { value: 2, labelZh: '快', labelEn: 'Fast' },
 ];
 
 const KEYFRAME_LABELS: Record<PhenomenonId, string[]> = {
@@ -72,41 +73,6 @@ const KEYFRAME_LABELS: Record<PhenomenonId, string[]> = {
   'solar-terms': ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24'],
 };
 
-const getThemeAccent = (theme: ThemeType) => {
-  switch (theme) {
-    case 'space-tech': return 'text-cyan-400';
-    case 'cosmic-dark': return 'text-amber-400';
-    case 'neon-hologram': return 'text-fuchsia-400';
-    case 'solar-gold': return 'text-orange-400';
-  }
-};
-
-const getThemeBtn = (theme: ThemeType) => {
-  switch (theme) {
-    case 'space-tech': return 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/25';
-    case 'cosmic-dark': return 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25';
-    case 'neon-hologram': return 'bg-fuchsia-500/15 border-fuchsia-500/40 text-fuchsia-300 hover:bg-fuchsia-500/25';
-    case 'solar-gold': return 'bg-orange-500/15 border-orange-500/40 text-orange-300 hover:bg-orange-500/25';
-  }
-};
-
-const getThemeBtnSolid = (theme: ThemeType) => {
-  switch (theme) {
-    case 'space-tech': return 'bg-cyan-500/80 text-black hover:bg-cyan-400';
-    case 'cosmic-dark': return 'bg-amber-500/80 text-black hover:bg-amber-400';
-    case 'neon-hologram': return 'bg-fuchsia-500/80 text-black hover:bg-fuchsia-400';
-    case 'solar-gold': return 'bg-orange-500/80 text-black hover:bg-orange-400';
-  }
-};
-
-const getThemeTrack = (theme: ThemeType) => {
-  switch (theme) {
-    case 'space-tech': return 'accent-cyan-400';
-    case 'cosmic-dark': return 'accent-amber-400';
-    case 'neon-hologram': return 'accent-fuchsia-400';
-    case 'solar-gold': return 'accent-orange-400';
-  }
-};
 
 export default function PhenomenaGuidePanel({
   lang,

@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { translations } from '../i18n';
+import { getThemeBtn, getThemeAccent } from '../utils/themeStyles';
 import type { PhenomenonId, ThemeType } from '../types/astronomy';
 
 interface AstroPhenomenaPanelProps {
@@ -50,23 +51,6 @@ const PHENOMENA: PhenomenonCard[] = [
   },
 ];
 
-const getThemeAccent = (theme: ThemeType) => {
-  switch (theme) {
-    case 'space-tech': return 'text-cyan-400 border-cyan-500/30 hover:border-cyan-400/60';
-    case 'cosmic-dark': return 'text-amber-400 border-amber-500/30 hover:border-amber-400/60';
-    case 'neon-hologram': return 'text-fuchsia-400 border-fuchsia-500/30 hover:border-fuchsia-400/60';
-    case 'solar-gold': return 'text-orange-400 border-orange-500/30 hover:border-orange-400/60';
-  }
-};
-
-const getThemeBtn = (theme: ThemeType) => {
-  switch (theme) {
-    case 'space-tech': return 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/25';
-    case 'cosmic-dark': return 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25';
-    case 'neon-hologram': return 'bg-fuchsia-500/15 border-fuchsia-500/40 text-fuchsia-300 hover:bg-fuchsia-500/25';
-    case 'solar-gold': return 'bg-orange-500/15 border-orange-500/40 text-orange-300 hover:bg-orange-500/25';
-  }
-};
 
 export default function AstroPhenomenaPanel({
   lang,
@@ -134,7 +118,7 @@ export default function AstroPhenomenaPanel({
           <div className="px-4 pt-5 pb-3 border-b border-white/5">
             <div className="flex items-center gap-2">
               <span className="text-xl">🔭</span>
-              <h2 className={`text-sm font-bold tracking-wide ${getThemeAccent(theme).split(' ')[0]}`}>
+              <h2 className={`text-sm font-bold tracking-wide ${getThemeAccent(theme)}`}>
                 {t.phenomenaTitle}
               </h2>
             </div>
