@@ -144,6 +144,9 @@ interface UniverseViewerProps {
   exposure?: number;
   showOrbits?: boolean;
   showAxes?: boolean;
+  demoState?: any;
+  selectedSolarTermIndex?: any;
+  onSelectSolarTerm?: any;
 }
 
 export interface SatelliteDef {
@@ -853,8 +856,7 @@ export default function UniverseViewer({
     }
   }, [startEntryAnimation]);
 
-  // WebGL lens flare opacity 平滑插值（DOM overlay 已移除，改为 WebGL sprite 渲染）
-  const flareOpacityRef = useRef(1.0);
+
   const [planetLabels, setPlanetLabels] = useState<Record<string, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }>>({});
   const [zoomLevelText, setZoomLevelText] = useState<string>('1.00 AU');
 
@@ -3050,32 +3052,7 @@ export default function UniverseViewer({
         }
       }
 
-      // 如果相机拉得极度近 (例: 直穿太阳体表面)，让光量子流消散
-      let targetOpacity = 1.0;
-      if (distToSun < 6.0) {
-        targetOpacity = Math.max(0, (distToSun - 3.0) / 3.0);
-      }
 
-      // 镜头光晕平滑过渡，告别硬生生的闪现 (lerp平滑插值/Cinematic transition)
-      const targetFlareOpacity = (obscured || isBehind) ? 0.0 : targetOpacity;
-      flareOpacityRef.current = THREE.MathUtils.lerp(flareOpacityRef.current, targetFlareOpacity, 0.12);
-
-      // 计算贴切真实宇宙规律的大气衍射微变与宏观缩放关系 (远小近大)
-      const targetScale = Math.max(0.12, Math.min(0.65, 1.2 * Math.pow(15 / distToSun, 0.45)));
-
-      // 用 WebGL sprite 渲染镜头光晕，彻底消除 DOM/WebGL 不同步问题
-      const lensFlareSprite = sunMeshRef.current?.userData?.lensFlareSprite as THREE.Sprite | undefined;
-      if (lensFlareSprite && lensFlareSprite.material instanceof THREE.SpriteMaterial) {
-        const targetFlareOpacity = (obscured || isBehind) ? 0.0 : targetOpacity;
-        flareOpacityRef.current = THREE.MathUtils.lerp(flareOpacityRef.current, targetFlareOpacity, 0.12);
-        lensFlareSprite.material.opacity = flareOpacityRef.current;
-        lensFlareSprite.visible = flareOpacityRef.current > 0.01;
-
-        // 动态调整 world-space scale，使 screen-space 大小随距离变化（类似 DOM overlay 行为）
-        const sunRadius = getSunRadius();
-        const worldScale = Math.max(sunRadius * 2, distToSun * 0.5);
-        lensFlareSprite.scale.set(worldScale, worldScale, 1);
-      }
 
       // -------------------------------------------------------------
       // 计算八大行星的名称标签屏幕投影位置

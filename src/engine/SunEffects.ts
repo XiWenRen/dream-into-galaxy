@@ -255,84 +255,7 @@ export function createSunCoronaTexture(size = 512): THREE.Texture {
   return texture;
 }
 
-/**
- * Create lens flare texture for close/mid distance viewing.
- * Multi-layer radial glow that replaces the DOM overlay lens flare.
- */
-export function createLensFlareTexture(size = 512): THREE.Texture {
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const cx = size / 2;
-  const cy = size / 2;
 
-  ctx.clearRect(0, 0, size, size);
-
-  // Layer 1: Wide warm gold outer glow
-  const g1 = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 2);
-  g1.addColorStop(0, 'rgba(255, 240, 200, 0.22)');
-  g1.addColorStop(0.15, 'rgba(255, 200, 100, 0.12)');
-  g1.addColorStop(0.4, 'rgba(255, 100, 40, 0.04)');
-  g1.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = g1;
-  ctx.fillRect(0, 0, size, size);
-
-  // Layer 2: White-gold core glow
-  const g2 = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.3);
-  g2.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
-  g2.addColorStop(0.3, 'rgba(255, 220, 150, 0.2)');
-  g2.addColorStop(0.7, 'rgba(255, 150, 50, 0.08)');
-  g2.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = g2;
-  ctx.fillRect(0, 0, size, size);
-
-  // Layer 3: Intense central core
-  const g3 = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.12);
-  g3.addColorStop(0, 'rgba(255, 255, 255, 0.75)');
-  g3.addColorStop(0.5, 'rgba(255, 200, 100, 0.3)');
-  g3.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = g3;
-  ctx.fillRect(0, 0, size, size);
-
-  // Diffraction spikes (4 primary)
-  const drawSpike = (angle: number, length: number, thickness: number, brightness: number) => {
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(angle);
-    const grad = ctx.createLinearGradient(0, 0, 0, -length);
-    grad.addColorStop(0, `rgba(255, 240, 200, ${brightness})`);
-    grad.addColorStop(0.4, `rgba(255, 180, 80, ${brightness * 0.5})`);
-    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.moveTo(-thickness / 2, 0);
-    ctx.lineTo(0, -length);
-    ctx.lineTo(thickness / 2, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  };
-
-  const primaryLen = size * 0.38;
-  const primaryThick = size * 0.022;
-  drawSpike(0, primaryLen, primaryThick, 0.55);
-  drawSpike(Math.PI / 2, primaryLen, primaryThick, 0.55);
-  drawSpike(Math.PI, primaryLen, primaryThick, 0.55);
-  drawSpike(-Math.PI / 2, primaryLen, primaryThick, 0.55);
-
-  // Diagonal secondary spikes
-  const secondaryLen = size * 0.22;
-  const secondaryThick = size * 0.012;
-  drawSpike(Math.PI / 4, secondaryLen, secondaryThick, 0.3);
-  drawSpike(-Math.PI / 4, secondaryLen, secondaryThick, 0.3);
-  drawSpike((3 * Math.PI) / 4, secondaryLen, secondaryThick, 0.3);
-  drawSpike(-(3 * Math.PI) / 4, secondaryLen, secondaryThick, 0.3);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
 
 /**
  * Create an intense central bloom texture with star-like diffraction spikes.
@@ -423,7 +346,6 @@ export interface SunGroup extends THREE.Group {
     coronaRimMesh?: THREE.Mesh;
     glowSprite?: THREE.Sprite;
     flareSprite?: THREE.Sprite;
-    lensFlareSprite?: THREE.Sprite;
     /** Accumulated time for animation */
     elapsedTime?: number;
     /** Initial Y-rotation offsets for corona layers */
@@ -567,20 +489,7 @@ export function buildSunGroup(
   sunGroup.add(flareSprite);
   sunGroup.userData.flareSprite = flareSprite;
 
-  // --- g. Lens flare sprite (replaces DOM overlay for frame-synced rendering) ---
-  const lensFlareMat = new THREE.SpriteMaterial({
-    map: createLensFlareTexture(),
-    color: 0xffffff,
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    opacity: 0,
-  });
-  const lensFlareSprite = new THREE.Sprite(lensFlareMat);
-  lensFlareSprite.name = 'sun-lens-flare';
-  lensFlareSprite.scale.set(radius * 12, radius * 12, 1);
-  sunGroup.add(lensFlareSprite);
-  sunGroup.userData.lensFlareSprite = lensFlareSprite;
+
 
   return sunGroup;
 }
@@ -746,17 +655,7 @@ export function updateSunEffects(
     }
   }
 
-  // --- 7. Lens flare sprite (close/mid distance, frame-synced with WebGL) ---
-  const lensFlareSprite = data.lensFlareSprite;
-  if (lensFlareSprite && lensFlareSprite.material instanceof THREE.SpriteMaterial) {
-    // Base visibility on LOD; opacity/scale driven externally in UniverseViewer.animate()
-    // Keep sprite visible in close/mid for external opacity control
-    if (lod === 'far') {
-      lensFlareSprite.material.opacity = THREE.MathUtils.lerp(lensFlareSprite.material.opacity, 0.0, 0.12);
-      lensFlareSprite.visible = lensFlareSprite.material.opacity > 0.02;
-    }
-    // close/mid: let UniverseViewer animate() control opacity directly
-  }
+
 }
 
 // ---------------------------------------------------------------------------
