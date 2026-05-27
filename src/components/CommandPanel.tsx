@@ -450,7 +450,7 @@ export default function CommandPanel({
               className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
             />
             <IconZap className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '等比速度加速' : 'Proportional Speed'}</span>
+            <span>{isZh ? '相机等比加速 (越远越快)' : 'Exponential shuttle (farther = faster)'}</span>
           </label>
 
           <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
@@ -655,44 +655,6 @@ export default function CommandPanel({
                 className="w-full accent-cyan-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
               />
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* 🚀 相机穿梭速度控制 (Shuttle Speed) — 直接展开 */}
-      {!landed && (
-        <div className="pt-1.5 border-t border-slate-800/60 flex flex-col gap-2">
-          <div className="flex items-center gap-1.5 text-[10px] font-bold font-mono text-cyan-400 uppercase tracking-wider">
-            <span>🚀</span>
-            <span>{isZh ? '相机穿梭速度' : 'SHUTTLE SPEED'}</span>
-          </div>
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-[10.5px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-              <input
-                type="checkbox"
-                checked={useExponentialSpeed}
-                onChange={(e) => onToggleExponentialSpeed(e.target.checked)}
-                className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
-              />
-              <span>{isZh ? '等比加速 (越远越快)' : 'Exponential Speed'}</span>
-            </label>
-
-            {!useExponentialSpeed && (
-              <select
-                value={customSpeedPreset}
-                onChange={(e) => onChangeCustomSpeedPreset(e.target.value)}
-                className="bg-slate-950 border border-slate-850 hover:border-cyan-500/50 text-white text-[10.5px] rounded-md px-2 py-1 focus:outline-none cursor-pointer outline-none transition-colors w-full font-mono"
-              >
-                <option value="walk">{isZh ? '🚶 步行 (1.4 m/s)' : 'Walking (1.4 m/s)'}</option>
-                <option value="rocket">{isZh ? '🚀 火箭 (11.2 km/s)' : 'Rocket (11.2 km/s)'}</option>
-                <option value="meteor">{isZh ? '☄️ 流星 (50 km/s)' : 'Meteor (50 km/s)'}</option>
-                <option value="light">{isZh ? '✨ 光速 (1c)' : 'Light Speed (1c)'}</option>
-                <option value="10c">{isZh ? '⚡ 10倍光速 (10c)' : '10x Light Speed (10c)'}</option>
-                <option value="100c">{isZh ? '⚡ 100倍光速 (100c)' : '100x Light Speed (100c)'}</option>
-                <option value="1000c">{isZh ? '⚡ 1000倍光速 (1000c)' : '1000x Light Speed (1000c)'}</option>
-                <option value="10000c">{isZh ? '⚡ 10000倍光速 (10000c)' : '10000x Light Speed (10000c)'}</option>
-              </select>
-            )}
           </div>
         </div>
       )}

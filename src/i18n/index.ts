@@ -225,6 +225,25 @@ export interface TranslationDict {
   eclipseStep3Body: string;
   eclipseStep4Title: string;
   eclipseStep4Body: string;
+
+  // Seasons Steps
+  seasonsStep1Title: string;
+  seasonsStep1Body: string;
+  seasonsStep2Title: string;
+  seasonsStep2Body: string;
+  seasonsStep3Title: string;
+  seasonsStep3Body: string;
+  seasonsStep4Title: string;
+  seasonsStep4Body: string;
+
+  // Solar Term Info Panel
+  solarTermPoetry: string;
+  solarTermCustoms: string;
+  solarTermWeather: string;
+  solarTermPhenology: string;
+  solarTermEclipticLon: string;
+  solarTermDirectLat: string;
+  solarTermDateRange: string;
 }
 
 export const translations: Record<'zh' | 'en', TranslationDict> = {
@@ -445,7 +464,22 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     eclipseStep3Title: "本影和半影",
     eclipseStep3Body: "影子有两种：中间深色的叫本影，在这里能看到日全食；边缘浅色的叫半影，在这里只能看到日偏食。",
     eclipseStep4Title: "为什么月食时月亮是红色的？",
-    eclipseStep4Body: "地球大气层会把阳光中的蓝光散射掉，只剩红光能拐弯照到月球上。所以月食时，月亮会变成暗红色的"血月"！",
+    eclipseStep4Body: "地球大气层会把阳光中的蓝光散射掉，只剩红光能拐弯照到月球上。所以月食时，月亮会变成暗红色的血月！",
+    seasonsStep1Title: "地球是个歪着转的陀螺",
+    seasonsStep1Body: "地球的自转轴是倾斜的（大约23.5度），而且无论地球走到轨道哪个位置，倾斜方向始终指向北极星。这就是四季变化的根本原因！",
+    seasonsStep2Title: "夏天：北半球歪向太阳",
+    seasonsStep2Body: "夏至时，北半球最大程度地面向太阳，阳光直射北回归线。白天最长、太阳最高，所以最热！",
+    seasonsStep3Title: "冬天：北半球歪离太阳",
+    seasonsStep3Body: "冬至时，北半球背向太阳，阳光直射南回归线。白天最短、太阳最低，所以最冷！",
+    seasonsStep4Title: "春分秋分：昼夜等长",
+    seasonsStep4Body: "春分和秋分时，太阳直射赤道，全球各地昼夜平分。从这天起，昼长夜短或昼短夜长的变化开始转换方向。",
+    solarTermPoetry: "古诗",
+    solarTermCustoms: "习俗",
+    solarTermWeather: "天气",
+    solarTermPhenology: "物候",
+    solarTermEclipticLon: "太阳黄经",
+    solarTermDirectLat: "直射纬度",
+    solarTermDateRange: "日期",
   },
   en: {
     title: "Cosmic Odyssey",
@@ -663,5 +697,20 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     eclipseStep3Body: "Shadows have two parts: the dark central umbra where you see a total eclipse, and the lighter outer penumbra where you see only a partial eclipse.",
     eclipseStep4Title: "Why Does the Moon Turn Red?",
     eclipseStep4Body: "Earth's atmosphere scatters blue light and bends red sunlight onto the Moon. That's why during a lunar eclipse, the Moon turns a dim red color — a 'blood moon'!",
+    seasonsStep1Title: "Earth is a Tilted Top",
+    seasonsStep1Body: "Earth's axis is tilted by about 23.5 degrees, and no matter where Earth is in its orbit, the tilt always points toward the North Star. This is the root cause of the seasons!",
+    seasonsStep2Title: "Summer: Northern Hemisphere Tilts Toward the Sun",
+    seasonsStep2Body: "At the summer solstice, the Northern Hemisphere faces the Sun most directly, with sunlight hitting the Tropic of Cancer. Days are longest and the Sun is highest — that's why it's hottest!",
+    seasonsStep3Title: "Winter: Northern Hemisphere Tilts Away",
+    seasonsStep3Body: "At the winter solstice, the Northern Hemisphere faces away from the Sun, with sunlight hitting the Tropic of Capricorn. Days are shortest and the Sun is lowest — that's why it's coldest!",
+    seasonsStep4Title: "Equinoxes: Equal Day and Night",
+    seasonsStep4Body: "At the spring and autumn equinoxes, the Sun shines directly on the equator, and day and night are equal everywhere on Earth. From this day on, the trend of longer days or longer nights reverses.",
+    solarTermPoetry: "Poetry",
+    solarTermCustoms: "Customs",
+    solarTermWeather: "Weather",
+    solarTermPhenology: "Phenology",
+    solarTermEclipticLon: "Ecliptic Longitude",
+    solarTermDirectLat: "Direct Latitude",
+    solarTermDateRange: "Date Range",
   }
 };

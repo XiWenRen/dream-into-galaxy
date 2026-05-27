@@ -56,10 +56,8 @@ export default function SystemPanel({
   const isZh = lang === 'zh';
 
   return (
-    <div className="w-full bg-slate-950/85 border border-slate-800/60 backdrop-blur-md rounded-lg px-3 py-2 shadow-2xl"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[10px] uppercase font-mono tracking-widest text-white/40"
-      >
+    <div className="w-full bg-slate-950/85 border border-slate-800/60 backdrop-blur-md rounded-lg px-3 py-2 shadow-2xl">
+      <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 items-center text-[10px] uppercase font-mono tracking-widest text-white/40">
         {/* Left: System status */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="flex items-center gap-1.5">
@@ -79,7 +77,7 @@ export default function SystemPanel({
         </div>
 
         {/* Right: Heliocentric coordinates */}
-        <div className="flex items-center gap-2 text-cyan-400/70 flex-wrap">
+        <div className="flex items-center gap-2 text-cyan-400/70 flex-wrap justify-end">
           <IconGlobe className="w-3 h-3" />
           <span className="text-white/20 lowercase italic">{isZh ? '日地轨道' : 'Heliocentric'} [j2000]:</span>
           <span>X {helioX.toFixed(4)}</span>

@@ -37,7 +37,8 @@
       "Bash(cat .claude/launch.json 2>nul || echo \"No launch.json\")",
       "Bash(dir .claude\\\\launch.json 2>nul || echo not found)",
       "Bash(mkdir -p .claude && echo ok)",
-      "mcp__Claude_in_Chrome__navigate"
+      "mcp__Claude_in_Chrome__navigate",
+      "Bash(python3 -c ' *)"
     ]
   }
 }

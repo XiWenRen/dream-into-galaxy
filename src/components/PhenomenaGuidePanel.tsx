@@ -36,7 +36,10 @@ const PHENOMENA_STEPS: Record<PhenomenonId, StepContent[]> = {
     { titleKey: 'eclipseStep4Title', bodyKey: 'eclipseStep4Body' },
   ],
   'seasons': [
-    { titleKey: 'moonPhaseStep1Title', bodyKey: 'moonPhaseStep1Body' }, // placeholder
+    { titleKey: 'seasonsStep1Title', bodyKey: 'seasonsStep1Body' },
+    { titleKey: 'seasonsStep2Title', bodyKey: 'seasonsStep2Body' },
+    { titleKey: 'seasonsStep3Title', bodyKey: 'seasonsStep3Body' },
+    { titleKey: 'seasonsStep4Title', bodyKey: 'seasonsStep4Body' },
   ],
   'retrograde': [
     { titleKey: 'moonPhaseStep1Title', bodyKey: 'moonPhaseStep1Body' }, // placeholder

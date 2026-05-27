@@ -10,14 +10,45 @@ import PlanetInfoPanel from './components/PlanetInfoPanel';
 import CommandPanel from './components/CommandPanel';
 import ArcTimeBar from './components/ArcTimeBar';
 import LoadingScreen from './components/LoadingScreen';
+import AstroPhenomenaPanel from './components/AstroPhenomenaPanel';
+import PhenomenaGuidePanel from './components/PhenomenaGuidePanel';
+import SolarTermInfoPanel from './components/SolarTermInfoPanel';
+import PhenomenaDemoBar from './components/PhenomenaDemoBar';
 import { TimeEngine } from './engine/TimeEngine';
 import { OrbitEngine } from './engine/OrbitEngine';
 import { AstrophenomenaEngine } from './engine/AstrophenomenaEngine';
-import { TimeState, ThemeType } from './types/astronomy';
+import { TimeState, ThemeType, PhenomenaDemoState } from './types/astronomy';
 import { translations } from './i18n';
 
 // 可登录天体白名单 (行星、月球及主要天然卫星均可作为观测点)
 const LANDABLE_PLANETS = ['earth', 'mercury', 'venus', 'mars', 'moon', 'jupiter', 'saturn', 'uranus', 'neptune', 'phobos', 'deimos', 'io', 'europa', 'ganymede', 'callisto', 'titan', 'rhea', 'enceladus', 'titania', 'oberon', 'ariel', 'triton', 'proteus'];
+
+// ── Demo playback helpers ───────────────────────────────────────
+const SYNODIC_MONTH_MS = 29.53059 * 24 * 60 * 60 * 1000;
+
+function findNearestNewMoon(referenceTimestamp: number): number {
+  const knownNewMoon = Date.UTC(2000, 0, 6, 11, 0, 0);
+  const monthsSince = (referenceTimestamp - knownNewMoon) / SYNODIC_MONTH_MS;
+  return knownNewMoon + Math.round(monthsSince) * SYNODIC_MONTH_MS;
+}
+
+function findNearestSpringEquinox(referenceTimestamp: number): number {
+  const year = new Date(referenceTimestamp).getUTCFullYear();
+  const candidates = [Date.UTC(year - 1, 2, 20), Date.UTC(year, 2, 20), Date.UTC(year + 1, 2, 20)];
+  let best = candidates[0];
+  let bestDiff = Math.abs(best - referenceTimestamp);
+  for (let i = 1; i < candidates.length; i++) {
+    const diff = Math.abs(candidates[i] - referenceTimestamp);
+    if (diff < bestDiff) { best = candidates[i]; bestDiff = diff; }
+  }
+  return best;
+}
+
+const DEMO_SPEED_MAP: Record<string, number> = {
+  'moon-phases': 86400 * 3,   // 3 days/sec
+  'seasons': 86400 * 15,      // 15 days/sec
+  'eclipses': 86400,          // 1 day/sec
+};
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -79,6 +110,23 @@ export default function App() {
     isPaused: false
   });
 
+  // 天文现象演示状态
+  const [demoState, setDemoState] = useState<PhenomenaDemoState>({
+    activePhenomenon: null,
+    demoPhase: 0,
+    viewMode: 'universe',
+    cameraPreset: null,
+    isPlaying: false,
+    playbackSpeed: 1,
+    showGuidePanel: true,
+  });
+
+  // 天文现象面板开关
+  const [phenomenaPanelOpen, setPhenomenaPanelOpen] = useState<boolean>(false);
+
+  // 当前选中的节气索引（四季与节气演示模式）
+  const [selectedSolarTermIndex, setSelectedSolarTermIndex] = useState<number | null>(null);
+
   // 贴图便宜位置调试 (用于行星面板上交互式校准纹理偏移)
   // 月球默认偏移 u=0.42，经滑块校准后固定
   const [textureOffsets, setTextureOffsets] = useState<Record<string, { u: number; v: number }>>({
@@ -110,6 +158,39 @@ export default function App() {
     return () => cancelAnimationFrame(animId);
   }, []);
 
+  // 1b. 天文现象演示自动播放逻辑
+  useEffect(() => {
+    if (!demoState.isPlaying || !demoState.activePhenomenon) return;
+    const totalSteps = getPhenomenonSteps(demoState.activePhenomenon).length;
+    const stepDuration = 3500; // ms per step at 1x
+    const intervalMs = stepDuration / demoState.playbackSpeed;
+
+    const timer = setInterval(() => {
+      setDemoState(prev => {
+        if (!prev.isPlaying || !prev.activePhenomenon) return prev;
+        const steps = getPhenomenonSteps(prev.activePhenomenon).length;
+        const nextPhase = prev.demoPhase + 1;
+        if (nextPhase >= steps) {
+          return { ...prev, demoPhase: steps - 1, isPlaying: false };
+        }
+        return { ...prev, demoPhase: nextPhase };
+      });
+    }, intervalMs);
+
+    return () => clearInterval(timer);
+  }, [demoState.isPlaying, demoState.playbackSpeed, demoState.activePhenomenon]);
+
+  // 1c. 演示模式下自动调整时间流速，退出时恢复
+  useEffect(() => {
+    const phenomenon = demoState.activePhenomenon;
+    if (demoState.isPlaying && phenomenon) {
+      const speed = DEMO_SPEED_MAP[phenomenon] || 1;
+      setTimeState(prev => ({ ...prev, speedMultiplier: speed }));
+    } else if (!phenomenon) {
+      setTimeState(prev => ({ ...prev, speedMultiplier: 1 }));
+    }
+  }, [demoState.isPlaying, demoState.activePhenomenon]);
+
   // 2. 实时查询公转轨道的 二十四节气 属性
   const daysSinceJ2000 = TimeEngine.getDaysSinceJ2000(timeState.currentTimestamp);
   const solarTermData = AstrophenomenaEngine.getCurrentSolarTerm(daysSinceJ2000);
@@ -136,6 +217,113 @@ export default function App() {
   const handleFocusPlanet = () => {
     setFocusTrigger(prev => prev + 1);
   };
+
+  // ═══════════════════════════════════════════════════════════════
+  // 天文现象演示回调
+  // ═══════════════════════════════════════════════════════════════
+
+  const handleSelectPhenomenon = (id: string) => {
+    const phenomenon = id as PhenomenaDemoState['activePhenomenon'];
+    setDemoState({
+      activePhenomenon: phenomenon,
+      demoPhase: 0,
+      viewMode: 'universe',
+      cameraPreset: null,
+      isPlaying: false,
+      playbackSpeed: 1,
+      showGuidePanel: true,
+    });
+    setSelectedSolarTermIndex(null);
+    setPhenomenaPanelOpen(false);
+    // Jump to canonical starting date for this phenomenon
+    const now = Date.now();
+    let targetTs = now;
+    if (phenomenon === 'moon-phases') {
+      targetTs = findNearestNewMoon(now);
+    } else if (phenomenon === 'seasons') {
+      targetTs = findNearestSpringEquinox(now);
+    }
+    setTimeState(prev => ({ ...prev, currentTimestamp: targetTs, speedMultiplier: 1 }));
+  };
+
+  const handleExitDemo = () => {
+    setDemoState({
+      activePhenomenon: null,
+      demoPhase: 0,
+      viewMode: 'universe',
+      cameraPreset: null,
+      isPlaying: false,
+      playbackSpeed: 1,
+      showGuidePanel: true,
+    });
+    setSelectedSolarTermIndex(null);
+    setPhenomenaPanelOpen(false);
+  };
+
+  const handleNextStep = () => {
+    setDemoState(prev => {
+      const steps = getPhenomenonSteps(prev.activePhenomenon);
+      const nextPhase = Math.min(prev.demoPhase + 1, steps.length - 1);
+      return { ...prev, demoPhase: nextPhase };
+    });
+  };
+
+  const handlePrevStep = () => {
+    setDemoState(prev => ({
+      ...prev,
+      demoPhase: Math.max(prev.demoPhase - 1, 0),
+    }));
+  };
+
+  const handleTogglePlay = () => {
+    setDemoState(prev => ({ ...prev, isPlaying: !prev.isPlaying }));
+  };
+
+  const handleChangeSpeed = (speed: number) => {
+    setDemoState(prev => ({ ...prev, playbackSpeed: speed }));
+  };
+
+  const handleSwitchView = (mode: PhenomenaDemoState['viewMode']) => {
+    setDemoState(prev => ({ ...prev, viewMode: mode }));
+    // Dual Lens: switch between Universe (principle) and Starry Sky (observation) viewers
+    if (mode === 'starry') {
+      setSelectedPlanetId('earth');
+      setLanded(true);
+    } else if (mode === 'universe') {
+      setLanded(false);
+    }
+    // 'split' mode: keep current viewer for now (split view is complex, defer to later)
+  };
+
+  const handleSelectPhase = (phase: number) => {
+    setDemoState(prev => ({ ...prev, demoPhase: phase }));
+    // Jump time to canonical date for the selected phase
+    const phenomenon = demoState.activePhenomenon;
+    if (phenomenon === 'moon-phases') {
+      const base = findNearestNewMoon(Date.now());
+      const target = base + (phase / 8) * SYNODIC_MONTH_MS;
+      setTimeState(prev => ({ ...prev, currentTimestamp: target }));
+    } else if (phenomenon === 'seasons') {
+      const base = findNearestSpringEquinox(Date.now());
+      const seasonOffsetMs = [0, 0.25, 0.5, 0.75][phase] * 365.2422 * 86400000;
+      setTimeState(prev => ({ ...prev, currentTimestamp: base + seasonOffsetMs }));
+    }
+  };
+
+  const handleSelectSolarTerm = (index: number) => {
+    setSelectedSolarTermIndex(index);
+  };
+
+  const getPhenomenonSteps = (phenomenon: PhenomenaDemoState['activePhenomenon']) => {
+    switch (phenomenon) {
+      case 'moon-phases': return Array.from({ length: 3 });
+      case 'eclipses': return Array.from({ length: 4 });
+      case 'seasons': return Array.from({ length: 4 });
+      default: return Array.from({ length: 1 });
+    }
+  };
+
+  const isDemoActive = demoState.activePhenomenon !== null;
 
   // 根据当前选中主题生成配色样式类
   const getThemeClasses = () => {
@@ -305,6 +493,7 @@ export default function App() {
                 textureOffsets={textureOffsets}
                 onChangeTextureOffset={(id, offset) => setTextureOffsets(prev => ({ ...prev, [id]: offset }))}
                 exposure={exposure}
+                demoState={demoState}
               />
             </>
           ) : (
@@ -326,12 +515,15 @@ export default function App() {
               exposure={exposure}
               showOrbits={showOrbits}
               showAxes={showAxes}
+              demoState={demoState}
+              selectedSolarTermIndex={selectedSolarTermIndex}
+              onSelectSolarTerm={handleSelectSolarTerm}
             />
           )}
         </div>
 
         {/* 右侧：悬浮天体结构剖析与物理常数面板 (仅在 3D 宇宙模式、且选择特定星球时悬浮在右侧) */}
-        {!landed && selectedPlanetId && showPlanetInfo && (
+        {!landed && selectedPlanetId && showPlanetInfo && !isDemoActive && (
           <div className="absolute top-20 right-5 w-[22rem] max-h-[calc(100vh-180px)] bg-black/75 border border-white/10 rounded-2xl p-0 shadow-2xl z-20 backdrop-blur-md hidden md:block select-none animate-in fade-in-0 slide-in-from-right-5 duration-300">
             <PlanetInfoPanel
               planetId={selectedPlanetId}
@@ -356,7 +548,7 @@ export default function App() {
         )}
 
         {/* 当面板关闭时，在右侧悬浮一个小巧精致的展开按钮泡泡 */}
-        {!landed && selectedPlanetId && !showPlanetInfo && (
+        {!landed && selectedPlanetId && !showPlanetInfo && !isDemoActive && (
           <button
             onClick={() => setShowPlanetInfo(true)}
             className="absolute top-20 right-5 z-20 w-10 h-10 flex items-center justify-center bg-black/80 hover:bg-black border border-white/10 hover:border-cyan-500/50 text-cyan-400 hover:text-white rounded-xl shadow-2xl backdrop-blur-md cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 animate-in zoom-in-90"
@@ -372,7 +564,78 @@ export default function App() {
             </svg>
           </button>
         )}
+
+        {/* ═══════════════════════════════════════════════════════════════
+             LEFT: Astro Phenomena Panel (floating drawer)
+           ═══════════════════════════════════════════════════════════════ */}
+        {!landed && (
+          <AstroPhenomenaPanel
+            lang={lang}
+            theme={theme}
+            isOpen={phenomenaPanelOpen}
+            onToggle={() => setPhenomenaPanelOpen(prev => !prev)}
+            onSelectPhenomenon={handleSelectPhenomenon}
+            activePhenomenon={demoState.activePhenomenon}
+          />
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════
+             RIGHT: Phenomena Guide Panel (during demo, replaces PlanetInfoPanel)
+           ═══════════════════════════════════════════════════════════════ */}
+        {!landed && isDemoActive && demoState.showGuidePanel && demoState.activePhenomenon !== 'seasons' && (
+          <div className="absolute top-20 right-5 z-20">
+            <PhenomenaGuidePanel
+              lang={lang}
+              theme={theme}
+              demoState={demoState}
+              onNextStep={handleNextStep}
+              onPrevStep={handlePrevStep}
+              onSwitchView={handleSwitchView}
+              onExitDemo={handleExitDemo}
+              onTogglePlay={handleTogglePlay}
+            />
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════
+             RIGHT: Solar Term Info Panel (during seasons demo)
+           ═══════════════════════════════════════════════════════════════ */}
+        {!landed && isDemoActive && demoState.activePhenomenon === 'seasons' && selectedSolarTermIndex !== null && (
+          <div className="absolute top-20 right-5 z-20">
+            <SolarTermInfoPanel
+              lang={lang}
+              theme={theme}
+              selectedSolarTermIndex={selectedSolarTermIndex}
+              onClose={() => setSelectedSolarTermIndex(null)}
+            />
+          </div>
+        )}
       </main>
+
+      {/* ═══════════════════════════════════════════════════════════════
+           BOTTOM: Phenomena Demo Bar (during demo)
+         ═══════════════════════════════════════════════════════════════ */}
+      {isDemoActive && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-[26] pointer-events-auto">
+          <PhenomenaDemoBar
+            lang={lang}
+            theme={theme}
+            activePhenomenon={demoState.activePhenomenon!}
+            demoPhase={demoState.demoPhase}
+            totalSteps={getPhenomenonSteps(demoState.activePhenomenon).length}
+            viewMode={demoState.viewMode}
+            isPlaying={demoState.isPlaying}
+            playbackSpeed={demoState.playbackSpeed}
+            onNextStep={handleNextStep}
+            onPrevStep={handlePrevStep}
+            onTogglePlay={handleTogglePlay}
+            onChangeSpeed={handleChangeSpeed}
+            onSwitchView={handleSwitchView}
+            onExitDemo={handleExitDemo}
+            onSelectPhase={handleSelectPhase}
+          />
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════════
            BOTTOM: Arc Time Bar

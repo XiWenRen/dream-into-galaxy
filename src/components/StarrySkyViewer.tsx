@@ -11,6 +11,7 @@ import { OrbitEngine } from '../engine/OrbitEngine';
 import { AstrophenomenaEngine } from '../engine/AstrophenomenaEngine';
 import { ObserverEngine } from '../engine/ObserverEngine';
 import { translations } from '../i18n';
+import type { PhenomenaDemoState } from '../types/astronomy';
 import { SATELLITE_CATALOG } from '../engine/SatelliteData';
 import { STAR_LIST, CONSTELLATIONS, BRIGHT_STAR_COUNT, DetailedStar } from '../engine/StarDatabase';
 import { EXTRA_STARS, EXTRA_CONSTELLATIONS } from '../engine/ExtraStarsDatabase';
@@ -769,6 +770,7 @@ interface StarrySkyViewerProps {
   textureOffsets?: Record<string, { u: number; v: number }>;
   onChangeTextureOffset?: (planetId: string, offset: { u: number; v: number }) => void;
   exposure?: number;
+  demoState?: PhenomenaDemoState;
 }
 
 export default function StarrySkyViewer({
@@ -785,7 +787,8 @@ export default function StarrySkyViewer({
   onTelescopeChange,
   textureOffsets = {},
   onChangeTextureOffset,
-  exposure = 1.5
+  exposure = 1.5,
+  demoState
 }: StarrySkyViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -844,6 +847,10 @@ export default function StarrySkyViewer({
   // 磁吸snap目标跟踪
   const snapTargetRef = useRef<THREE.Sprite | THREE.Mesh | null>(null);
 
+  // Demo mode refs
+  const demoStateRef = useRef(demoState);
+  const sunPathArcRef = useRef<THREE.Line | null>(null);
+
   // 选中天体的屏幕坐标（用于SVG圈圈跟随）
   const [selectedScreenPos, setSelectedScreenPos] = useState<{ x: number; y: number } | null>(null);
   const selectedObjectRef = useRef<THREE.Object3D | null>(null);
@@ -866,6 +873,10 @@ export default function StarrySkyViewer({
   useEffect(() => {
     textureOffsetsRef.current = textureOffsets;
   }, [textureOffsets]);
+
+  useEffect(() => {
+    demoStateRef.current = demoState;
+  }, [demoState]);
 
   useEffect(() => {
     observerBodyIdRef.current = observerBodyId;
@@ -1098,6 +1109,8 @@ export default function StarrySkyViewer({
     moonPhaseName: string;
     solarEclipse: boolean;
     lunarEclipse: boolean;
+    dayLength: number; // hours of daylight
+    sunDeclination: number; // degrees
   } | null>(null);
 
   const [compassHeading, setCompassHeading] = useState<number>(0); // 0=北, 顺时针
@@ -1223,6 +1236,20 @@ export default function StarrySkyViewer({
     const starsGroup = new THREE.Group();
     scene.add(starsGroup);
     starsGroupRef.current = starsGroup;
+
+    // 6b. 太阳轨迹弧线（用于四季演示）
+    const sunPathArcGeo = new THREE.BufferGeometry();
+    const sunPathArcMat = new THREE.LineBasicMaterial({
+      color: 0xffaa33,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const sunPathArcLine = new THREE.Line(sunPathArcGeo, sunPathArcMat);
+    sunPathArcLine.name = 'sun-path-arc';
+    scene.add(sunPathArcLine);
+    sunPathArcRef.current = sunPathArcLine;
 
     // A. 明亮恒星 Sprite 创建
     const brightStarTex = createBrightStarGlowTexture();
@@ -2215,6 +2242,60 @@ export default function StarrySkyViewer({
     moonRaRef.current = moonRa;
     moonDecRef.current = moonDec;
 
+    // Calculate day length based on sun declination and observer latitude
+    const phi = (latitude * Math.PI) / 180;
+    const delta = (sunDec * Math.PI) / 180;
+    const tanPhiTanDelta = Math.tan(phi) * Math.tan(delta);
+    let dayLength: number;
+    if (tanPhiTanDelta <= -1) {
+      dayLength = 24; // Polar day
+    } else if (tanPhiTanDelta >= 1) {
+      dayLength = 0; // Polar night
+    } else {
+      const H0 = Math.acos(Math.max(-1, Math.min(1, -tanPhiTanDelta)));
+      dayLength = (2 * H0 * 180 / Math.PI) / 15; // hours
+    }
+
+    // Update sun path arc geometry for seasons demo
+    if (sunPathArcRef.current) {
+      const isSeasonsDemo = demoStateRef.current?.activePhenomenon === 'seasons';
+      if (isSeasonsDemo && observerBodyId === 'earth') {
+        const arcPoints: THREE.Vector3[] = [];
+        if (tanPhiTanDelta <= -1) {
+          // Polar day: sun never sets, draw full circle
+          for (let i = 0; i <= 48; i++) {
+            const h = (-Math.PI + (2 * Math.PI * i) / 48);
+            const sinAlt = Math.sin(phi) * Math.sin(delta) + Math.cos(phi) * Math.cos(delta) * Math.cos(h);
+            const altRad = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
+            const altDeg = (altRad * 180) / Math.PI;
+            const y = -Math.sin(h) * Math.cos(delta);
+            const x = Math.cos(phi) * Math.sin(delta) - Math.sin(phi) * Math.cos(delta) * Math.cos(h);
+            let azDeg = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+            arcPoints.push(get3DPositionOnDome(azDeg, altDeg, 260));
+          }
+        } else if (tanPhiTanDelta >= 1) {
+          // Polar night: sun never rises, empty arc
+        } else {
+          // Normal day: sun rises and sets
+          const H0 = Math.acos(Math.max(-1, Math.min(1, -tanPhiTanDelta)));
+          const steps = 48;
+          for (let i = 0; i <= steps; i++) {
+            const h = -H0 + (2 * H0 * i) / steps;
+            const sinAlt = Math.sin(phi) * Math.sin(delta) + Math.cos(phi) * Math.cos(delta) * Math.cos(h);
+            const altRad = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
+            const altDeg = (altRad * 180) / Math.PI;
+            const y = -Math.sin(h) * Math.cos(delta);
+            const x = Math.cos(phi) * Math.sin(delta) - Math.sin(phi) * Math.cos(delta) * Math.cos(h);
+            let azDeg = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+            if (altDeg > -6) {
+              arcPoints.push(get3DPositionOnDome(azDeg, altDeg, 260));
+            }
+          }
+        }
+        sunPathArcRef.current.geometry.setFromPoints(arcPoints);
+      }
+    }
+
     setSkyData({
       lst,
       sunAlt: sunCoords.alt,
@@ -2222,7 +2303,9 @@ export default function StarrySkyViewer({
       moonPhasePercent: moonPhaseInfo.percent,
       moonPhaseName: moonPhaseInfo.nameKey,
       solarEclipse: eclipseState.solarEclipse,
-      lunarEclipse: eclipseState.lunarEclipse
+      lunarEclipse: eclipseState.lunarEclipse,
+      dayLength,
+      sunDeclination: sunDec
     });
   }, [currentTimestamp, latitude, longitude, observerBodyId, showConstellLines, showStarNames, showConstellNames, magLimit]);
 
@@ -2370,6 +2453,15 @@ export default function StarrySkyViewer({
               mat.map.offset.y = off.v;
             }
           }
+        }
+
+        // 6. 太阳轨迹弧线透明度平滑过渡（四季演示）
+        if (sunPathArcRef.current) {
+          const isSeasonsDemo = demoStateRef.current?.activePhenomenon === 'seasons';
+          const targetOpacity = isSeasonsDemo && observerBodyIdRef.current === 'earth' ? 0.75 : 0;
+          const mat = sunPathArcRef.current.material as THREE.LineBasicMaterial;
+          mat.opacity = THREE.MathUtils.lerp(mat.opacity, targetOpacity, 0.06);
+          sunPathArcRef.current.visible = mat.opacity > 0.005;
         }
 
         rendererRef.current.render(sceneRef.current, cameraRef.current);
@@ -2521,6 +2613,14 @@ export default function StarrySkyViewer({
             <span className="text-indigo-300">🌒{translations[lang][skyData.moonPhaseName as keyof typeof translations['zh']]}</span>
             <span className="text-slate-600">|</span>
             <span className="text-indigo-300/80">LST{skyData.lst.toFixed(1)}h</span>
+            {demoState?.activePhenomenon === 'seasons' && observerBodyId === 'earth' && (
+              <>
+                <span className="text-slate-600">|</span>
+                <span className="text-amber-300">
+                  {isZh ? `白天 ${skyData.dayLength.toFixed(1)}h` : `Day ${skyData.dayLength.toFixed(1)}h`}
+                </span>
+              </>
+            )}
             {(skyData.solarEclipse || skyData.lunarEclipse) && (
               <>
                 <span className="text-slate-600">|</span>
