@@ -39,7 +39,111 @@ export const SOLAR_TERMS_LIST: SolarTermInfo[] = [
   { index: 23, nameKey: "term_jingzhe", angle: 345 }
 ];
 
+export interface EclipseEvent {
+  timestamp: number;
+  type: 'solar' | 'lunar';
+  dateStr: string; // YYYY-MM-DD
+}
+
 export class AstrophenomenaEngine {
+  /**
+   * 搜索给定时间窗口内的日食和月食事件
+   * @param centerTimestamp 中心时间点 (ms)
+   * @param windowYears 搜索前后多少年 (默认 ±10年)
+   */
+  static searchEclipseEvents(centerTimestamp: number, windowYears = 10): EclipseEvent[] {
+    const centerDays = (centerTimestamp / 86400000) - 10957.5; // ms -> days since J2000
+    const startDays = centerDays - windowYears * 365.25;
+    const endDays = centerDays + windowYears * 365.25;
+
+    const events: EclipseEvent[] = [];
+    const seen = new Set<string>();
+
+    // Scan with 0.25-day steps to catch all eclipses
+    for (let days = startDays; days < endDays; days += 0.25) {
+      const result = this.detectEclipse(days);
+      if (result.solarEclipse || result.lunarEclipse) {
+        const ts = (days + 10957.5) * 86400000;
+        const d = new Date(ts);
+        const type = result.solarEclipse ? 'solar' : 'lunar';
+        const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${type}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          events.push({
+            timestamp: ts,
+            type,
+            dateStr: d.toISOString().split('T')[0],
+          });
+        }
+      }
+    }
+
+    return events.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /**
+   * 计算给定交食事件的真实开始与结束时间（初亏/复圆或 P1/P4）
+   * @param timestamp 交食峰值时间戳 (ms)
+   * @param type 'solar' | 'lunar'
+   * @returns { start, end } 开始和结束时间戳 (ms)
+   */
+  static getEclipseWindow(timestamp: number, type: 'solar' | 'lunar'): { start: number; end: number } {
+    const centerDays = (timestamp / 86400000) - 10957.5;
+    const coarseStep = 0.01;   // ~14.4 min
+    const fineStep = 0.0005;   // ~43 sec
+    const maxRadius = 0.6;     // 搜索半径上限 ~14.4h
+
+    const isActive = (days: number) => {
+      const r = this.detectEclipse(days);
+      return type === 'solar' ? r.solarEclipse : r.lunarEclipse;
+    };
+
+    // --- 粗搜开始（向后） ---
+    let coarseStart = centerDays;
+    for (let d = centerDays; d > centerDays - maxRadius; d -= coarseStep) {
+      if (!isActive(d)) {
+        coarseStart = d + coarseStep;
+        break;
+      }
+      coarseStart = d;
+    }
+
+    // --- 精搜开始（向后） ---
+    let startDays = coarseStart;
+    for (let d = coarseStart; d > centerDays - maxRadius; d -= fineStep) {
+      if (!isActive(d)) {
+        startDays = d + fineStep;
+        break;
+      }
+      startDays = d;
+    }
+
+    // --- 粗搜结束（向前） ---
+    let coarseEnd = centerDays;
+    for (let d = centerDays; d < centerDays + maxRadius; d += coarseStep) {
+      if (!isActive(d)) {
+        coarseEnd = d - coarseStep;
+        break;
+      }
+      coarseEnd = d;
+    }
+
+    // --- 精搜结束（向前） ---
+    let endDays = coarseEnd;
+    for (let d = coarseEnd; d < centerDays + maxRadius; d += fineStep) {
+      if (!isActive(d)) {
+        endDays = d - fineStep;
+        break;
+      }
+      endDays = d;
+    }
+
+    return {
+      start: Math.round((startDays + 10957.5) * 86400000),
+      end: Math.round((endDays + 10957.5) * 86400000),
+    };
+  }
+
   /**
    * 根据当前日期天数，计算太阳 ecliptic 黄经
    * 进而计算对应的当前节气以及下一个节气倒计时
@@ -62,6 +166,56 @@ export class AstrophenomenaEngine {
     if (lambdaDeg < 0) lambdaDeg += 360;
 
     return lambdaDeg;
+  }
+
+  /**
+   * 计算两个黄经角度之间的最小差值（处理 360° 循环）
+   */
+  static longitudeDiff(a: number, b: number): number {
+    let diff = (a - b) % 360;
+    if (diff < -180) diff += 360;
+    if (diff > 180) diff -= 360;
+    return diff;
+  }
+
+  /**
+   * 精确计算某年份中太阳黄经达到指定角度的时刻
+   * @param year 目标年份（如 2026）
+   * @param targetLongitude 目标黄经角度（0~360）
+   * @returns 对应时间戳（毫秒）
+   */
+  static getSolarTermTimestamp(year: number, targetLongitude: number): number {
+    // 构造该年份的起止范围
+    const startOfYear = new Date(year, 0, 1);
+    const endOfYear = new Date(year, 11, 31, 23, 59, 59);
+
+    const startDays = (startOfYear.getTime() / 86400000) - 10957.5;
+    const endDays = (endOfYear.getTime() / 86400000) - 10957.5;
+
+    let bestDays = startDays;
+    let bestDiff = Infinity;
+
+    // 粗搜：0.5 天步进
+    for (let d = startDays; d <= endDays; d += 0.5) {
+      const lon = this.getSolarLongitude(d);
+      const diff = Math.abs(this.longitudeDiff(lon, targetLongitude));
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestDays = d;
+      }
+    }
+
+    // 精搜：在最佳值附近 0.01 天步进
+    for (let d = bestDays - 0.5; d <= bestDays + 0.5; d += 0.01) {
+      const lon = this.getSolarLongitude(d);
+      const diff = Math.abs(this.longitudeDiff(lon, targetLongitude));
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestDays = d;
+      }
+    }
+
+    return Math.round((bestDays + 10957.5) * 86400000);
   }
 
   /**

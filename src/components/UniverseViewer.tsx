@@ -13,6 +13,7 @@ import { ScaleEngine } from '../engine/ScaleEngine';
 import { TimeEngine } from '../engine/TimeEngine';
 import { TeachingModeEngine } from '../engine/TeachingModeEngine';
 import { translations } from '../i18n';
+import { SOLAR_TERMS } from '../data/solarTerms';
 import { STAR_LIST, CONSTELLATIONS } from '../engine/StarDatabase';
 import { EXTRA_STARS, EXTRA_CONSTELLATIONS } from '../engine/ExtraStarsDatabase';
 import { loadHipparcosCatalog, HipparcosStar, bvToRgb } from '../engine/HipparcosLoader';
@@ -690,6 +691,9 @@ export default function UniverseViewer({
   exposure = 1.5,
   showOrbits = true,
   showAxes = false,
+  demoState,
+  selectedSolarTermIndex,
+  onSelectSolarTerm,
 }: UniverseViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -734,6 +738,32 @@ export default function UniverseViewer({
 
   const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
   const hemiLightRef = useRef<THREE.HemisphereLight | null>(null);
+
+  // Solar term ghost Earth meshes
+  const solarTermGhostsRef = useRef<THREE.Group | null>(null);
+  const solarTermGhostMeshesRef = useRef<THREE.Group[]>([]);
+  const selectedSolarTermRef = useRef<number | null>(null);
+
+  // ═══════════════════════════════════════════════════════════════
+  // 天文现象演示辅助视觉效果 (Shadow cones, light beams, ecliptic plane)
+  // ═══════════════════════════════════════════════════════════════
+  const visualAidsRef = useRef<{
+    sunBeam: THREE.Line | null;
+    earthShadowCone: THREE.Mesh | null;
+    moonShadowCone: THREE.Mesh | null;
+    eclipticPlane: THREE.Mesh | null;
+    earthAxis: THREE.Line | null;
+    earthEquator: THREE.Mesh | null;
+    obliquityArc: THREE.Line | null;
+  }>({
+    sunBeam: null,
+    earthShadowCone: null,
+    moonShadowCone: null,
+    eclipticPlane: null,
+    earthAxis: null,
+    earthEquator: null,
+    obliquityArc: null,
+  });
 
   const getSunRadius = (): number => {
     return ScaleEngine.getRadius('sun', strictPhysics);
@@ -838,6 +868,27 @@ export default function UniverseViewer({
   const entryProgressRef = useRef<number>(0);
   const startEntryRef = useRef<boolean>(false);
 
+  // 天文现象演示相机控制
+  const demoCameraRef = useRef<{
+    active: boolean;
+    phenomenon: string | null;
+    phase: number;
+    targetPos: THREE.Vector3;
+    targetLookAt: THREE.Vector3;
+    transitionProgress: number;
+    transitionSpeed: number;
+    lastPhase: number;
+  }>({
+    active: false,
+    phenomenon: null,
+    phase: 0,
+    targetPos: new THREE.Vector3(),
+    targetLookAt: new THREE.Vector3(),
+    transitionProgress: 1,
+    transitionSpeed: 1.5, // seconds to complete transition
+    lastPhase: -1,
+  });
+
   useEffect(() => {
     teachingModeRef.current = teachingMode;
   }, [teachingMode]);
@@ -858,6 +909,12 @@ export default function UniverseViewer({
 
 
   const [planetLabels, setPlanetLabels] = useState<Record<string, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }>>({});
+  const [solarTermLabels, setSolarTermLabels] = useState<Record<number, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }>>({});
+  const [visualAidLabels, setVisualAidLabels] = useState<{
+    ecliptic: { x: number; y: number; visible: boolean } | null;
+    equator: { x: number; y: number; visible: boolean } | null;
+    obliquity: { x: number; y: number; visible: boolean } | null;
+  }>({ ecliptic: null, equator: null, obliquity: null });
   const [zoomLevelText, setZoomLevelText] = useState<string>('1.00 AU');
 
   // == 日地距离几何排列验证系统 (Sun-Earth Distance Validation Simulation System) ==
@@ -900,6 +957,112 @@ export default function UniverseViewer({
     packingProgressDoneRef.current = 0;
     setPackingProgressDone(0);
   }, [strictPhysics]);
+
+  // Demo state tracking
+  const demoStateRef = useRef(demoState);
+  useEffect(() => {
+    demoStateRef.current = demoState;
+    if (demoState?.activePhenomenon) {
+      demoCameraRef.current.active = true;
+      demoCameraRef.current.phenomenon = demoState.activePhenomenon;
+      if (demoState.demoPhase !== demoCameraRef.current.lastPhase) {
+        demoCameraRef.current.phase = demoState.demoPhase;
+        demoCameraRef.current.transitionProgress = 0;
+        demoCameraRef.current.lastPhase = demoState.demoPhase;
+      }
+    } else {
+      demoCameraRef.current.active = false;
+      demoCameraRef.current.phenomenon = null;
+      demoCameraRef.current.transitionProgress = 1;
+    }
+  }, [demoState]);
+
+  // Solar term ghost visibility & selection update
+  useEffect(() => {
+    const ghostGroup = solarTermGhostsRef.current;
+    if (!ghostGroup) return;
+
+    const isSolarTermsDemo = demoState?.activePhenomenon === 'solar-terms';
+    ghostGroup.visible = isSolarTermsDemo;
+
+    if (isSolarTermsDemo) {
+      const selectedIndex = selectedSolarTermIndex ?? -1;
+      solarTermGhostMeshesRef.current.forEach((group, idx) => {
+        const isSelected = idx === selectedIndex;
+        group.traverse((node) => {
+          if (node instanceof THREE.Mesh) {
+            const mat = node.material as THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
+            if (node.name.startsWith('solar-term-ghost-mesh')) {
+              mat.opacity = isSelected ? 0.9 : 0.35;
+              node.scale.setScalar(isSelected ? 1.4 : 1.0);
+            } else if (node.name.startsWith('solar-term-glow')) {
+              mat.opacity = isSelected ? 0.2 : 0.08;
+              node.scale.setScalar(isSelected ? 1.4 : 1.0);
+            } else if (node.name.startsWith('solar-term-ring')) {
+              mat.opacity = isSelected ? 0.5 : 0.25;
+            }
+          }
+        });
+      });
+    }
+  }, [demoState, selectedSolarTermIndex]);
+
+  // Demo camera preset computation
+  const computeDemoCameraTargets = (
+    phenomenon: string,
+    phase: number,
+    earthPos: THREE.Vector3,
+    moonPos: THREE.Vector3
+  ): { position: THREE.Vector3; lookAt: THREE.Vector3 } => {
+    const pos = new THREE.Vector3();
+    const look = new THREE.Vector3();
+
+    switch (phenomenon) {
+      case 'moon-phases': {
+        // Look at Earth from above the orbital plane, offset by phase to see moon orbit
+        const angle = (phase / 8) * Math.PI * 2 + Math.PI / 6;
+        const camDist = 5;
+        const camHeight = 4;
+        pos.set(
+          earthPos.x + Math.cos(angle) * camDist,
+          earthPos.y + camHeight,
+          earthPos.z + Math.sin(angle) * camDist
+        );
+        look.copy(earthPos);
+        break;
+      }
+      case 'eclipses': {
+        // Side view showing Sun-Earth-Moon alignment
+        const sunPos = new THREE.Vector3(0, 0, 0);
+        const earthToSun = earthPos.clone().sub(sunPos).normalize();
+        const sideDir = new THREE.Vector3(-earthToSun.z, 0, earthToSun.x).normalize();
+        if (sideDir.lengthSq() < 0.001) sideDir.set(1, 0, 0);
+        const camDist = 8;
+        const camHeight = 3;
+        pos.copy(earthPos).add(sideDir.multiplyScalar(camDist)).add(new THREE.Vector3(0, camHeight, 0));
+        look.copy(earthPos);
+        break;
+      }
+      case 'solar-terms': {
+        // View from side showing Earth's orbit and axial tilt
+        const camDist = 25;
+        const camHeight = 12;
+        const angle = (phase / 24) * Math.PI * 2 + Math.PI / 4;
+        pos.set(
+          Math.cos(angle) * camDist,
+          camHeight,
+          Math.sin(angle) * camDist
+        );
+        look.set(0, 0, 0);
+        break;
+      }
+      default: {
+        pos.set(earthPos.x + 15, 10, earthPos.z + 15);
+        look.copy(earthPos);
+      }
+    }
+    return { position: pos, lookAt: look };
+  };
 
   // 鼠标 Hover 互动和浮空卡片属性
   const [hoveredPlanetId, setHoveredPlanetId] = useState<string | null>(null);
@@ -1854,6 +2017,100 @@ export default function UniverseViewer({
     scene.add(sunGroup);
     sunMeshRef.current = sunGroup;
 
+    // 8.5 创建二十四节气地球虚影 (Solar Term Ghost Earths)
+    const ghostGroup = new THREE.Group();
+    ghostGroup.name = 'solar-term-ghosts';
+    ghostGroup.visible = false;
+    scene.add(ghostGroup);
+    solarTermGhostsRef.current = ghostGroup;
+    solarTermGhostMeshesRef.current = [];
+
+    const EARTH_ORBIT_RADIUS = 22.0; // Scene units at 1 AU
+    const GHOST_RADIUS = 0.28;
+    const earthTex = getPlanetTexture('earth');
+    const earthObliquityRad = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
+
+    const SEASON_COLORS = [
+      // Spring (0-5)
+      0x4ade80, 0x4ade80, 0x4ade80, 0x4ade80, 0x4ade80, 0x4ade80,
+      // Summer (6-11)
+      0xf87171, 0xf87171, 0xf87171, 0xf87171, 0xf87171, 0xf87171,
+      // Autumn (12-17)
+      0xfbbf24, 0xfbbf24, 0xfbbf24, 0xfbbf24, 0xfbbf24, 0xfbbf24,
+      // Winter (18-23)
+      0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee,
+    ];
+
+    SOLAR_TERMS.forEach((term, index) => {
+      // eclipticLongitude 是太阳黄经（从地球看太阳的方向），地球实际在相反位置
+      const lonRad = ((term.eclipticLongitude + 180) * Math.PI) / 180;
+      const x = EARTH_ORBIT_RADIUS * Math.cos(lonRad);
+      const z = EARTH_ORBIT_RADIUS * Math.sin(lonRad);
+      const y = 0;
+
+      const ghostColor = new THREE.Color(SEASON_COLORS[index]);
+      const ghostColorHex = SEASON_COLORS[index];
+
+      // 每个节气虚影使用独立 Group，包含倾斜（和真实地球一致）
+      const ghostWrapper = new THREE.Group();
+      ghostWrapper.position.set(x, y, z);
+      ghostWrapper.userData = { solarTermIndex: index, isSolarTermGhost: true };
+      ghostGroup.add(ghostWrapper);
+      solarTermGhostMeshesRef.current.push(ghostWrapper);
+
+      // 倾斜组（与真实地球相同的黄轴倾角）
+      const tiltGroup = new THREE.Group();
+      tiltGroup.rotation.z = earthObliquityRad;
+      ghostWrapper.add(tiltGroup);
+
+      // 主虚影球体：使用地球真实纹理，但透明虚化 + 季节色自发光
+      const ghostGeo = new THREE.SphereGeometry(GHOST_RADIUS, 32, 16);
+      const ghostMat = new THREE.MeshStandardMaterial({
+        map: earthTex,
+        bumpMap: earthTex,
+        bumpScale: 0.015,
+        roughness: 0.55,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.45,
+        depthWrite: false,
+        emissive: ghostColor,
+        emissiveIntensity: 0.35,
+        side: THREE.FrontSide,
+      });
+      const ghostMesh = new THREE.Mesh(ghostGeo, ghostMat);
+      ghostMesh.name = `solar-term-ghost-mesh-${index}`;
+      tiltGroup.add(ghostMesh);
+
+      // 地球赤道环（红色，与真实地球一致）
+      const eqGeo = new THREE.RingGeometry(GHOST_RADIUS * 1.02, GHOST_RADIUS * 1.06, 64);
+      eqGeo.rotateX(Math.PI / 2);
+      const eqMat = new THREE.MeshBasicMaterial({
+        color: 0xff3333,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const eqMesh = new THREE.Mesh(eqGeo, eqMat);
+      eqMesh.name = `solar-term-equator-${index}`;
+      tiltGroup.add(eqMesh);
+
+      // 外发光光晕（季节色）
+      const glowGeo = new THREE.SphereGeometry(GHOST_RADIUS * 1.6, 24, 12);
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: ghostColorHex,
+        transparent: true,
+        opacity: 0.08,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide,
+      });
+      const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+      glowMesh.name = `solar-term-glow-${index}`;
+      tiltGroup.add(glowMesh);
+    });
+
     // 增加太阳的 X-Y-Z 坐标轴展示
     const sunAxes = new THREE.AxesHelper(sunRadius * 2.2);
     sunAxes.name = 'axes-helper';
@@ -2109,6 +2366,81 @@ export default function UniverseViewer({
         tiltGroup.add(moonMesh); // Added to tiltGroup!
       });
     });
+
+    // ═══════════════════════════════════════════════════════════════
+    // 天文现象演示辅助视觉效果初始化
+    // ═══════════════════════════════════════════════════════════════
+    // 1. 太阳光照辅助线 (Sun → Earth)
+    const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
+    const beamMat = new THREE.LineBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.4 });
+    const sunBeam = new THREE.Line(beamGeo, beamMat);
+    sunBeam.name = 'visual-aid-sun-beam';
+    sunBeam.visible = false;
+    scene.add(sunBeam);
+    visualAidsRef.current.sunBeam = sunBeam;
+
+    // 2. 地球本影锥 (用于月食演示)
+    const coneGeo = new THREE.ConeGeometry(1, 1, 32, 1, true);
+    const coneMat = new THREE.MeshBasicMaterial({ color: 0x1a1a3a, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false });
+    const earthShadowCone = new THREE.Mesh(coneGeo, coneMat);
+    earthShadowCone.name = 'visual-aid-earth-shadow';
+    earthShadowCone.visible = false;
+    scene.add(earthShadowCone);
+    visualAidsRef.current.earthShadowCone = earthShadowCone;
+
+    // 3. 月球本影锥 (用于日食演示)
+    const moonConeGeo = new THREE.ConeGeometry(1, 1, 32, 1, true);
+    const moonConeMat = new THREE.MeshBasicMaterial({ color: 0x2a1a1a, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
+    const moonShadowCone = new THREE.Mesh(moonConeGeo, moonConeMat);
+    moonShadowCone.name = 'visual-aid-moon-shadow';
+    moonShadowCone.visible = false;
+    scene.add(moonShadowCone);
+    visualAidsRef.current.moonShadowCone = moonShadowCone;
+
+    // 4. 黄道线（细黄色圆环，地球轨道位置）
+    const eclipticGeo = new THREE.RingGeometry(21.85, 22.15, 256);
+    const eclipticMat = new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
+    const eclipticPlane = new THREE.Mesh(eclipticGeo, eclipticMat);
+    eclipticPlane.rotation.x = Math.PI / 2;
+    eclipticPlane.name = 'visual-aid-ecliptic';
+    eclipticPlane.visible = false;
+    scene.add(eclipticPlane);
+    visualAidsRef.current.eclipticPlane = eclipticPlane;
+
+    // 5. 地球自转轴指示线
+    const axisGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
+    const axisMat = new THREE.LineBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.6 });
+    const earthAxis = new THREE.Line(axisGeo, axisMat);
+    earthAxis.name = 'visual-aid-earth-axis';
+    earthAxis.visible = false;
+    scene.add(earthAxis);
+    visualAidsRef.current.earthAxis = earthAxis;
+
+    // 5.5 真实地球赤道环（红色，仅在 solar-terms 演示时显示）
+    const equatorGeo = new THREE.RingGeometry(0.01, 0.01, 64);
+    const equatorMat = new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false });
+    const earthEquator = new THREE.Mesh(equatorGeo, equatorMat);
+    earthEquator.name = 'visual-aid-earth-equator';
+    earthEquator.visible = false;
+    scene.add(earthEquator);
+    visualAidsRef.current.earthEquator = earthEquator;
+
+    // 5.6 黄赤交角标注弧线（23.5°）
+    const obliquityRad = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
+    const arcPoints: THREE.Vector3[] = [];
+    const arcSegments = 32;
+    const arcRadius = 2.2;
+    for (let i = 0; i <= arcSegments; i++) {
+      const t = (i / arcSegments) * obliquityRad;
+      arcPoints.push(new THREE.Vector3(0, Math.cos(t) * arcRadius, Math.sin(t) * arcRadius));
+    }
+    const arcGeo = new THREE.BufferGeometry().setFromPoints(arcPoints);
+    const arcMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+    const obliquityArc = new THREE.Line(arcGeo, arcMat);
+    obliquityArc.name = 'visual-aid-obliquity-arc';
+    obliquityArc.visible = false;
+    scene.add(obliquityArc);
+    visualAidsRef.current.obliquityArc = obliquityArc;
 
     // 处理窗口/容器尺寸调整 (使用 ResizeObserver 确保响应性)
     const resizeObserver = new ResizeObserver((entries) => {
@@ -2671,6 +3003,19 @@ export default function UniverseViewer({
               nightMesh.name = 'planet-earth-night-lights';
               bodyGroup.add(nightMesh);
             }
+            // 地球赤道环（红色，用于黄赤交角可视化）
+            const eqGeo = new THREE.RingGeometry(r * 1.03, r * 1.07, 64);
+            eqGeo.rotateX(Math.PI / 2);
+            const eqMat = new THREE.MeshBasicMaterial({
+              color: 0xff3333,
+              transparent: true,
+              opacity: 0.7,
+              side: THREE.DoubleSide,
+              depthWrite: false,
+            });
+            const eqMesh = new THREE.Mesh(eqGeo, eqMat);
+            eqMesh.name = 'planet-earth-equator-ring';
+            bodyGroup.add(eqMesh);
           }
 
           const axes = new THREE.AxesHelper(r * 2.2);
@@ -3144,6 +3489,75 @@ export default function UniverseViewer({
       }
       setPlanetLabels(newPlanetLabels);
 
+      // ═══════════════════════════════════════════════════════════════
+      // 计算二十四节气虚影名称标签屏幕投影位置
+      // ═══════════════════════════════════════════════════════════════
+      const newSolarTermLabels: Record<number, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }> = {};
+      const isSolarTermsDemo = demoStateRef.current?.activePhenomenon === 'solar-terms';
+      if (isSolarTermsDemo && solarTermGhostsRef.current?.visible) {
+        solarTermGhostMeshesRef.current.forEach((group, idx) => {
+          if (!group.visible) return;
+          const worldPos = new THREE.Vector3();
+          group.getWorldPosition(worldPos);
+
+          const tempVec = new THREE.Vector3().subVectors(worldPos, cameraRef.current!.position);
+          const isBehindCam = tempVec.dot(camDirection) <= 0;
+
+          // 射线遮挡检测
+          let isOccluded = false;
+          if (!isBehindCam) {
+            const raycaster = new THREE.Raycaster();
+            raycaster.set(cameraRef.current!.position, tempVec.clone().normalize());
+            const occluders: THREE.Object3D[] = [];
+            Object.values(planetMeshesRef.current).forEach((g: any) => {
+              if (g && g.visible) {
+                g.traverse((node: any) => {
+                  if (node instanceof THREE.Mesh && !node.name.includes('orbit') && !node.name.includes('ring')) {
+                    occluders.push(node);
+                  }
+                });
+              }
+            });
+            if (sunMeshRef.current) {
+              sunMeshRef.current.traverse(node => {
+                if (node instanceof THREE.Mesh) occluders.push(node);
+              });
+            }
+            const intersects = raycaster.intersectObjects(occluders, false);
+            if (intersects.length > 0) {
+              if (intersects[0].distance < tempVec.length() - 0.1) {
+                isOccluded = true;
+              }
+            }
+          }
+
+          // 标签位置：虚影正上方
+          worldPos.y += 0.45;
+          const proj = worldPos.clone().project(cameraRef.current!);
+          const px = (proj.x * 0.5 + 0.5) * curWidth;
+          const py = (-(proj.y * 0.5) + 0.5) * curHeight;
+
+          const distToGhost = cameraRef.current!.position.distanceTo(worldPos);
+          let labelOpacity = 1.0;
+          if (distToGhost < 2.0) {
+            labelOpacity = Math.max(0, (distToGhost - 0.5) / 1.5);
+          }
+
+          if (!isBehindCam && !isOccluded && proj.z <= 1 && labelOpacity > 0.01) {
+            const term = SOLAR_TERMS[idx];
+            newSolarTermLabels[idx] = {
+              x: px,
+              y: py,
+              visible: true,
+              opacity: labelOpacity,
+              nameZh: term?.nameZh || '',
+              nameEn: term?.nameEn || '',
+            };
+          }
+        });
+      }
+      setSolarTermLabels(newSolarTermLabels);
+
       // 星座连线在宇宙尺度下的动态淡出：星座是地球夜空的2D投影，在真实3D空间中呈放射状。
       // 飞出奥尔特云内缘（>1000 AU）即开始淡出，到 1200 AU 完全不可见。
       if (constellLinesRef.current) {
@@ -3193,10 +3607,216 @@ export default function UniverseViewer({
         // 银河系是包围相机的全景球面，不随距离缩放
       }
 
-      // 10. 丝滑聚焦/跟随选中星体 & 动态近剪切面比例尺缩放
-      if (!isEnteringRef.current && startEntryRef.current && selectedPlanetIdRef.current) {
+      // 10. 天文现象演示相机控制（覆盖默认的星体跟随逻辑）
+      const demoCam = demoCameraRef.current;
+      if (!isEnteringRef.current && startEntryRef.current && demoCam.active && demoCam.phenomenon) {
+        // 获取 Earth 和 Moon 的当前世界位置
+        const earthGroup = planetMeshesRef.current['earth'];
+        const moonGroup = planetMeshesRef.current['moon'];
+        const earthPos = new THREE.Vector3();
+        const moonPos = new THREE.Vector3();
+        if (earthGroup) earthGroup.getWorldPosition(earthPos);
+        if (moonGroup) moonGroup.getWorldPosition(moonPos);
+
+        const targets = computeDemoCameraTargets(demoCam.phenomenon, demoCam.phase, earthPos, moonPos);
+
+        // 更新过渡进度
+        if (demoCam.transitionProgress < 1) {
+          demoCam.transitionProgress += delta / demoCam.transitionSpeed;
+          if (demoCam.transitionProgress > 1) demoCam.transitionProgress = 1;
+        }
+        const t = THREE.MathUtils.smoothstep(demoCam.transitionProgress, 0, 1);
+
+        // 插值相机位置（仅在过渡期间覆盖）
+        if (demoCam.transitionProgress < 1) {
+          cameraRef.current.position.lerp(targets.position, t * 0.15);
+        }
+        // 始终平滑更新 controls.target，确保缩放中心跟随演示目标
+        controlsRef.current.target.lerp(targets.lookAt, 0.08);
+        controlsRef.current.update();
+
+        // 演示模式下放宽控制器限制，允许用户自由观察
+        controlsRef.current.minDistance = 2;
+        controlsRef.current.maxDistance = 200;
+
+        // ═══════════════════════════════════════════════════════════════
+        // 天文现象演示辅助视觉效果更新
+        // ═══════════════════════════════════════════════════════════════
+        const aids = visualAidsRef.current;
+        const isEclipseDemo = demoCam.phenomenon === 'eclipses';
+        const isMoonPhaseDemo = demoCam.phenomenon === 'moon-phases';
+        const isSolarTermsDemo = demoCam.phenomenon === 'solar-terms';
+        const showAids = isEclipseDemo || isMoonPhaseDemo || isSolarTermsDemo;
+
+        if (aids.sunBeam) {
+          aids.sunBeam.visible = showAids;
+          if (showAids) {
+            const positions = (aids.sunBeam.geometry as THREE.BufferGeometry).attributes.position.array as Float32Array;
+            positions[0] = 0; positions[1] = 0; positions[2] = 0;
+            positions[3] = earthPos.x; positions[4] = earthPos.y; positions[5] = earthPos.z;
+            (aids.sunBeam.geometry as THREE.BufferGeometry).attributes.position.needsUpdate = true;
+          }
+        }
+
+        if (aids.eclipticPlane) {
+          aids.eclipticPlane.visible = showAids;
+        }
+
+        if (aids.earthAxis) {
+          aids.earthAxis.visible = showAids;
+          if (showAids && earthGroup) {
+            const earthTilt = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
+            const r = Math.max(getCurrentPlanetRadius('earth') * 4, 1.5);
+            const axisDir = new THREE.Vector3(0, Math.cos(earthTilt), Math.sin(earthTilt)).normalize();
+            const positions = (aids.earthAxis.geometry as THREE.BufferGeometry).attributes.position.array as Float32Array;
+            positions[0] = earthPos.x - axisDir.x * r;
+            positions[1] = earthPos.y - axisDir.y * r;
+            positions[2] = earthPos.z - axisDir.z * r;
+            positions[3] = earthPos.x + axisDir.x * r;
+            positions[4] = earthPos.y + axisDir.y * r;
+            positions[5] = earthPos.z + axisDir.z * r;
+            (aids.earthAxis.geometry as THREE.BufferGeometry).attributes.position.needsUpdate = true;
+          }
+        }
+
+        // 真实地球赤道环：在 solar-terms 演示时高亮显示
+        const earthBodyGroup = earthGroup ? earthGroup.getObjectByName('planet-body-root') : null;
+        if (earthBodyGroup) {
+          const eqRing = earthBodyGroup.getObjectByName('planet-earth-equator-ring') as THREE.Mesh;
+          if (eqRing) {
+            eqRing.visible = isSolarTermsDemo;
+            if (eqRing.material instanceof THREE.MeshBasicMaterial) {
+              eqRing.material.opacity = THREE.MathUtils.lerp(eqRing.material.opacity, isSolarTermsDemo ? 0.75 : 0, 0.1);
+            }
+          }
+        }
+
+        // 动态赤道环（跟随地球的独立 Mesh）
+        if (aids.earthEquator) {
+          aids.earthEquator.visible = showAids;
+          if (showAids && earthGroup) {
+            const r = Math.max(getCurrentPlanetRadius('earth') * 1.2, 0.5);
+            // 更新几何半径以匹配当前地球大小
+            const oldGeo = aids.earthEquator.geometry as THREE.RingGeometry;
+            if (Math.abs(oldGeo.parameters.innerRadius - r * 1.03) > 0.001) {
+              oldGeo.dispose();
+              const newGeo = new THREE.RingGeometry(r * 1.03, r * 1.07, 64);
+              newGeo.rotateX(Math.PI / 2);
+              aids.earthEquator.geometry = newGeo;
+            }
+            aids.earthEquator.position.copy(earthPos);
+            // 赤道环需要与地球相同的倾斜
+            const earthTilt = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
+            aids.earthEquator.rotation.set(Math.PI / 2, 0, earthTilt);
+          }
+        }
+
+        // 黄赤交角标注弧线
+        if (aids.obliquityArc) {
+          aids.obliquityArc.visible = isSolarTermsDemo;
+          if (isSolarTermsDemo && earthGroup) {
+            aids.obliquityArc.position.copy(earthPos);
+          }
+        }
+
+        // 本影锥：日食时显示月球影锥，月食时显示地球影锥
+        if (aids.earthShadowCone) {
+          const showEarthCone = isEclipseDemo && moonPos.distanceTo(earthPos) > 0.01;
+          aids.earthShadowCone.visible = showEarthCone;
+          if (showEarthCone) {
+            const sunToEarth = earthPos.clone().sub(new THREE.Vector3(0,0,0)).normalize();
+            const coneLen = moonPos.distanceTo(earthPos) * 3;
+            const earthRad = getCurrentPlanetRadius('earth');
+            const coneApex = earthPos.clone().add(sunToEarth.clone().multiplyScalar(-coneLen));
+            aids.earthShadowCone.position.copy(coneApex);
+            aids.earthShadowCone.lookAt(earthPos);
+            aids.earthShadowCone.rotateX(Math.PI / 2);
+            const topR = earthRad * 0.8;
+            const bottomR = earthRad * 2.5;
+            aids.earthShadowCone.scale.set(topR + bottomR, coneLen, topR + bottomR);
+          }
+        }
+
+        if (aids.moonShadowCone) {
+          const showMoonCone = isEclipseDemo && moonPos.distanceTo(earthPos) > 0.01;
+          aids.moonShadowCone.visible = showMoonCone;
+          if (showMoonCone) {
+            const sunToMoon = moonPos.clone().sub(new THREE.Vector3(0,0,0)).normalize();
+            const coneLen = moonPos.distanceTo(earthPos) * 2.5;
+            const moonRad = getCurrentPlanetRadius('moon');
+            const coneApex = moonPos.clone().add(sunToMoon.clone().multiplyScalar(-coneLen * 0.2));
+            aids.moonShadowCone.position.copy(coneApex);
+            aids.moonShadowCone.lookAt(moonPos.clone().add(sunToMoon.clone().multiplyScalar(coneLen)));
+            aids.moonShadowCone.rotateX(Math.PI / 2);
+            const topR = moonRad * 0.6;
+            const bottomR = moonRad * 2.0;
+            aids.moonShadowCone.scale.set(topR + bottomR, coneLen, topR + bottomR);
+          }
+        }
+
+        // 天文现象辅助视觉文字标注投影（黄道 / 赤道 / 黄赤交角）
+        const newVisualAidLabels = { ecliptic: null as any, equator: null as any, obliquity: null as any };
+        if (showAids && cameraRef.current) {
+          // 黄道标签：放在黄道环外侧某一点
+          const eclipticPos = new THREE.Vector3(23, 0.3, 0);
+          const eclipticProj = eclipticPos.project(cameraRef.current);
+          if (eclipticProj.z <= 1) {
+            const ex = (eclipticProj.x * 0.5 + 0.5) * curWidth;
+            const ey = (-(eclipticProj.y * 0.5) + 0.5) * curHeight;
+            newVisualAidLabels.ecliptic = { x: ex, y: ey, visible: true };
+          }
+          // 赤道标签：放在真实地球赤道环上方
+          if (earthGroup) {
+            const equatorOffset = new THREE.Vector3(0, 0.8, 0);
+            const earthTilt = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
+            equatorOffset.applyAxisAngle(new THREE.Vector3(0, 0, 1), earthTilt);
+            const equatorPos = earthPos.clone().add(equatorOffset);
+            const equatorProj = equatorPos.project(cameraRef.current);
+            if (equatorProj.z <= 1) {
+              const eqx = (equatorProj.x * 0.5 + 0.5) * curWidth;
+              const eqy = (-(equatorProj.y * 0.5) + 0.5) * curHeight;
+              newVisualAidLabels.equator = { x: eqx, y: eqy, visible: true };
+            }
+          }
+          // 黄赤交角标签：放在轴线中段偏上
+          if (earthGroup) {
+            const obliquityPos = earthPos.clone().add(new THREE.Vector3(0.6, 1.6, 0.4));
+            const obliquityProj = obliquityPos.project(cameraRef.current);
+            if (obliquityProj.z <= 1) {
+              const ox = (obliquityProj.x * 0.5 + 0.5) * curWidth;
+              const oy = (-(obliquityProj.y * 0.5) + 0.5) * curHeight;
+              newVisualAidLabels.obliquity = { x: ox, y: oy, visible: true };
+            }
+          }
+        }
+        setVisualAidLabels(newVisualAidLabels);
+      } else {
+        // 非演示模式：隐藏所有辅助视觉效果
+        const aids = visualAidsRef.current;
+        if (aids.sunBeam) aids.sunBeam.visible = false;
+        if (aids.earthShadowCone) aids.earthShadowCone.visible = false;
+        if (aids.moonShadowCone) aids.moonShadowCone.visible = false;
+        if (aids.eclipticPlane) aids.eclipticPlane.visible = false;
+        if (aids.earthAxis) aids.earthAxis.visible = false;
+        if (aids.earthEquator) aids.earthEquator.visible = false;
+        if (aids.obliquityArc) aids.obliquityArc.visible = false;
+        // 同时隐藏真实地球赤道环
+        const earthGroup = planetMeshesRef.current['earth'];
+        const earthBodyGroup = earthGroup ? earthGroup.getObjectByName('planet-body-root') : null;
+        if (earthBodyGroup) {
+          const eqRing = earthBodyGroup.getObjectByName('planet-earth-equator-ring') as THREE.Mesh;
+          if (eqRing) eqRing.visible = false;
+        }
+        // 隐藏辅助视觉文字标注
+        if (visualAidLabels.ecliptic || visualAidLabels.equator || visualAidLabels.obliquity) {
+          setVisualAidLabels({ ecliptic: null, equator: null, obliquity: null });
+        }
+      }
+
+      // 11. 丝滑聚焦/跟随选中星体 & 动态近剪切面比例尺缩放
+      if (!isEnteringRef.current && startEntryRef.current && selectedPlanetIdRef.current && !demoCam.active) {
         let targetGroup: THREE.Object3D | null = null;
-        
+
         // 查找卫星：在所有的行星组中寻找具有对应 nameEn 的卫星
         for (const parentId of Object.keys(planetMeshesRef.current)) {
           const parentGroup = planetMeshesRef.current[parentId];
@@ -3208,7 +3828,7 @@ export default function UniverseViewer({
             }
           }
         }
-        
+
         if (!targetGroup) {
           targetGroup = planetMeshesRef.current[selectedPlanetIdRef.current] || sunMeshRef.current;
         }
@@ -3219,7 +3839,7 @@ export default function UniverseViewer({
 
           // 动态调节 Near 和 MinDistance，防止观察 1:1 精确模式下的微小行星（如 Earth 的 0.00093 半径）时因 Near Plane 穿透而看不到
           let radOfTarget = getCurrentPlanetRadius(selectedPlanetIdRef.current);
-          
+
           const idealNear = Math.max(0.000001, radOfTarget * 0.02);
           if (cameraRef.current.near !== idealNear) {
             cameraRef.current.near = idealNear;
@@ -3414,7 +4034,7 @@ export default function UniverseViewer({
             lastRadOfTargetRef.current = radOfTarget;
           }
         }
-      } else if (!isEnteringRef.current && startEntryRef.current) {
+      } else if (!isEnteringRef.current && startEntryRef.current && !demoCam.active) {
         // 无选中时，相机聚焦到原点太阳
         controlsRef.current.target.set(0, 0, 0);
         lastSelectedPlanetIdRef.current = '';
@@ -3571,6 +4191,30 @@ export default function UniverseViewer({
         hipparcosRef.current = null;
       }
       hipparcosCatalogRef.current = null;
+      // 清理天文现象辅助视觉效果
+      const aids = visualAidsRef.current;
+      if (aids.sunBeam) { scene.remove(aids.sunBeam); aids.sunBeam.geometry.dispose(); (aids.sunBeam.material as THREE.Material).dispose(); }
+      if (aids.earthShadowCone) { scene.remove(aids.earthShadowCone); aids.earthShadowCone.geometry.dispose(); (aids.earthShadowCone.material as THREE.Material).dispose(); }
+      if (aids.moonShadowCone) { scene.remove(aids.moonShadowCone); aids.moonShadowCone.geometry.dispose(); (aids.moonShadowCone.material as THREE.Material).dispose(); }
+      if (aids.eclipticPlane) { scene.remove(aids.eclipticPlane); aids.eclipticPlane.geometry.dispose(); (aids.eclipticPlane.material as THREE.Material).dispose(); }
+      if (aids.earthAxis) { scene.remove(aids.earthAxis); aids.earthAxis.geometry.dispose(); (aids.earthAxis.material as THREE.Material).dispose(); }
+      if (aids.earthEquator) { scene.remove(aids.earthEquator); aids.earthEquator.geometry.dispose(); (aids.earthEquator.material as THREE.Material).dispose(); }
+      if (aids.obliquityArc) { scene.remove(aids.obliquityArc); aids.obliquityArc.geometry.dispose(); (aids.obliquityArc.material as THREE.Material).dispose(); }
+      // 清理节气虚影地球
+      solarTermGhostMeshesRef.current.forEach(group => {
+        group.traverse((node) => {
+          if (node instanceof THREE.Mesh) {
+            node.geometry.dispose();
+            if (Array.isArray(node.material)) {
+              node.material.forEach(m => m.dispose());
+            } else {
+              node.material.dispose();
+            }
+          }
+        });
+        scene.remove(group);
+      });
+      solarTermGhostMeshesRef.current = [];
     };
   }, [strictPhysics]);
 
@@ -3730,6 +4374,22 @@ export default function UniverseViewer({
       });
     }
 
+    // Solar term ghost selection (only during solar-terms demo)
+    if (demoState?.activePhenomenon === 'solar-terms') {
+      const ghostIntersects = raycaster.intersectObjects(solarTermGhostMeshesRef.current, true);
+      if (ghostIntersects.length > 0) {
+        let hitObj: THREE.Object3D | null = ghostIntersects[0].object;
+        while (hitObj && hitObj.userData?.solarTermIndex === undefined) {
+          hitObj = hitObj.parent;
+        }
+        const termIndex = hitObj?.userData?.solarTermIndex;
+        if (termIndex !== undefined && onSelectSolarTerm) {
+          onSelectSolarTerm(termIndex);
+          return;
+        }
+      }
+    }
+
     const intersects = raycaster.intersectObjects(targets);
     if (intersects.length > 0) {
       const hit = intersects[0].object;
@@ -3841,6 +4501,87 @@ export default function UniverseViewer({
                   {lang === 'zh' ? label.nameZh : label.nameEn}
                 </span>
                 <span className="text-[8px] font-mono text-cyan-500/50 drop-shadow-[0_0_2px_rgba(0,0,0,0.8)] opacity-0 group-hover:opacity-100 transition-opacity">
+                  {lang === 'zh' ? label.nameEn : label.nameZh}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 3.5 天文现象辅助视觉文字标注 */}
+      <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
+        {visualAidLabels.ecliptic?.visible && (
+          <div
+            className="absolute"
+            style={{
+              left: `${visualAidLabels.ecliptic.x}px`,
+              top: `${visualAidLabels.ecliptic.y}px`,
+              transform: 'translate(-50%, -50%)',
+            }}
+          >
+            <span className="text-[10px] font-bold text-yellow-400 drop-shadow-[0_0_4px_rgba(0,0,0,0.9)] tracking-wider">
+              {lang === 'zh' ? '黄道' : 'Ecliptic'}
+            </span>
+          </div>
+        )}
+        {visualAidLabels.equator?.visible && (
+          <div
+            className="absolute"
+            style={{
+              left: `${visualAidLabels.equator.x}px`,
+              top: `${visualAidLabels.equator.y}px`,
+              transform: 'translate(-50%, -50%)',
+            }}
+          >
+            <span className="text-[10px] font-bold text-red-400 drop-shadow-[0_0_4px_rgba(0,0,0,0.9)] tracking-wider">
+              {lang === 'zh' ? '赤道' : 'Equator'}
+            </span>
+          </div>
+        )}
+        {visualAidLabels.obliquity?.visible && (
+          <div
+            className="absolute"
+            style={{
+              left: `${visualAidLabels.obliquity.x}px`,
+              top: `${visualAidLabels.obliquity.y}px`,
+              transform: 'translate(-50%, -50%)',
+            }}
+          >
+            <span className="text-[10px] font-bold text-white drop-shadow-[0_0_4px_rgba(0,0,0,0.9)] tracking-wider">
+              {lang === 'zh' ? '黄赤交角 23.5°' : 'Obliquity 23.5°'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* 4. 二十四节气虚影名称标签 (Solar Term Ghost Labels) */}
+      <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
+        {Object.entries(solarTermLabels).map(([idx, label]: [string, any]) => {
+          if (!label.visible) return null;
+          const index = Number(idx);
+          const seasonColor = index < 6 ? 'text-emerald-400' : index < 12 ? 'text-rose-400' : index < 18 ? 'text-amber-400' : 'text-cyan-400';
+          return (
+            <div
+              key={`st-${idx}`}
+              className="absolute pointer-events-auto cursor-pointer"
+              style={{
+                left: `${label.x}px`,
+                top: `${label.y}px`,
+                transform: 'translate(-50%, -100%)',
+                opacity: label.opacity,
+                transition: 'opacity 0.1s ease-out'
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectSolarTerm(index);
+              }}
+            >
+              <div className="flex flex-col items-center group">
+                <span className={`text-[10px] font-bold ${seasonColor} tracking-widest drop-shadow-[0_0_4px_rgba(0,0,0,0.9)] group-hover:scale-110 transition-transform`}>
+                  {lang === 'zh' ? label.nameZh : label.nameEn}
+                </span>
+                <span className="text-[8px] font-mono text-slate-400/60 drop-shadow-[0_0_2px_rgba(0,0,0,0.8)] opacity-0 group-hover:opacity-100 transition-opacity">
                   {lang === 'zh' ? label.nameEn : label.nameZh}
                 </span>
               </div>

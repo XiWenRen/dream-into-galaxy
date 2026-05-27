@@ -37,12 +37,6 @@ const PHENOMENA: PhenomenonCard[] = [
     glowColor: 'shadow-red-500/20',
   },
   {
-    id: 'seasons',
-    icon: '🌍',
-    color: 'from-emerald-900 to-slate-900',
-    glowColor: 'shadow-emerald-500/20',
-  },
-  {
     id: 'retrograde',
     icon: '➰',
     color: 'from-amber-900 to-slate-900',
@@ -89,7 +83,6 @@ export default function AstroPhenomenaPanel({
     switch (id) {
       case 'moon-phases': return t.phenomenaMoonPhases;
       case 'eclipses': return t.phenomenaEclipses;
-      case 'seasons': return t.phenomenaSeasons;
       case 'retrograde': return t.phenomenaRetrograde;
       case 'solar-terms': return t.phenomenaSolarTerms;
     }
@@ -99,7 +92,6 @@ export default function AstroPhenomenaPanel({
     switch (id) {
       case 'moon-phases': return t.phenomenaDescMoonPhases;
       case 'eclipses': return t.phenomenaDescEclipses;
-      case 'seasons': return t.phenomenaDescSeasons;
       case 'retrograde': return t.phenomenaDescRetrograde;
       case 'solar-terms': return t.phenomenaDescSolarTerms;
     }
@@ -109,7 +101,6 @@ export default function AstroPhenomenaPanel({
     switch (id) {
       case 'moon-phases': return isZh ? '6-10岁' : 'Ages 6-10';
       case 'eclipses': return isZh ? '8-12岁' : 'Ages 8-12';
-      case 'seasons': return isZh ? '7-11岁' : 'Ages 7-11';
       case 'retrograde': return isZh ? '10-14岁' : 'Ages 10-14';
       case 'solar-terms': return isZh ? '全年龄' : 'All Ages';
     }

@@ -1178,7 +1178,8 @@ export default function StarrySkyViewer({
       const cam = cameraRef.current;
       const mag = 65 / cam.fov;
       const zoomFactor = e.deltaY > 0 ? 1 / 1.1 : 1.1;
-      const newMag = Math.max(1, Math.min(216.7, mag * zoomFactor));
+      // Limit zoom range: FOV between 5° (zoomed in) and 65° (zoomed out / normal)
+      const newMag = Math.max(1, Math.min(13, mag * zoomFactor));
       const newFov = 65 / newMag;
       cam.fov = newFov;
       cam.updateProjectionMatrix();
@@ -1189,7 +1190,7 @@ export default function StarrySkyViewer({
     // 外部FOV控制（望远镜模块回调）——择需要合并到此处
     (window as any).__starrySkySetFov = (fov: number) => {
       if (!cameraRef.current) return;
-      cameraRef.current.fov = Math.max(0.3, Math.min(65.0, fov));
+      cameraRef.current.fov = Math.max(5.0, Math.min(65.0, fov));
       cameraRef.current.updateProjectionMatrix();
       fovRef.current = cameraRef.current.fov;
     };
@@ -2256,10 +2257,10 @@ export default function StarrySkyViewer({
       dayLength = (2 * H0 * 180 / Math.PI) / 15; // hours
     }
 
-    // Update sun path arc geometry for seasons demo
+    // Update sun path arc geometry for solar-terms demo
     if (sunPathArcRef.current) {
-      const isSeasonsDemo = demoStateRef.current?.activePhenomenon === 'seasons';
-      if (isSeasonsDemo && observerBodyId === 'earth') {
+      const isSolarTermsDemo = demoStateRef.current?.activePhenomenon === 'solar-terms';
+      if (isSolarTermsDemo && observerBodyId === 'earth') {
         const arcPoints: THREE.Vector3[] = [];
         if (tanPhiTanDelta <= -1) {
           // Polar day: sun never sets, draw full circle
@@ -2455,10 +2456,10 @@ export default function StarrySkyViewer({
           }
         }
 
-        // 6. 太阳轨迹弧线透明度平滑过渡（四季演示）
+        // 6. 太阳轨迹弧线透明度平滑过渡（二十四节气演示）
         if (sunPathArcRef.current) {
-          const isSeasonsDemo = demoStateRef.current?.activePhenomenon === 'seasons';
-          const targetOpacity = isSeasonsDemo && observerBodyIdRef.current === 'earth' ? 0.75 : 0;
+          const isSolarTermsDemo = demoStateRef.current?.activePhenomenon === 'solar-terms';
+          const targetOpacity = isSolarTermsDemo && observerBodyIdRef.current === 'earth' ? 0.75 : 0;
           const mat = sunPathArcRef.current.material as THREE.LineBasicMaterial;
           mat.opacity = THREE.MathUtils.lerp(mat.opacity, targetOpacity, 0.06);
           sunPathArcRef.current.visible = mat.opacity > 0.005;
@@ -2613,7 +2614,7 @@ export default function StarrySkyViewer({
             <span className="text-indigo-300">🌒{translations[lang][skyData.moonPhaseName as keyof typeof translations['zh']]}</span>
             <span className="text-slate-600">|</span>
             <span className="text-indigo-300/80">LST{skyData.lst.toFixed(1)}h</span>
-            {demoState?.activePhenomenon === 'seasons' && observerBodyId === 'earth' && (
+            {demoState?.activePhenomenon === 'solar-terms' && observerBodyId === 'earth' && (
               <>
                 <span className="text-slate-600">|</span>
                 <span className="text-amber-300">

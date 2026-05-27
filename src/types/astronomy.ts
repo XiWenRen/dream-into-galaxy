@@ -95,7 +95,7 @@ export interface RingData {
 // 天文现象演示模块类型定义 (Astro Phenomena Demo Module)
 // ═══════════════════════════════════════════════════════════════
 
-export type PhenomenonId = 'moon-phases' | 'eclipses' | 'seasons' | 'retrograde' | 'solar-terms';
+export type PhenomenonId = 'moon-phases' | 'eclipses' | 'retrograde' | 'solar-terms';
 
 export type DemoViewMode = 'universe' | 'starry' | 'split';
 

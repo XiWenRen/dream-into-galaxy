@@ -53,16 +53,15 @@ const getThemeBtnSolid = (theme: ThemeType) => {
 };
 
 const SPEED_OPTIONS = [
-  { value: 0.25, labelZh: '慢速', labelEn: 'Slow' },
+  { value: 0.5, labelZh: '慢速', labelEn: 'Slow' },
   { value: 1, labelZh: '正常', labelEn: 'Normal' },
-  { value: 4, labelZh: '快速', labelEn: 'Fast' },
+  { value: 2, labelZh: '快速', labelEn: 'Fast' },
 ];
 
 // Keyframe labels per phenomenon
 const KEYFRAME_LABELS: Record<PhenomenonId, string[]> = {
   'moon-phases': ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'],
-  'eclipses': ['1', '2', '3', '4'],
-  'seasons': ['春', '夏', '秋', '冬'],
+  'eclipses': ['☀️', '🌑', '🌍', '🌕'],
   'retrograde': ['1', '2', '3'],
   'solar-terms': ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24'],
 };
@@ -195,9 +194,9 @@ export default function PhenomenaDemoBar({
 
       <div className="w-px h-5 bg-white/10" />
 
-      {/* View mode switcher */}
+      {/* View mode switcher (split mode hidden until implemented) */}
       <div className="flex items-center gap-0.5">
-        {(['universe', 'starry', 'split'] as DemoViewMode[]).map((mode) => (
+        {(['universe', 'starry'] as DemoViewMode[]).map((mode) => (
           <button
             key={mode}
             onClick={() => onSwitchView(mode)}
@@ -209,7 +208,6 @@ export default function PhenomenaDemoBar({
           >
             {mode === 'universe' && t.viewPrinciple}
             {mode === 'starry' && t.viewObservation}
-            {mode === 'split' && t.viewCompare}
           </button>
         ))}
       </div>
