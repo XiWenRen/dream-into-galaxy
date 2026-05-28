@@ -182,6 +182,8 @@ export interface TranslationDict {
   phase_waning_gibbous: string;
   phase_last_quarter: string;
   phase_waning_crescent: string;
+  moonPhaseKnowledge: string;
+  moonPhasePoetry: string;
 
   // Astro Phenomena Module
   phenomenaTitle: string;
@@ -244,6 +246,15 @@ export interface TranslationDict {
   solarTermEclipticLon: string;
   solarTermDirectLat: string;
   solarTermDateRange: string;
+
+  // Daylight Observatory
+  daylightObservatory: string;
+  daylightHours: string;
+  sunrise: string;
+  sunset: string;
+  noonAltitude: string;
+  solarDeclination: string;
+  referenceLatitude: string;
 }
 
 export const translations: Record<'zh' | 'en', TranslationDict> = {
@@ -422,6 +433,8 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     phase_waning_gibbous: "亏凸月",
     phase_last_quarter: "下弦月",
     phase_waning_crescent: "残月",
+    moonPhaseKnowledge: "月相小知识",
+    moonPhasePoetry: "古诗词",
 
     // Astro Phenomena in Chinese
     phenomenaTitle: "天文现象实验室",
@@ -457,14 +470,14 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     moonPhaseStep2Body: "当月球转到太阳和地球中间时，亮面朝外、暗面朝我们，就是新月。当月球转到地球另一侧，整个亮面都对着我们，就是满月！",
     moonPhaseStep3Title: "一个月绕一圈",
     moonPhaseStep3Body: "月球绕地球转一圈大约需要27.3天，所以每个月我们都会看到一轮完整的月相变化：新月→峨眉→上弦→盈凸→满月→亏凸→下弦→残月→新月。",
-    eclipseStep1Title: "影子游戏",
-    eclipseStep1Body: "日食和月食其实都是影子游戏！日食是月球的影子投射到地球上；月食是地球的影子投射到月球上。",
-    eclipseStep2Title: "为什么不是每个月都有？",
-    eclipseStep2Body: "月球轨道有点倾斜（大约5度），就像跷跷板一样。只有当月球正好运行到黄道面上，并且三者成一直线时，才会发生交食。",
-    eclipseStep3Title: "本影和半影",
-    eclipseStep3Body: "影子有两种：中间深色的叫本影，在这里能看到日全食；边缘浅色的叫半影，在这里只能看到日偏食。",
-    eclipseStep4Title: "为什么月食时月亮是红色的？",
-    eclipseStep4Body: "地球大气层会把阳光中的蓝光散射掉，只剩红光能拐弯照到月球上。所以月食时，月亮会变成暗红色的血月！",
+    eclipseStep1Title: "太阳光束",
+    eclipseStep1Body: "太阳像一个巨大的灯泡，向四面八方发射光线。看！金色的光束从太阳射出，照射到月球和地球上。",
+    eclipseStep2Title: "月球的影子锥",
+    eclipseStep2Body: "当日食发生时，月球挡在太阳和地球中间。月球挡住了部分阳光，形成一个锥形影子——小头在月球，大头伸向地球。如果地球正好被这个影子的尖头完全笼罩，就是日全食！",
+    eclipseStep3Title: "地球被影子笼罩",
+    eclipseStep3Body: "看！月球的本影锥（深色内锥）和半影锥（浅色外锥）同时投射到地球上。站在本影区的人看到日全食，站在半影区的人看到日偏食。",
+    eclipseStep4Title: "地球的影子与血月",
+    eclipseStep4Body: "月食时，地球挡在太阳和月球中间。地球的影子（同样是锥形）投射到月球上。地球大气层会把阳光中的蓝光散射掉，只剩红光能拐弯照到月球上。所以月食时，月亮会变成暗红色的血月！",
     seasonsStep1Title: "地球是个歪着转的陀螺",
     seasonsStep1Body: "地球的自转轴是倾斜的（大约23.5度），而且无论地球走到轨道哪个位置，倾斜方向始终指向北极星。这就是四季变化的根本原因！",
     seasonsStep2Title: "夏天：北半球歪向太阳",
@@ -480,6 +493,13 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     solarTermEclipticLon: "太阳黄经",
     solarTermDirectLat: "直射纬度",
     solarTermDateRange: "日期",
+    daylightObservatory: "日照观测台",
+    daylightHours: "日照时长",
+    sunrise: "日出",
+    sunset: "日落",
+    noonAltitude: "正午太阳高度",
+    solarDeclination: "太阳赤纬",
+    referenceLatitude: "参考纬度",
   },
   en: {
     title: "Cosmic Odyssey",
@@ -654,6 +674,8 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     phase_waning_gibbous: "Waning Gibbous",
     phase_last_quarter: "Last Quarter",
     phase_waning_crescent: "Waning Crescent",
+    moonPhaseKnowledge: "Moon Facts",
+    moonPhasePoetry: "Poetry",
 
     // Astro Phenomena in English
     phenomenaTitle: "Astronomy Lab",
@@ -689,14 +711,14 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     moonPhaseStep2Body: "When the Moon moves between the Sun and Earth, its bright side faces away from us — that's the New Moon. When the Moon is on the opposite side of Earth, its full bright face shines toward us — that's the Full Moon!",
     moonPhaseStep3Title: "One Orbit Every Month",
     moonPhaseStep3Body: "The Moon orbits Earth about every 27.3 days. So each month we see a complete cycle of phases: New → Crescent → First Quarter → Gibbous → Full → Gibbous → Last Quarter → Crescent → New.",
-    eclipseStep1Title: "A Game of Shadows",
-    eclipseStep1Body: "Solar and lunar eclipses are both shadow games! A solar eclipse happens when the Moon's shadow falls on Earth. A lunar eclipse happens when Earth's shadow falls on the Moon.",
-    eclipseStep2Title: "Why Don't They Happen Every Month?",
-    eclipseStep2Body: "The Moon's orbit is tilted by about 5 degrees, like a seesaw. Only when the Moon happens to cross the ecliptic plane while perfectly aligned with the Sun and Earth can an eclipse occur.",
-    eclipseStep3Title: "Umbra and Penumbra",
-    eclipseStep3Body: "Shadows have two parts: the dark central umbra where you see a total eclipse, and the lighter outer penumbra where you see only a partial eclipse.",
-    eclipseStep4Title: "Why Does the Moon Turn Red?",
-    eclipseStep4Body: "Earth's atmosphere scatters blue light and bends red sunlight onto the Moon. That's why during a lunar eclipse, the Moon turns a dim red color — a 'blood moon'!",
+    eclipseStep1Title: "Sunlight Beams",
+    eclipseStep1Body: "The Sun is like a giant light bulb, emitting light in all directions. Watch! Golden beams of light shoot out from the Sun, illuminating both the Moon and Earth.",
+    eclipseStep2Title: "The Moon's Shadow Cone",
+    eclipseStep2Body: "During a solar eclipse, the Moon passes between the Sun and Earth. The Moon blocks some sunlight, forming a cone-shaped shadow — narrow at the Moon, wide at Earth. If Earth happens to be fully covered by the tip of this shadow cone, it's a total solar eclipse!",
+    eclipseStep3Title: "Earth Engulfed by Shadow",
+    eclipseStep3Body: "Look! Both the Moon's umbra (dark inner cone) and penumbra (lighter outer cone) are cast onto Earth. People standing in the umbra see a total eclipse, while those in the penumbra see a partial eclipse.",
+    eclipseStep4Title: "Earth's Shadow & the Blood Moon",
+    eclipseStep4Body: "During a lunar eclipse, Earth passes between the Sun and Moon. Earth's shadow (also cone-shaped) is cast onto the Moon. Earth's atmosphere scatters blue light and bends red sunlight onto the Moon. That's why during a lunar eclipse, the Moon turns a dim red color — a 'blood moon'!",
     seasonsStep1Title: "Earth is a Tilted Top",
     seasonsStep1Body: "Earth's axis is tilted by about 23.5 degrees, and no matter where Earth is in its orbit, the tilt always points toward the North Star. This is the root cause of the seasons!",
     seasonsStep2Title: "Summer: Northern Hemisphere Tilts Toward the Sun",
@@ -712,5 +734,12 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     solarTermEclipticLon: "Ecliptic Longitude",
     solarTermDirectLat: "Direct Latitude",
     solarTermDateRange: "Date Range",
+    daylightObservatory: "Daylight Observatory",
+    daylightHours: "Daylight Hours",
+    sunrise: "Sunrise",
+    sunset: "Sunset",
+    noonAltitude: "Noon Altitude",
+    solarDeclination: "Solar Declination",
+    referenceLatitude: "Ref. Latitude",
   }
 };

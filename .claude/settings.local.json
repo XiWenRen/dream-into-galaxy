@@ -38,7 +38,9 @@
       "Bash(dir .claude\\\\launch.json 2>nul || echo not found)",
       "Bash(mkdir -p .claude && echo ok)",
       "mcp__Claude_in_Chrome__navigate",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "mcp__fetch__fetch",
+      "mcp__plugin_playwright_playwright__browser_tabs"
     ]
   }
 }

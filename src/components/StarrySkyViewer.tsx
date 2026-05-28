@@ -23,6 +23,11 @@ import {
   createCircleTexture,
   createConstellationLabelTexture,
   createConstellationLabelSprite,
+  createLensFlareBlobTexture,
+  createLensFlareRingTexture,
+  createLensFlareHexTexture,
+  createLensFlareSparkleTexture,
+  createHorizonGlowTexture,
 } from '../engine/TextureFactory';
 
 import { loadHipparcosCatalog, bvToRgb } from '../engine/HipparcosLoader';
@@ -202,9 +207,9 @@ interface AtmosphereConfig {
 const ATMOSPHERE_CONFIG: Record<string, AtmosphereConfig> = {
   earth: {
     dayColor: [0.4, 0.6, 1.0],
-    twilightColor: [0.6, 0.35, 0.15],
+    twilightColor: [0.9, 0.38, 0.12],
     nightColor: [0.02, 0.03, 0.06],
-    twilightWidth: 18,
+    twilightWidth: 24,
     starDayVisible: false,
     opaqueAtmosphere: false,
     groundColor: 0x05130b,
@@ -300,13 +305,39 @@ const ATMOSPHERE_CONFIG: Record<string, AtmosphereConfig> = {
 
 /**
  * Compute sky RGB and brightness for the observer's body based on sun altitude.
+ * 根据太阳赤纬和观测者纬度动态调整晨昏带宽度（节气影响日出日落时长）
  */
-const getAtmosphereColors = (bodyId: string, sunAlt: number): { r: number; g: number; b: number; brightness: number; ambientIntensity: number; starDayVisible: boolean; opaqueAtmosphere: boolean; dayColor: [number, number, number]; nightColor: [number, number, number] } => {
+const getAtmosphereColors = (
+  bodyId: string,
+  sunAlt: number,
+  sunDec: number = 0,
+  latitude: number = 0
+): {
+  r: number; g: number; b: number;
+  brightness: number;
+  ambientIntensity: number;
+  starDayVisible: boolean;
+  opaqueAtmosphere: boolean;
+  dayColor: [number, number, number];
+  nightColor: [number, number, number];
+  horizonGlowR: number; horizonGlowG: number; horizonGlowB: number;
+  sunOpacity: number;
+} => {
   const cfg = ATMOSPHERE_CONFIG[bodyId] ?? ATMOSPHERE_CONFIG['earth'];
+
+  // 根据节气（太阳赤纬）和纬度动态调整晨昏带宽度
+  let twilight = cfg.twilightWidth;
+  if (bodyId === 'earth' && twilight > 0) {
+    const latRad = (latitude * Math.PI) / 180;
+    const decRad = (sunDec * Math.PI) / 180;
+    // 夏季（同半球且高纬度）晨昏带更长，冬季更短
+    const seasonFactor = Math.sin(latRad) * Math.sin(decRad);
+    const seasonalMultiplier = 1.0 + seasonFactor * 0.6;
+    twilight = Math.max(18, Math.min(36, cfg.twilightWidth * seasonalMultiplier));
+  }
 
   // Calculate sky brightness factor (0 = night, 1 = full day)
   let brightness = 0;
-  const twilight = cfg.twilightWidth;
   if (twilight <= 0) {
     brightness = sunAlt > 0 ? 0 : 0;
   } else if (sunAlt >= twilight) {
@@ -324,11 +355,48 @@ const getAtmosphereColors = (bodyId: string, sunAlt: number): { r: number; g: nu
   const g = cfg.nightColor[1] * (1.0 - brightness) + cfg.dayColor[1] * brightness;
   const b = cfg.nightColor[2] * (1.0 - brightness) + cfg.dayColor[2] * brightness;
 
-  // Add sunset/twilight tint when sun is near horizon
-  const sunsetFactor = Math.max(0.0, 1.0 - Math.abs(sunAlt - (-2.0)) / 4.0);
-  const sunsetR = r * (1.0 - sunsetFactor) + cfg.twilightColor[0] * sunsetFactor;
-  const sunsetG = g * (1.0 - sunsetFactor) + cfg.twilightColor[1] * sunsetFactor;
-  const sunsetB = b * (1.0 - sunsetFactor) + cfg.twilightColor[2] * sunsetFactor;
+  // Add sunset/twilight tint when sun is near horizon (enhanced for vivid sunrise/sunset)
+  const sunsetFactor = Math.max(0.0, 1.0 - Math.abs(sunAlt - (-3.0)) / (twilight * 0.4));
+  const deepTwilightFactor = Math.max(0.0, 1.0 - Math.abs(sunAlt - (-8.0)) / (twilight * 0.5));
+  let sunsetR = r * (1.0 - sunsetFactor) + cfg.twilightColor[0] * sunsetFactor;
+  let sunsetG = g * (1.0 - sunsetFactor) + cfg.twilightColor[1] * sunsetFactor;
+  let sunsetB = b * (1.0 - sunsetFactor) + cfg.twilightColor[2] * sunsetFactor;
+
+  // Deep twilight: inject purple/magenta tones for dramatic post-sunset
+  if (deepTwilightFactor > 0 && bodyId === 'earth') {
+    sunsetR = sunsetR * (1.0 - deepTwilightFactor * 0.3) + 0.35 * deepTwilightFactor;
+    sunsetG = sunsetG * (1.0 - deepTwilightFactor * 0.2) + 0.15 * deepTwilightFactor;
+    sunsetB = sunsetB * (1.0 - deepTwilightFactor * 0.1) + 0.45 * deepTwilightFactor;
+  }
+
+  // 地平线辉光颜色：日出日落时更宏大、层次更丰富
+  let horizonGlowR = sunsetR;
+  let horizonGlowG = sunsetG;
+  let horizonGlowB = sunsetB;
+  if (bodyId === 'earth' && sunAlt > -twilight && sunAlt < twilight) {
+    const glowIntensity = Math.max(0.0, 1.0 - Math.abs(sunAlt) / (twilight * 0.5));
+    // 朝霞/晚霞：偏暖的橙红色调
+    const dawnR = Math.min(1.0, cfg.twilightColor[0] * 1.15 + 0.1);
+    const dawnG = Math.min(1.0, cfg.twilightColor[1] * 0.9 + 0.05);
+    const dawnB = Math.min(1.0, cfg.twilightColor[2] * 0.7 + 0.05);
+    horizonGlowR = sunsetR * (1.0 - glowIntensity * 0.7) + dawnR * glowIntensity * 0.7;
+    horizonGlowG = sunsetG * (1.0 - glowIntensity * 0.7) + dawnG * glowIntensity * 0.7;
+    horizonGlowB = sunsetB * (1.0 - glowIntensity * 0.7) + dawnB * glowIntensity * 0.7;
+  }
+
+  // 太阳被云层遮挡程度：日出日落时（太阳低角度）太阳轮廓模糊
+  let sunOpacity = 1.0;
+  if (bodyId === 'earth') {
+    if (sunAlt > 0 && sunAlt < 8.0) {
+      // 日出日落时太阳被低空大气/云层遮挡
+      sunOpacity = 0.3 + (sunAlt / 8.0) * 0.7;
+    } else if (sunAlt <= 0 && sunAlt > -twilight * 0.5) {
+      // 晨昏带内太阳逐渐隐没
+      sunOpacity = 0.3 * (1.0 - sunAlt / (-twilight * 0.5));
+    } else if (sunAlt <= -twilight * 0.5) {
+      sunOpacity = 0.0;
+    }
+  }
 
   return {
     r: Math.max(0.0, Math.min(1.0, sunsetR)),
@@ -340,6 +408,10 @@ const getAtmosphereColors = (bodyId: string, sunAlt: number): { r: number; g: nu
     opaqueAtmosphere: cfg.opaqueAtmosphere,
     dayColor: cfg.dayColor as [number, number, number],
     nightColor: cfg.nightColor as [number, number, number],
+    horizonGlowR: Math.max(0.0, Math.min(1.0, horizonGlowR)),
+    horizonGlowG: Math.max(0.0, Math.min(1.0, horizonGlowG)),
+    horizonGlowB: Math.max(0.0, Math.min(1.0, horizonGlowB)),
+    sunOpacity,
   };
 };
 
@@ -523,6 +595,7 @@ export default function StarrySkyViewer({
   const sunSkyRef = useRef<THREE.Mesh | null>(null);
   const moonSkyRef = useRef<THREE.Mesh | null>(null);
   const sunCoronaSpriteRef = useRef<THREE.Sprite | null>(null);
+  const horizonGlowSpriteRef = useRef<THREE.Mesh | null>(null);
   const moonHazeSpriteRef = useRef<THREE.Sprite | null>(null);
   const planetRingRef = useRef<THREE.Mesh | null>(null);
   const lightRef = useRef<THREE.DirectionalLight | null>(null);
@@ -532,6 +605,16 @@ export default function StarrySkyViewer({
   const constellLabelSpritesRef = useRef<THREE.Sprite[]>([]);
   const extraConstellLabelGroupRef = useRef<THREE.Group | null>(null);
   const extraConstellLabelSpritesRef = useRef<THREE.Sprite[]>([]);
+
+  // 镜头光晕 (Lens Flare) 系统引用
+  const lensFlareGroupRef = useRef<THREE.Group | null>(null);
+  const lensFlareSpritesRef = useRef<{
+    sprite: THREE.Sprite;
+    offsetScale: number;
+    baseScale: number;
+    color: THREE.Color;
+    texType: 'blob' | 'ring' | 'hex' | 'sparkle';
+  }[]>([]);
 
   // 10,000星和行星渲染引用
   const starSpritesRef = useRef<THREE.Sprite[]>([]);
@@ -921,7 +1004,7 @@ export default function StarrySkyViewer({
     scene.add(ambientLight);
     ambientLightRef.current = ambientLight;
 
-    const light = new THREE.DirectionalLight(0xffffff, 2.5);
+    const light = new THREE.DirectionalLight(0xfff8f0, 4.0);
     scene.add(light);
     lightRef.current = light;
 
@@ -929,12 +1012,10 @@ export default function StarrySkyViewer({
     scene.add(hemiLight);
     (ambientLightRef as any).hemiLight = hemiLight; // 暂存，方便下面统一调整
 
-    // 5. 绘制地平线地面：半透明草地网格
+    // 5. 绘制地平线地面：纯色草地网格（不透明，避免与天空产生半透明蒙版）
     const groundGeo = new THREE.CylinderGeometry(150, 150, 2, 64);
     const groundMat = new THREE.MeshBasicMaterial({
-      color: 0x05130b,
-      transparent: true,
-      opacity: 0.77
+      color: 0x05130b
     });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.name = 'ground-mesh';
@@ -1145,23 +1226,196 @@ export default function StarrySkyViewer({
     extraConstellLabelSpritesRef.current = extraLabelSprites;
 
     // 7. 太阳系两大顶流 (Sun 及 Moon) 在天幕投影
-    const sunGeom = new THREE.SphereGeometry(9.5, 32, 32);
-    const sunMat = new THREE.MeshBasicMaterial({ color: 0xfffefa });
+    // 增强太阳本体：更大、更亮、带轻微自发光
+    const sunGeom = new THREE.SphereGeometry(10.5, 32, 32);
+    const sunMat = new THREE.MeshBasicMaterial({ color: 0xfffef5 });
     const sunSky = new THREE.Mesh(sunGeom, sunMat);
     scene.add(sunSky);
     sunSkyRef.current = sunSky;
 
+    // 增强日冕：更大、更亮的多层日冕
     const sunCoronaTex = createSolarCoronaTexture();
     const sunCoronaMat = new THREE.SpriteMaterial({
       map: sunCoronaTex,
       transparent: true,
       blending: THREE.AdditiveBlending,
-      opacity: 0.9
+      opacity: 1.0,
+      color: new THREE.Color(0xfff8e7)
     });
     const sunCoronaSprite = new THREE.Sprite(sunCoronaMat);
-    sunCoronaSprite.scale.set(55.0, 55.0, 1.0);
+    sunCoronaSprite.scale.set(68.0, 68.0, 1.0);
     sunSky.add(sunCoronaSprite);
     sunCoronaSpriteRef.current = sunCoronaSprite;
+
+    // 天空霞光穹顶（着色器实现，消除硬边，丰富颜色层次）
+    const skyDomeGeometry = new THREE.SphereGeometry(500, 64, 32);
+    const skyDomeMaterial = new THREE.ShaderMaterial({
+      vertexShader: `
+        varying vec3 vWorldPos;
+        void main() {
+          vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 sunDir;
+        uniform float sunAlt;
+        uniform vec3 topColor;
+        uniform vec3 horizonColor;
+        uniform vec3 nightColor;
+        uniform float uTime;
+
+        varying vec3 vWorldPos;
+
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+
+        float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+
+        float fbm(vec2 p) {
+          float v = 0.0;
+          float a = 0.5;
+          for (int i = 0; i < 4; i++) {
+            v += a * noise(p);
+            p *= 2.1;
+            a *= 0.5;
+          }
+          return v;
+        }
+
+        void main() {
+          vec3 dir = normalize(vWorldPos);
+          float y = dir.y;
+
+          float sunDot = max(0.0, dot(dir, sunDir));
+
+          // 基础天空：白天因子
+          float dayFactor = smoothstep(-12.0, 6.0, sunAlt);
+
+          // 基础天空色：根据高度混合
+          vec3 sky = mix(nightColor, topColor, dayFactor * smoothstep(-0.2, 0.8, y));
+
+          // 地平线暖色（朝向太阳方向更暖）—— 仅在日出日落时显著，正午消退
+          float sunsetWarmth = smoothstep(15.0, 0.0, sunAlt);
+          vec3 horizonWarm = mix(horizonColor, vec3(1.0, 0.35, 0.15), pow(sunDot, 2.0) * 0.6 * sunsetWarmth);
+          sky = mix(sky, horizonWarm, (1.0 - smoothstep(-0.1, 0.3, y)) * dayFactor);
+
+          // 霞光仅在日出日落时显著，天文昏影结束后完全消失
+          float glowFactor = smoothstep(-18.0, -6.0, sunAlt) * smoothstep(8.0, 0.0, sunAlt);
+
+          // 第1层：深红（地平线附近，太阳方向集中）
+          float layer1 = pow(sunDot, 3.0) * exp(-max(0.0, y) * 4.0) * glowFactor;
+          vec3 color1 = vec3(1.0, 0.18, 0.05);
+
+          // 第2层：橙黄（稍高，更宽）
+          float layer2 = pow(sunDot, 1.5) * exp(-max(0.0, y) * 2.5) * glowFactor;
+          vec3 color2 = vec3(1.0, 0.5, 0.12);
+
+          // 第3层：金黄（更高，最宽）
+          float layer3 = pow(sunDot, 0.8) * exp(-max(0.0, y) * 1.5) * glowFactor;
+          vec3 color3 = vec3(1.0, 0.72, 0.35);
+
+          // 云层噪声交织
+          float cloudNoise = fbm(dir.xz * 3.0 + sunDir.xz * 2.0 + uTime * 0.02);
+
+          // 混合各层，加入噪声交织
+          vec3 glow = mix(color1, color2, smoothstep(0.0, 0.4, y + cloudNoise * 0.25));
+          glow = mix(glow, color3, smoothstep(0.1, 0.5, y + cloudNoise * 0.15));
+
+          // 整体霞光强度
+          float glowStrength = max(layer1, max(layer2 * 0.65, layer3 * 0.35));
+          glowStrength *= 0.5 + cloudNoise * 0.5;
+
+          sky = mix(sky, glow, glowStrength);
+
+          // 太阳热点
+          float hotspot = pow(sunDot, 32.0);
+          sky += vec3(1.0, 0.92, 0.75) * hotspot * 0.6 * dayFactor;
+
+          // 地平线以下变暗
+          if (y < -0.05) {
+            sky *= max(0.0, 1.0 + y * 8.0);
+          }
+
+          gl_FragColor = vec4(sky, 1.0);
+        }
+      `,
+      uniforms: {
+        sunDir: { value: new THREE.Vector3(0, 1, 0) },
+        sunAlt: { value: 45.0 },
+        topColor: { value: new THREE.Color(0.35, 0.55, 0.9) },
+        horizonColor: { value: new THREE.Color(0.85, 0.5, 0.25) },
+        nightColor: { value: new THREE.Color(0.02, 0.03, 0.06) },
+        uTime: { value: 0.0 }
+      },
+      side: THREE.BackSide,
+      depthWrite: false
+    });
+    const skyDome = new THREE.Mesh(skyDomeGeometry, skyDomeMaterial);
+    scene.add(skyDome);
+    horizonGlowSpriteRef.current = skyDome;
+
+    // 镜头光晕 (Lens Flare) 系统初始化
+    const lensFlareGroup = new THREE.Group();
+    lensFlareGroup.name = 'lens-flare-group';
+    scene.add(lensFlareGroup);
+    lensFlareGroupRef.current = lensFlareGroup;
+
+    const blobTex = createLensFlareBlobTexture();
+    const flareRingTex = createLensFlareRingTexture();
+    const hexTex = createLensFlareHexTexture();
+    const sparkleTex = createLensFlareSparkleTexture();
+
+    const flareDefs: { tex: THREE.Texture; type: 'blob' | 'ring' | 'hex' | 'sparkle'; offsetScale: number; baseScale: number; color: number }[] = [
+      // 主光晕（紧贴太阳）
+      { tex: blobTex, type: 'blob', offsetScale: 0.0, baseScale: 28.0, color: 0xfff8e7 },
+      { tex: blobTex, type: 'blob', offsetScale: 0.05, baseScale: 18.0, color: 0xffddaa },
+      // 内圈鬼影（朝向屏幕中心）
+      { tex: hexTex, type: 'hex', offsetScale: 0.22, baseScale: 4.5, color: 0xffcc88 },
+      { tex: flareRingTex, type: 'ring', offsetScale: 0.38, baseScale: 7.0, color: 0xffaa66 },
+      { tex: blobTex, type: 'blob', offsetScale: 0.52, baseScale: 3.2, color: 0xffdd99 },
+      { tex: hexTex, type: 'hex', offsetScale: 0.68, baseScale: 2.8, color: 0xffbb77 },
+      { tex: sparkleTex, type: 'sparkle', offsetScale: 0.78, baseScale: 2.0, color: 0xffffff },
+      // 外圈鬼影（越过太阳，在反方向）
+      { tex: flareRingTex, type: 'ring', offsetScale: -0.35, baseScale: 5.5, color: 0xff8866 },
+      { tex: blobTex, type: 'blob', offsetScale: -0.55, baseScale: 2.5, color: 0xffccaa },
+      { tex: hexTex, type: 'hex', offsetScale: -0.72, baseScale: 1.8, color: 0xffaa88 },
+      { tex: sparkleTex, type: 'sparkle', offsetScale: -0.88, baseScale: 1.5, color: 0xffeecc },
+    ];
+
+    const flareSprites: typeof lensFlareSpritesRef.current = [];
+    flareDefs.forEach(def => {
+      const mat = new THREE.SpriteMaterial({
+        map: def.tex,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        opacity: 0.0,
+        color: new THREE.Color(def.color),
+      });
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.set(def.baseScale, def.baseScale, 1.0);
+      sprite.visible = false;
+      lensFlareGroup.add(sprite);
+      flareSprites.push({
+        sprite,
+        offsetScale: def.offsetScale,
+        baseScale: def.baseScale,
+        color: new THREE.Color(def.color),
+        texType: def.type,
+      });
+    });
+    lensFlareSpritesRef.current = flareSprites;
 
     const moonGeom = new THREE.SphereGeometry(7.2, 32, 32);
     const moonTexture = createProceduralMoonTexture();
@@ -1591,6 +1845,10 @@ export default function StarrySkyViewer({
     const sunCoords = getHorizontalCoordinates(sunRa, sunDec, lst, latitude, observerBodyId);
     const sunPos = get3DPositionOnDome(sunCoords.az, sunCoords.alt, 278);
 
+    // 提前计算大气颜色，获取 sunOpacity 等参数
+    const atmoEarly = getAtmosphereColors(observerBodyId, sunCoords.alt, sunDec, latitude);
+    const sunOpacity = atmoEarly.sunOpacity;
+
     if (sunSkyRef.current) {
       sunSkyRef.current.position.copy(sunPos);
       sunSkyRef.current.visible = sunCoords.alt > -2;
@@ -1601,16 +1859,25 @@ export default function StarrySkyViewer({
         sunMat.color.setHex(0x0c0c0c);
         if (sunCoronaSpriteRef.current) {
           sunCoronaSpriteRef.current.material.opacity = 1.0;
-          sunCoronaSpriteRef.current.scale.set(70.0, 70.0, 1.0);
+          sunCoronaSpriteRef.current.scale.set(85.0, 85.0, 1.0);
           sunCoronaSpriteRef.current.material.color.setHex(0xfffaea);
         }
       } else {
-        sunMat.color.setHex(0xfffefa);
+        sunMat.color.setHex(0xfffef5);
+        // 日出日落时太阳被低空大气/云层遮挡，轮廓模糊
+        sunMat.opacity = sunOpacity;
+        sunMat.transparent = sunOpacity < 1.0;
         if (sunCoronaSpriteRef.current) {
-          const hRatio = Math.max(0.4, Math.min(1.0, (sunCoords.alt + 5) / 45.0));
-          sunCoronaSpriteRef.current.material.opacity = 0.9 * hRatio;
-          sunCoronaSpriteRef.current.scale.set(55.0, 55.0, 1.0);
-          sunCoronaSpriteRef.current.material.color.setHex(0xffffff);
+          const hRatio = Math.max(0.45, Math.min(1.0, (sunCoords.alt + 5) / 40.0));
+          // 日出日落时日冕也受云层遮挡影响
+          const coronaOpacity = hRatio * sunOpacity;
+          sunCoronaSpriteRef.current.material.opacity = coronaOpacity;
+          sunCoronaSpriteRef.current.scale.set(68.0, 68.0, 1.0);
+          // 日出日落时日冕偏暖
+          const twilightFactor = Math.max(0.0, 1.0 - Math.abs(sunCoords.alt - 5.0) / 15.0);
+          const coronaColor = new THREE.Color(0xfff8e7);
+          coronaColor.lerp(new THREE.Color(0xffcc88), twilightFactor);
+          sunCoronaSpriteRef.current.material.color.copy(coronaColor);
         }
       }
     }
@@ -1707,9 +1974,8 @@ export default function StarrySkyViewer({
 
     const eclipseState = AstrophenomenaEngine.detectEclipse(days);
 
-    // Per-body atmospheric sky colors
     const sunAlt = sunCoords.alt;
-    const atmo = getAtmosphereColors(observerBodyId, sunAlt);
+    const atmo = atmoEarly;
     let { r, g, b, brightness: skyBrightness, ambientIntensity } = atmo;
 
     skyBrightnessRef.current = skyBrightness;
@@ -1737,17 +2003,22 @@ export default function StarrySkyViewer({
       const ra = sprite.userData.ra;
       const dec = sprite.userData.dec;
       const starCoords = getHorizontalCoordinates(ra, dec, lst, latitude, observerBodyId);
-      
+
       let baseOpacity = 0;
       let visible = false;
-      
+
       if (starCoords.alt > 0) {
         visible = true;
+        const altRad = starCoords.alt * Math.PI / 180.0;
+        const sinAlt = Math.sin(altRad);
         let extinction = 1.0;
         if (starCoords.alt < 12) {
-          extinction = Math.sin(starCoords.alt * Math.PI / 180.0) / Math.sin(12.0 * Math.PI / 180.0);
+          extinction = sinAlt / Math.sin(12.0 * Math.PI / 180.0);
         }
-        baseOpacity = atmo.opaqueAtmosphere ? 0 : (atmo.starDayVisible ? extinction : ((1.0 - skyBrightness) * extinction));
+        // 天空亮度梯度：地平线附近比天顶亮，低高度角星星被更强遮挡
+        const zenithFactor = Math.pow(sinAlt, 0.8);
+        const visibility = Math.max(0.0, 1.0 - skyBrightness * (1.8 - 0.8 * zenithFactor));
+        baseOpacity = atmo.opaqueAtmosphere ? 0 : (atmo.starDayVisible ? extinction : (visibility * extinction));
       }
 
       sprite.userData.az = starCoords.az;
@@ -1770,11 +2041,16 @@ export default function StarrySkyViewer({
 
       if (starCoords.alt > 0) {
         visible = true;
+        const altRad = starCoords.alt * Math.PI / 180.0;
+        const sinAlt = Math.sin(altRad);
         let extinction = 1.0;
         if (starCoords.alt < 12) {
-          extinction = Math.sin(starCoords.alt * Math.PI / 180.0) / Math.sin(12.0 * Math.PI / 180.0);
+          extinction = sinAlt / Math.sin(12.0 * Math.PI / 180.0);
         }
-        baseOpacity = atmo.opaqueAtmosphere ? 0 : (atmo.starDayVisible ? extinction : ((1.0 - skyBrightness) * extinction));
+        // 天空亮度梯度：地平线附近比天顶亮，低高度角星星被更强遮挡
+        const zenithFactor = Math.pow(sinAlt, 0.8);
+        const visibility = Math.max(0.0, 1.0 - skyBrightness * (1.8 - 0.8 * zenithFactor));
+        baseOpacity = atmo.opaqueAtmosphere ? 0 : (atmo.starDayVisible ? extinction : (visibility * extinction));
       }
 
       sprite.userData.az = starCoords.az;
@@ -1799,11 +2075,16 @@ export default function StarrySkyViewer({
         let visible = false;
         if (planetCoords.alt > 0) {
           visible = true;
+          const altRad = planetCoords.alt * Math.PI / 180.0;
+          const sinAlt = Math.sin(altRad);
           let extinction = 1.0;
           if (planetCoords.alt < 12) {
-            extinction = Math.sin(planetCoords.alt * Math.PI / 180.0) / Math.sin(12.0 * Math.PI / 180.0);
+            extinction = sinAlt / Math.sin(12.0 * Math.PI / 180.0);
           }
-          baseOpacity = (1.0 - skyBrightness) * extinction;
+          // 天空亮度梯度：地平线附近比天顶亮
+          const zenithFactor = Math.pow(sinAlt, 0.8);
+          const visibility = Math.max(0.0, 1.0 - skyBrightness * (1.8 - 0.8 * zenithFactor));
+          baseOpacity = visibility * extinction;
         }
         sprite.userData.az = planetCoords.az;
         sprite.userData.alt = planetCoords.alt;
@@ -1895,8 +2176,10 @@ export default function StarrySkyViewer({
       }
 
       const lineMat = constellLinesRef.current.material as THREE.LineBasicMaterial;
-      lineMat.opacity = 0.35 * Math.max(0, 1 - skyBrightness);
-      constellLinesRef.current.visible = showConstellLines && linePoints.length > 0;
+      // 星座连线只在太阳完全落山后才出现（天文昏影结束后，skyBrightness < 0.03）
+      const constellVisible = showConstellLines && linePoints.length > 0 && skyBrightness < 0.03;
+      lineMat.opacity = constellVisible ? 0.35 * Math.max(0, 1 - skyBrightness) : 0;
+      constellLinesRef.current.visible = constellVisible;
     }
 
     // G. 星座名称标签位置更新 (原始星座)
@@ -1925,8 +2208,10 @@ export default function StarrySkyViewer({
           const avgAlt = sumAlt / visibleCount;
           const pos = get3DPositionOnDome(avgAz, avgAlt, 288);
           sprite.position.copy(pos);
-          sprite.visible = showConstellNames;
-          sprite.material.opacity = 0.7 * Math.max(0, 1 - skyBrightness);
+          // 星座名称只在太阳完全落山后才出现
+          const namesVisible = showConstellNames && skyBrightness < 0.03;
+          sprite.visible = namesVisible;
+          sprite.material.opacity = namesVisible ? 0.7 * Math.max(0, 1 - skyBrightness) : 0;
         } else {
           sprite.visible = false;
         }
@@ -1959,8 +2244,10 @@ export default function StarrySkyViewer({
           const avgAlt = sumAlt / visibleCount;
           const pos = get3DPositionOnDome(avgAz, avgAlt, 288);
           sprite.position.copy(pos);
-          sprite.visible = showConstellNames;
-          sprite.material.opacity = 0.7 * Math.max(0, 1 - skyBrightness);
+          // 星座名称只在太阳完全落山后才出现
+          const namesVisible = showConstellNames && skyBrightness < 0.03;
+          sprite.visible = namesVisible;
+          sprite.material.opacity = namesVisible ? 0.7 * Math.max(0, 1 - skyBrightness) : 0;
         } else {
           sprite.visible = false;
         }
@@ -2061,15 +2348,123 @@ export default function StarrySkyViewer({
         const heading = (Math.atan2(dir.x, -dir.z) * 180 / Math.PI + 360) % 360;
         setCompassHeading(heading);
 
-        // 1. 夜间月光平行光强度强力锁定
+        // 1. 太阳光照强度动态更新（日出日落时更温暖强烈）
         if (lightRef.current) {
           const sunAlt = sunAltRef.current;
           const skyBrightness = skyBrightnessRef.current;
           if (sunAlt >= 0) {
-            lightRef.current.intensity = 1.2 * (1.0 - skyBrightness) + 0.1;
+            // 白天：根据太阳高度调整强度，正午最强
+            const noonFactor = Math.max(0.0, Math.min(1.0, sunAlt / 45.0));
+            lightRef.current.intensity = 2.5 + noonFactor * 2.5;
+            // 日出日落时色温偏暖
+            const warmFactor = 1.0 - noonFactor;
+            lightRef.current.color.setRGB(1.0, 0.92 + 0.08 * noonFactor, 0.78 + 0.22 * noonFactor);
           } else {
             lightRef.current.intensity = 1.5;
+            lightRef.current.color.setHex(0xfff8f0);
           }
+        }
+
+        // 1a. 天空霞光穹顶着色器 uniforms 实时更新
+        if (horizonGlowSpriteRef.current && sunSkyRef.current) {
+          const sunAlt = sunAltRef.current;
+          const sunWorldPos = new THREE.Vector3();
+          sunSkyRef.current.getWorldPosition(sunWorldPos);
+
+          const mat = horizonGlowSpriteRef.current.material as THREE.ShaderMaterial;
+          // 太阳方向归一化
+          const sunDir = sunWorldPos.clone().normalize();
+          mat.uniforms.sunDir.value.copy(sunDir);
+          mat.uniforms.sunAlt.value = sunAlt;
+          mat.uniforms.uTime.value = performance.now() * 0.001;
+
+          // 根据太阳高度动态调整颜色参数
+          if (sunAlt > 10.0) {
+            // 正午：天顶偏蓝，地平线偏白
+            mat.uniforms.topColor.value.setRGB(0.35, 0.55, 0.95);
+            mat.uniforms.horizonColor.value.setRGB(0.7, 0.8, 0.95);
+          } else if (sunAlt > -5.0) {
+            // 日出日落过渡：天顶蓝紫，地平线暖橙
+            const t = (sunAlt + 5.0) / 15.0;
+            mat.uniforms.topColor.value.setRGB(0.25 + t * 0.1, 0.35 + t * 0.2, 0.7 + t * 0.25);
+            mat.uniforms.horizonColor.value.setRGB(0.9, 0.45 + t * 0.35, 0.2 + t * 0.5);
+          } else if (sunAlt > -18.0) {
+            // 深昏影：余光逐渐消退
+            const t = Math.max(0.0, (sunAlt + 18.0) / 13.0);
+            mat.uniforms.topColor.value.setRGB(0.02 * t, 0.025 * t, 0.05 * t);
+            mat.uniforms.horizonColor.value.setRGB(0.03 * t, 0.025 * t, 0.04 * t);
+          } else {
+            // 完全夜晚：纯黑背景
+            mat.uniforms.topColor.value.setRGB(0.0, 0.0, 0.0);
+            mat.uniforms.horizonColor.value.setRGB(0.0, 0.0, 0.0);
+          }
+        }
+
+        // 1b. 镜头光晕 (Lens Flare) 实时更新
+        if (lensFlareGroupRef.current && sunSkyRef.current && cameraRef.current) {
+          const sunWorldPos = new THREE.Vector3();
+          sunSkyRef.current.getWorldPosition(sunWorldPos);
+
+          const cam = cameraRef.current;
+          const sunScreen = sunWorldPos.clone().project(cam);
+          const sunVisible = sunScreen.z < 1 && sunScreen.x > -1.2 && sunScreen.x < 1.2 && sunScreen.y > -1.2 && sunScreen.y < 1.2;
+
+          // 太阳亮度因子：白天高、日出日落略低但散射更强
+          const sunAlt = sunAltRef.current;
+          // 日出日落时（太阳高度 < 6°）太阳被云层遮挡，不出现光圈鬼影
+          const isSunLow = sunAlt < 6.0;
+          const sunBrightness = sunAlt > 0
+            ? Math.min(1.0, sunAlt / 10.0 + 0.3)
+            : Math.max(0.0, (sunAlt + 6.0) / 6.0);
+
+          // 计算从屏幕中心到太阳的向量（用于光斑排列）
+          const centerToSunX = sunScreen.x;
+          const centerToSunY = sunScreen.y;
+
+          lensFlareSpritesRef.current.forEach((flare) => {
+            const sprite = flare.sprite;
+            // 太阳不可见、亮度太低、或日出日落时（太阳低角度被云层遮挡）不显示光晕
+            if (!sunVisible || sunBrightness <= 0.02 || isSunLow) {
+              sprite.visible = false;
+              return;
+            }
+
+            // 光斑位置 = 屏幕中心 + offsetScale * (太阳 - 屏幕中心)
+            // offsetScale > 0: 太阳和中心之间
+            // offsetScale < 0: 越过太阳的反方向
+            const fx = centerToSunX * flare.offsetScale;
+            const fy = centerToSunY * flare.offsetScale;
+
+            // 将 NDC 转回世界空间（固定深度）
+            const ndcPos = new THREE.Vector3(fx, fy, 0.95);
+            ndcPos.unproject(cam);
+            const dir = ndcPos.sub(cam.position).normalize();
+            const flareWorldPos = cam.position.clone().add(dir.multiplyScalar(280));
+            sprite.position.copy(flareWorldPos);
+
+            // 距离衰减：越靠近屏幕边缘越淡
+            const distFromCenter = Math.sqrt(fx * fx + fy * fy);
+            const edgeFade = Math.max(0.0, 1.0 - distFromCenter * 0.35);
+
+            // 主光晕（offsetScale ~ 0）始终面对相机，其他光斑也始终 facing camera
+            // 大小随太阳亮度变化
+            const brightnessScale = 0.5 + sunBrightness * 0.5;
+            const scale = flare.baseScale * brightnessScale;
+            sprite.scale.set(scale, scale, 1.0);
+
+            // 透明度计算
+            let targetOpacity = sunBrightness * edgeFade * 0.75;
+            if (flare.offsetScale === 0.0) {
+              // 主光晕最强
+              targetOpacity = sunBrightness * 0.95;
+            } else if (Math.abs(flare.offsetScale) < 0.15) {
+              targetOpacity = sunBrightness * edgeFade * 0.85;
+            }
+
+            (sprite.material as THREE.SpriteMaterial).color.copy(flare.color);
+            sprite.material.opacity = targetOpacity;
+            sprite.visible = targetOpacity > 0.02;
+          });
         }
 
         // 2. 亮恒星位置与透明度更新（无闪烁/抖动），视星等亮度加权
@@ -2148,13 +2543,21 @@ export default function StarrySkyViewer({
               positions[idx + 1] = pos.y;
               positions[idx + 2] = pos.z;
 
+              const altRad = alt * Math.PI / 180.0;
+              const sinAlt = Math.sin(altRad);
+
               let extinction = 1.0;
               if (alt < 12) {
-                extinction = Math.sin(alt * Math.PI / 180.0) / Math.sin(12.0 * Math.PI / 180.0);
+                extinction = sinAlt / Math.sin(12.0 * Math.PI / 180.0);
               }
 
+              // 天空亮度梯度：地平线附近比天顶亮，低高度角星星被更强遮挡
+              // 天顶方向的等效天空亮度更低，所以高高度角星星在黄昏时更早出现
+              const zenithFactor = Math.pow(sinAlt, 0.8);
+              const visibility = Math.max(0.0, 1.0 - skyBr * (1.8 - 0.8 * zenithFactor));
+
               const baseColor = new THREE.Color(star.color);
-              const factor = extinction * (1.0 - skyBr);
+              const factor = extinction * visibility;
 
               colors[idx] = baseColor.r * factor;
               colors[idx + 1] = baseColor.g * factor;

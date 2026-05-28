@@ -4,6 +4,88 @@
  */
 
 import { OrbitEngine } from './OrbitEngine';
+import {
+  SOLAR_ECLIPSE_EVENTS,
+  LUNAR_ECLIPSE_EVENTS,
+  type SolarEclipseEvent,
+  type LunarEclipseEvent,
+  formatSolarEclipseType,
+  formatLunarEclipseType,
+} from '../data/eclipseEvents';
+
+export const SYNODIC_MONTH_MS = 29.53059 * 24 * 60 * 60 * 1000;
+
+export function getCurrentCycleNewMoon(referenceTimestamp: number): number {
+  const knownNewMoon = Date.UTC(2000, 0, 16, 22, 59, 0);
+  const monthsSince = (referenceTimestamp - knownNewMoon) / SYNODIC_MONTH_MS;
+  // Use floor to always get the start of the current lunar cycle
+  let baseTs = knownNewMoon + Math.floor(monthsSince) * SYNODIC_MONTH_MS;
+  
+  // 迭代寻找精确的新月时间点（地月连线与地日连线夹角最小）
+  // 步长逐步缩小进行二分查找或梯度下降
+  let step = 24 * 3600 * 1000; // 初始步长 1 天
+  for (let iter = 0; iter < 4; iter++) {
+    let bestTs = baseTs;
+    let minAngle = Infinity;
+    for (let offset = -5; offset <= 5; offset++) {
+      const ts = baseTs + offset * step;
+      const days = (ts - 946728000000) / 86400000; // J2000_TIMESTAMP = 946728000000
+      const earthPos = OrbitEngine.getHeliocentricPosition('earth', days);
+      const moonRel = OrbitEngine.getLunarRelativePosition(days);
+      const es = { x: -earthPos.x, y: -earthPos.y, z: -earthPos.z };
+      const esLen = Math.sqrt(es.x * es.x + es.y * es.y + es.z * es.z);
+      const emLen = Math.sqrt(moonRel.x * moonRel.x + moonRel.y * moonRel.y + moonRel.z * moonRel.z);
+      const dot = es.x * moonRel.x + es.y * moonRel.y + es.z * moonRel.z;
+      const cosAngle = dot / (esLen * emLen);
+      const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+      if (angle < minAngle) {
+        minAngle = angle;
+        bestTs = ts;
+      }
+    }
+    baseTs = bestTs;
+    step /= 5; // 缩小步长
+  }
+  return baseTs;
+}
+
+export function getExactMoonPhaseTime(baseNewMoon: number, phaseIndex: number): number {
+  if (phaseIndex === 0) return baseNewMoon;
+  const targetAngle = (phaseIndex / 8) * Math.PI * 2;
+  
+  let baseTs = baseNewMoon + (phaseIndex / 8) * SYNODIC_MONTH_MS;
+  let step = 24 * 3600 * 1000;
+  for (let iter = 0; iter < 4; iter++) {
+    let bestTs = baseTs;
+    let minDiff = Infinity;
+    for (let offset = -5; offset <= 5; offset++) {
+      const ts = baseTs + offset * step;
+      const days = (ts - 946728000000) / 86400000;
+      const earthPos = OrbitEngine.getHeliocentricPosition('earth', days);
+      const moonRel = OrbitEngine.getLunarRelativePosition(days);
+      const es = { x: -earthPos.x, y: -earthPos.y, z: -earthPos.z };
+      
+      // 在黄道面上投影计算相位角
+      const angle = Math.atan2(
+        es.x * moonRel.y - es.y * moonRel.x,
+        es.x * moonRel.x + es.y * moonRel.y
+      );
+      let currentPhase = angle;
+      if (currentPhase < 0) currentPhase += Math.PI * 2;
+      
+      let diff = Math.abs(currentPhase - targetAngle);
+      if (diff > Math.PI) diff = Math.PI * 2 - diff;
+      
+      if (diff < minDiff) {
+        minDiff = diff;
+        bestTs = ts;
+      }
+    }
+    baseTs = bestTs;
+    step /= 5;
+  }
+  return baseTs;
+}
 
 export interface SolarTermInfo {
   index: number;
@@ -43,42 +125,77 @@ export interface EclipseEvent {
   timestamp: number;
   type: 'solar' | 'lunar';
   dateStr: string; // YYYY-MM-DD
+  /** 详细事件数据 (来自NASA) */
+  detail?: SolarEclipseEvent | LunarEclipseEvent;
+  /** 是否正处于交食窗口期内 */
+  inWindow?: boolean;
+  /** 交食程度: 0~1 (0为无交食, 1为最大食) */
+  magnitude?: number;
 }
 
 export class AstrophenomenaEngine {
   /**
    * 搜索给定时间窗口内的日食和月食事件
+   * 优先使用NASA权威数据，同时结合轨道计算进行交叉验证
    * @param centerTimestamp 中心时间点 (ms)
    * @param windowYears 搜索前后多少年 (默认 ±10年)
    */
   static searchEclipseEvents(centerTimestamp: number, windowYears = 10): EclipseEvent[] {
-    const centerDays = (centerTimestamp / 86400000) - 10957.5; // ms -> days since J2000
-    const startDays = centerDays - windowYears * 365.25;
-    const endDays = centerDays + windowYears * 365.25;
+    const centerDate = new Date(centerTimestamp);
+    const startYear = centerDate.getFullYear() - windowYears;
+    const endYear = centerDate.getFullYear() + windowYears;
 
     const events: EclipseEvent[] = [];
-    const seen = new Set<string>();
 
-    // Scan with 0.25-day steps to catch all eclipses
-    for (let days = startDays; days < endDays; days += 0.25) {
-      const result = this.detectEclipse(days);
-      if (result.solarEclipse || result.lunarEclipse) {
-        const ts = (days + 10957.5) * 86400000;
-        const d = new Date(ts);
-        const type = result.solarEclipse ? 'solar' : 'lunar';
-        const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${type}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          events.push({
-            timestamp: ts,
-            type,
-            dateStr: d.toISOString().split('T')[0],
-          });
-        }
+    // 从NASA权威数据中提取
+    for (const se of SOLAR_ECLIPSE_EVENTS) {
+      const year = parseInt(se.date.split('-')[0]);
+      if (year >= startYear && year <= endYear) {
+        events.push({
+          timestamp: new Date(`${se.date}T${se.greatestUTC}Z`).getTime(),
+          type: 'solar',
+          dateStr: se.date,
+          detail: se,
+        });
+      }
+    }
+
+    for (const le of LUNAR_ECLIPSE_EVENTS) {
+      const year = parseInt(le.date.split('-')[0]);
+      if (year >= startYear && year <= endYear) {
+        events.push({
+          timestamp: new Date(`${le.date}T${le.greatestUTC}Z`).getTime(),
+          type: 'lunar',
+          dateStr: le.date,
+          detail: le,
+        });
       }
     }
 
     return events.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /**
+   * 获取某个日期的日食/月食详细描述
+   */
+  static getEclipseDescription(event: EclipseEvent, lang: 'zh' | 'en'): string {
+    if (event.type === 'solar' && event.detail) {
+      const se = event.detail as SolarEclipseEvent;
+      const typeStr = formatSolarEclipseType(se.type, lang);
+      if (lang === 'zh') {
+        return `${se.date} ${typeStr} | 食分: ${se.magnitude.toFixed(3)} | 食甚: ${se.greatestUTC} UTC | 可见区域: ${se.region}${se.centralPath ? ` | 中心带: ${se.centralPath}` : ''}`;
+      }
+      return `${se.date} ${typeStr} | Magnitude: ${se.magnitude.toFixed(3)} | Greatest: ${se.greatestUTC} UTC | Visible: ${se.region}${se.centralPath ? ` | Path: ${se.centralPath}` : ''}`;
+    }
+    if (event.type === 'lunar' && event.detail) {
+      const le = event.detail as LunarEclipseEvent;
+      const typeStr = formatLunarEclipseType(le.type, lang);
+      if (lang === 'zh') {
+        return `${le.date} ${typeStr} | 本影食分: ${le.umbralMagnitude.toFixed(3)} | 食甚: ${le.greatestUTC} UTC | 可见区域: ${le.region}`;
+      }
+      return `${le.date} ${typeStr} | Umbral Mag: ${le.umbralMagnitude.toFixed(3)} | Greatest: ${le.greatestUTC} UTC | Visible: ${le.region}`;
+    }
+    return '';
   }
 
   /**
@@ -234,6 +351,64 @@ export class AstrophenomenaEngine {
       next,
       currentLong: long
     };
+  }
+
+  /**
+   * 计算物理正确的阴影锥参数
+   * 用于3D渲染日食/月食时的本影/半影锥
+   * @param lightSourceRadius 光源半径 (km)
+   * @param occluderRadius 遮挡体半径 (km)
+   * @param distance 光源到遮挡体的距离 (km)
+   * @returns 本影锥半顶角(rad)、半影锥半顶角(rad)、本影锥长度(km)
+   */
+  static computeShadowCone(
+    lightSourceRadius: number,
+    occluderRadius: number,
+    distance: number
+  ): { umbraAngle: number; penumbraAngle: number; umbraLength: number } {
+    // 本影锥半顶角: sin(θ_u) = (R_light - R_occluder) / distance
+    // 当 R_occluder < R_light 时，本影锥是收敛的（尖头向外）
+    const umbraAngle = Math.asin(Math.max(-1, Math.min(1, (lightSourceRadius - occluderRadius) / distance)));
+    // 半影锥半顶角: sin(θ_p) = (R_light + R_occluder) / distance
+    const penumbraAngle = Math.asin(Math.max(-1, Math.min(1, (lightSourceRadius + occluderRadius) / distance)));
+    // 本影锥长度: L = R_occluder / sin(|θ_u|) = R_occluder * distance / (R_light - R_occluder)
+    const umbraLength = Math.abs(umbraAngle) > 0.0001
+      ? occluderRadius / Math.abs(Math.sin(umbraAngle))
+      : distance * 100; // 如果几乎平行，给一个很大的值
+    return { umbraAngle, penumbraAngle, umbraLength };
+  }
+
+  /**
+   * 计算日食时月球的阴影锥参数 (月球遮挡太阳)
+   * @param sunRadius 太阳半径 (km), 默认 696340
+   * @param moonRadius 月球半径 (km), 默认 1737.4
+   * @param sunToMoonDist 太阳到月球的距离 (km)
+   */
+  static getMoonShadowCone(
+    sunToMoonDist: number,
+    sunRadius: number = 696340,
+    moonRadius: number = 1737.4
+  ): { umbraAngle: number; penumbraAngle: number; umbraLength: number; umbraTipRadius: number } {
+    const { umbraAngle, penumbraAngle, umbraLength } = this.computeShadowCone(sunRadius, moonRadius, sunToMoonDist);
+    // 本影锥顶点处的半径 (理论上为0，但用一个小值表示尖头)
+    const umbraTipRadius = 0.001;
+    return { umbraAngle, penumbraAngle, umbraLength, umbraTipRadius };
+  }
+
+  /**
+   * 计算月食时地球的阴影锥参数 (地球遮挡太阳)
+   * @param sunRadius 太阳半径 (km), 默认 696340
+   * @param earthRadius 地球半径 (km), 默认 6371
+   * @param sunToEarthDist 太阳到地球的距离 (km)
+   */
+  static getEarthShadowCone(
+    sunToEarthDist: number,
+    sunRadius: number = 696340,
+    earthRadius: number = 6371
+  ): { umbraAngle: number; penumbraAngle: number; umbraLength: number; umbraTipRadius: number } {
+    const { umbraAngle, penumbraAngle, umbraLength } = this.computeShadowCone(sunRadius, earthRadius, sunToEarthDist);
+    const umbraTipRadius = 0.001;
+    return { umbraAngle, penumbraAngle, umbraLength, umbraTipRadius };
   }
 
   /**

@@ -252,6 +252,43 @@ export function createConstellationLabelSprite(text: string): THREE.Sprite {
   return sprite;
 }
 
+/**
+ * 创建地平线霞光纹理（朝霞/晚霞）
+ * 从底部向上渐变的柔和半透明纹理，用于模拟日出日落时地平线附近的宏大霞光
+ */
+export function createHorizonGlowTexture(): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  // 从下到上的渐变：底部不透明，顶部完全透明
+  const grad = ctx.createLinearGradient(0, 256, 0, 0);
+  grad.addColorStop(0.0, 'rgba(255, 200, 150, 0.55)');
+  grad.addColorStop(0.15, 'rgba(255, 160, 100, 0.40)');
+  grad.addColorStop(0.35, 'rgba(255, 120, 80, 0.22)');
+  grad.addColorStop(0.6, 'rgba(255, 100, 60, 0.08)');
+  grad.addColorStop(1.0, 'rgba(255, 80, 40, 0.0)');
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+
+  // 添加一些柔和的横向云层纹理变化
+  for (let i = 0; i < 6; i++) {
+    const y = 30 + i * 35;
+    const bandGrad = ctx.createLinearGradient(0, y - 10, 0, y + 10);
+    bandGrad.addColorStop(0, 'rgba(255, 180, 120, 0.0)');
+    bandGrad.addColorStop(0.5, 'rgba(255, 160, 100, 0.12)');
+    bandGrad.addColorStop(1, 'rgba(255, 180, 120, 0.0)');
+    ctx.fillStyle = bandGrad;
+    ctx.fillRect(0, y - 10, 256, 20);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 // ============================================================================
 // UniverseViewer procedural textures
 // ============================================================================
@@ -828,4 +865,162 @@ export function createUniverseStarTexture(): THREE.Texture {
   ctx.putImageData(imgData, 0, 0);
   const texture = new THREE.CanvasTexture(canvas);
   return texture;
+}
+
+// ============================================================================
+// Lens Flare Textures for StarrySkyViewer
+// ============================================================================
+
+/** Soft circular bokeh blob — the classic lens flare artifact */
+export function createLensFlareBlobTexture(size = 128): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, cx);
+  grad.addColorStop(0.0, 'rgba(255, 250, 230, 0.95)');
+  grad.addColorStop(0.25, 'rgba(255, 220, 160, 0.55)');
+  grad.addColorStop(0.55, 'rgba(255, 160, 80, 0.18)');
+  grad.addColorStop(1.0, 'rgba(255, 100, 30, 0.0)');
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Thin ring ghost — simulates internal lens reflection */
+export function createLensFlareRingTexture(size = 128): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size * 0.38;
+
+  ctx.clearRect(0, 0, size, size);
+
+  // Outer ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.lineWidth = size * 0.035;
+  ctx.strokeStyle = 'rgba(255, 220, 160, 0.35)';
+  ctx.stroke();
+
+  // Inner faint ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.72, 0, Math.PI * 2);
+  ctx.lineWidth = size * 0.02;
+  ctx.strokeStyle = 'rgba(255, 180, 100, 0.18)';
+  ctx.stroke();
+
+  // Soft glow behind
+  const glowGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 1.3);
+  glowGrad.addColorStop(0, 'rgba(255, 200, 120, 0.12)');
+  glowGrad.addColorStop(1, 'rgba(255, 100, 30, 0)');
+  ctx.fillStyle = glowGrad;
+  ctx.fillRect(0, 0, size, size);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Hexagonal aperture-shaped flare artifact */
+export function createLensFlareHexTexture(size = 128): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size * 0.4;
+
+  ctx.clearRect(0, 0, size, size);
+
+  // Hexagon path
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const angle = (i * Math.PI) / 3 - Math.PI / 6;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+
+  // Fill with soft radial gradient
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  grad.addColorStop(0, 'rgba(255, 245, 210, 0.7)');
+  grad.addColorStop(0.6, 'rgba(255, 200, 100, 0.25)');
+  grad.addColorStop(1, 'rgba(255, 140, 50, 0.0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Thin bright edge
+  ctx.lineWidth = size * 0.015;
+  ctx.strokeStyle = 'rgba(255, 240, 200, 0.45)';
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Small star-burst sparkle for lens flare artifacts */
+export function createLensFlareSparkleTexture(size = 64): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  ctx.clearRect(0, 0, size, size);
+
+  // Cross spike 1
+  const spikeGrad1 = ctx.createLinearGradient(cx, 0, cx, size);
+  spikeGrad1.addColorStop(0, 'rgba(255, 250, 230, 0)');
+  spikeGrad1.addColorStop(0.45, 'rgba(255, 250, 230, 0.0)');
+  spikeGrad1.addColorStop(0.5, 'rgba(255, 250, 230, 0.9)');
+  spikeGrad1.addColorStop(0.55, 'rgba(255, 250, 230, 0.0)');
+  spikeGrad1.addColorStop(1, 'rgba(255, 250, 230, 0)');
+  ctx.fillStyle = spikeGrad1;
+  ctx.fillRect(cx - 1, 0, 2, size);
+
+  // Cross spike 2
+  const spikeGrad2 = ctx.createLinearGradient(0, cy, size, cy);
+  spikeGrad2.addColorStop(0, 'rgba(255, 250, 230, 0)');
+  spikeGrad2.addColorStop(0.45, 'rgba(255, 250, 230, 0.0)');
+  spikeGrad2.addColorStop(0.5, 'rgba(255, 250, 230, 0.9)');
+  spikeGrad2.addColorStop(0.55, 'rgba(255, 250, 230, 0.0)');
+  spikeGrad2.addColorStop(1, 'rgba(255, 250, 230, 0)');
+  ctx.fillStyle = spikeGrad2;
+  ctx.fillRect(0, cy - 1, size, 2);
+
+  // Diagonal spikes (dimmer)
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(Math.PI / 4);
+  ctx.fillStyle = 'rgba(255, 230, 180, 0.4)';
+  ctx.fillRect(-0.5, -size / 2, 1, size);
+  ctx.fillRect(-size / 2, -0.5, size, 1);
+  ctx.restore();
+
+  // Center hot spot
+  const centerGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.12);
+  centerGrad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+  centerGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = centerGrad;
+  ctx.fillRect(0, 0, size, size);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }

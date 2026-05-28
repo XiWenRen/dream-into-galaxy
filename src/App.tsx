@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { motion } from "motion/react";
 import UniverseViewer from './components/UniverseViewer';
 import StarrySkyViewer from './components/StarrySkyViewer';
 import PlanetInfoPanel from './components/PlanetInfoPanel';
@@ -12,11 +13,11 @@ import ArcTimeBar from './components/ArcTimeBar';
 import LoadingScreen from './components/LoadingScreen';
 import AstroPhenomenaPanel from './components/AstroPhenomenaPanel';
 import PhenomenaGuidePanel from './components/PhenomenaGuidePanel';
-import SolarTermInfoPanel from './components/SolarTermInfoPanel';
 import PhenomenaDemoBar from './components/PhenomenaDemoBar';
 import { TimeEngine } from './engine/TimeEngine';
 import { OrbitEngine } from './engine/OrbitEngine';
-import { AstrophenomenaEngine } from './engine/AstrophenomenaEngine';
+import { AstrophenomenaEngine, SYNODIC_MONTH_MS, getCurrentCycleNewMoon, getExactMoonPhaseTime } from './engine/AstrophenomenaEngine';
+import { SOLAR_ECLIPSE_EVENTS, LUNAR_ECLIPSE_EVENTS } from './data/eclipseEvents';
 import { TimeState, ThemeType, PhenomenaDemoState } from './types/astronomy';
 import { translations } from './i18n';
 import { SOLAR_TERMS } from './data/solarTerms';
@@ -25,13 +26,6 @@ import { SOLAR_TERMS } from './data/solarTerms';
 const LANDABLE_PLANETS = ['earth', 'mercury', 'venus', 'mars', 'moon', 'jupiter', 'saturn', 'uranus', 'neptune', 'phobos', 'deimos', 'io', 'europa', 'ganymede', 'callisto', 'titan', 'rhea', 'enceladus', 'titania', 'oberon', 'ariel', 'triton', 'proteus'];
 
 // ── Demo playback helpers ───────────────────────────────────────
-const SYNODIC_MONTH_MS = 29.53059 * 24 * 60 * 60 * 1000;
-
-function findNearestNewMoon(referenceTimestamp: number): number {
-  const knownNewMoon = Date.UTC(2000, 0, 6, 11, 0, 0);
-  const monthsSince = (referenceTimestamp - knownNewMoon) / SYNODIC_MONTH_MS;
-  return knownNewMoon + Math.round(monthsSince) * SYNODIC_MONTH_MS;
-}
 
 function findNearestSpringEquinox(referenceTimestamp: number): number {
   const year = new Date(referenceTimestamp).getUTCFullYear();
@@ -96,6 +90,9 @@ export default function App() {
   // 星体坐标轴展示/隐藏开关
   const [showAxes, setShowAxes] = useState<boolean>(false);
 
+  // 经纬度网格展示/隐藏开关
+  const [showLatLonGrid, setShowLatLonGrid] = useState<boolean>(false);
+
   // 望远镜模式（仅在星空模式下生效）
   const [telescopeActive, setTelescopeActive] = useState<boolean>(false);
 
@@ -128,6 +125,8 @@ export default function App() {
 
   // 当前选中的节气索引（四季与节气演示模式）
   const [selectedSolarTermIndex, setSelectedSolarTermIndex] = useState<number | null>(null);
+  // 当前选中的月相索引（月相演示模式）
+  const [selectedMoonPhaseIndex, setSelectedMoonPhaseIndex] = useState<number | null>(null);
 
   // 日食/月食演示：选中的事件时间戳和进度 (0-1)
   const [eclipseEventTs, setEclipseEventTs] = useState<number | null>(null);
@@ -178,8 +177,21 @@ export default function App() {
         const steps = getPhenomenonSteps(prev.activePhenomenon).length;
         const nextPhase = prev.demoPhase + 1;
         if (nextPhase >= steps) {
+          // 如果需要循环，则在此处理，或者停止
           return { ...prev, demoPhase: steps - 1, isPlaying: false };
         }
+        
+        // 自动播放时也需要同步跳转时间
+        if (prev.activePhenomenon === 'moon-phases') {
+          setTimeState(timePrev => {
+            const base = getCurrentCycleNewMoon(timePrev.currentTimestamp);
+            const target = getExactMoonPhaseTime(base, nextPhase);
+            return { ...timePrev, currentTimestamp: target };
+          });
+        } else if (prev.activePhenomenon === 'solar-terms') {
+           // ... 暂时不处理节气时间跳转，或者保持原样
+        }
+        
         return { ...prev, demoPhase: nextPhase };
       });
     }, intervalMs);
@@ -236,7 +248,21 @@ export default function App() {
     const now = Date.now();
     let targetTs = now;
     if (phenomenon === 'moon-phases') {
-      targetTs = findNearestNewMoon(now);
+      targetTs = getCurrentCycleNewMoon(now);
+    } else if (phenomenon === 'eclipses') {
+      // 跳转到最近的未来日食日期，使用NASA真实数据
+      const futureSolar = SOLAR_ECLIPSE_EVENTS.find(e => new Date(e.date).getTime() > now);
+      const futureLunar = LUNAR_ECLIPSE_EVENTS.find(e => new Date(e.date).getTime() > now);
+      if (futureSolar && futureLunar) {
+        targetTs = Math.min(new Date(futureSolar.date).getTime(), new Date(futureLunar.date).getTime());
+      } else if (futureSolar) {
+        targetTs = new Date(futureSolar.date).getTime();
+      } else if (futureLunar) {
+        targetTs = new Date(futureLunar.date).getTime();
+      } else {
+        // 没有未来事件，使用最后一个
+        targetTs = new Date(SOLAR_ECLIPSE_EVENTS[SOLAR_ECLIPSE_EVENTS.length - 1].date).getTime();
+      }
     } else if (phenomenon === 'solar-terms') {
       targetTs = findNearestSpringEquinox(now);
     }
@@ -258,18 +284,14 @@ export default function App() {
   };
 
   const handleNextStep = () => {
-    setDemoState(prev => {
-      const steps = getPhenomenonSteps(prev.activePhenomenon);
-      const nextPhase = Math.min(prev.demoPhase + 1, steps.length - 1);
-      return { ...prev, demoPhase: nextPhase };
-    });
+    const steps = getPhenomenonSteps(demoState.activePhenomenon);
+    const nextPhase = Math.min(demoState.demoPhase + 1, steps.length - 1);
+    handleSelectPhase(nextPhase);
   };
 
   const handlePrevStep = () => {
-    setDemoState(prev => ({
-      ...prev,
-      demoPhase: Math.max(prev.demoPhase - 1, 0),
-    }));
+    const nextPhase = Math.max(demoState.demoPhase - 1, 0);
+    handleSelectPhase(nextPhase);
   };
 
   const handleTogglePlay = () => {
@@ -294,18 +316,42 @@ export default function App() {
 
   const handleSelectPhase = (phase: number) => {
     setDemoState(prev => ({ ...prev, demoPhase: phase }));
+    if (demoState.activePhenomenon === 'solar-terms') {
+      setSelectedSolarTermIndex(phase);
+    }
+    if (demoState.activePhenomenon === 'moon-phases') {
+      setSelectedMoonPhaseIndex(phase);
+    }
     // Jump time to canonical date for the selected phase
     const phenomenon = demoState.activePhenomenon;
     if (phenomenon === 'moon-phases') {
-      const base = findNearestNewMoon(Date.now());
-      const target = base + (phase / 8) * SYNODIC_MONTH_MS;
+      // Calculate exact time for the targeted moon phase based on current cycle
+      const base = getCurrentCycleNewMoon(timeState.currentTimestamp);
+      const target = getExactMoonPhaseTime(base, phase);
       setTimeState(prev => ({ ...prev, currentTimestamp: target }));
     } else if (phenomenon === 'eclipses') {
-      // Eclipse phases: new moon (solar) / first quarter / full moon (lunar) / last quarter
-      const base = findNearestNewMoon(Date.now());
-      const offsets = [0, 0.25, 0.5, 0.75];
-      const target = base + offsets[phase] * SYNODIC_MONTH_MS;
-      setTimeState(prev => ({ ...prev, currentTimestamp: target }));
+      // 日食演示各相位使用真实的NASA日食/月食数据
+      // phase 0: 太阳光束 (用最近的日食日期)
+      // phase 1: 月球影子锥 (用最近的日全食/环食日期)
+      // phase 2: 地球被笼罩 (用最近的日全食日期)
+      // phase 3: 月食/血月 (用最近的月全食日期)
+      const now = Date.now();
+      let targetTs = now;
+      if (phase === 0) {
+        const nextSolar = SOLAR_ECLIPSE_EVENTS.find(e => new Date(e.date).getTime() > now);
+        targetTs = nextSolar ? new Date(nextSolar.date).getTime() : new Date(SOLAR_ECLIPSE_EVENTS[0].date).getTime();
+      } else if (phase === 1 || phase === 2) {
+        // 找一个日全食或日环食（中心食）来展示阴影锥
+        const centerEclipses = SOLAR_ECLIPSE_EVENTS.filter(e => e.type === 'total' || e.type === 'annular' || e.type === 'hybrid');
+        const nextCenter = centerEclipses.find(e => new Date(e.date).getTime() > now);
+        targetTs = nextCenter ? new Date(nextCenter.date).getTime() : new Date(centerEclipses[0].date).getTime();
+      } else if (phase === 3) {
+        // 找一个月全食
+        const totalLunar = LUNAR_ECLIPSE_EVENTS.filter(e => e.type === 'total');
+        const nextLunar = totalLunar.find(e => new Date(e.date).getTime() > now);
+        targetTs = nextLunar ? new Date(nextLunar.date).getTime() : new Date(totalLunar[0].date).getTime();
+      }
+      setTimeState(prev => ({ ...prev, currentTimestamp: targetTs }));
     } else if (phenomenon === 'solar-terms') {
       // 使用精确天文算法计算当前年份对应节气的日期
       const currentYear = new Date(timeState.currentTimestamp).getFullYear();
@@ -328,6 +374,15 @@ export default function App() {
       const ts = AstrophenomenaEngine.getSolarTermTimestamp(currentYear, term.eclipticLongitude);
       setTimeState(prev => ({ ...prev, currentTimestamp: ts }));
     }
+  };
+
+  const handleSelectMoonPhase = (index: number) => {
+    setSelectedMoonPhaseIndex(index);
+    setDemoState(prev => ({ ...prev, demoPhase: index }));
+    // Jump time to the corresponding moon phase
+    const base = getCurrentCycleNewMoon(timeState.currentTimestamp);
+    const target = getExactMoonPhaseTime(base, index);
+    setTimeState(prev => ({ ...prev, currentTimestamp: target, isPaused: true })); // 自动暂停，让用户看清楚
   };
 
   const getPhenomenonSteps = (phenomenon: PhenomenaDemoState['activePhenomenon']) => {
@@ -403,7 +458,7 @@ export default function App() {
       {/* ═══════════════════════════════════════════════════════════════
            TOP-LEFT: Command Panel (collapsible)
          ═══════════════════════════════════════════════════════════════ */}
-      <div className="absolute top-5 left-5 z-30 pointer-events-auto">
+      <motion.div drag dragMomentum={false} className="absolute top-5 left-5 z-30 pointer-events-auto touch-none">
         <CommandPanel
           lang={lang}
           onChangeLang={setLang}
@@ -457,8 +512,10 @@ export default function App() {
           onChangeCustomSpeedPreset={setCustomSpeedPreset}
           showAxes={showAxes}
           onToggleAxes={setShowAxes}
+          showLatLonGrid={showLatLonGrid}
+          onToggleLatLonGrid={setShowLatLonGrid}
         />
-      </div>
+      </motion.div>
 
       {/* ═══════════════════════════════════════════════════════════════
            MAIN VIEWPORT
@@ -532,16 +589,23 @@ export default function App() {
               exposure={exposure}
               showOrbits={showOrbits}
               showAxes={showAxes}
+              showLatLonGrid={showLatLonGrid}
               demoState={demoState}
               selectedSolarTermIndex={selectedSolarTermIndex}
               onSelectSolarTerm={handleSelectSolarTerm}
+              selectedMoonPhaseIndex={selectedMoonPhaseIndex}
+              onSelectMoonPhase={handleSelectMoonPhase}
             />
           )}
         </div>
 
         {/* 右侧：悬浮天体结构剖析与物理常数面板 (仅在 3D 宇宙模式、且选择特定星球时悬浮在右侧) */}
         {!landed && selectedPlanetId && showPlanetInfo && !isDemoActive && (
-          <div className="absolute top-20 right-5 w-[22rem] max-h-[calc(100vh-180px)] bg-black/75 border border-white/10 rounded-2xl p-0 shadow-2xl z-20 backdrop-blur-md hidden md:block select-none animate-in fade-in-0 slide-in-from-right-5 duration-300">
+          <motion.div
+            drag
+            dragMomentum={false}
+            className="absolute top-20 right-5 w-[24rem] max-h-[calc(100vh-180px)] bg-black/75 border border-white/10 rounded-2xl p-0 shadow-2xl z-20 backdrop-blur-md hidden md:block select-none touch-none animate-in fade-in-0 slide-in-from-right-5 duration-300"
+          >
             <PlanetInfoPanel
               planetId={selectedPlanetId}
               crossSectionActive={crossSectionActive}
@@ -561,7 +625,7 @@ export default function App() {
               activeLayer={activeLayer}
               onLayerHover={setActiveLayer}
             />
-          </div>
+          </motion.div>
         )}
 
         {/* 当面板关闭时，在右侧悬浮一个小巧精致的展开按钮泡泡 */}
@@ -598,7 +662,7 @@ export default function App() {
              RIGHT: Phenomena Guide Panel (during demo, replaces PlanetInfoPanel)
            ═══════════════════════════════════════════════════════════════ */}
         {isDemoActive && demoState.showGuidePanel && (
-          <div className="absolute top-20 right-5 z-20">
+          <motion.div drag dragMomentum={false} className="absolute top-20 right-5 z-20 touch-none">
             <PhenomenaGuidePanel
               lang={lang}
               theme={theme}
@@ -610,6 +674,8 @@ export default function App() {
               onTogglePlay={handleTogglePlay}
               onChangeSpeed={handleChangeSpeed}
               onSelectPhase={handleSelectPhase}
+              selectedMoonPhaseIndex={selectedMoonPhaseIndex}
+              onClearMoonPhaseSelection={() => setSelectedMoonPhaseIndex(null)}
               eclipseEventTs={eclipseEventTs}
               eclipseEventType={eclipseEventType}
               eclipseProgress={eclipseProgress}
@@ -637,22 +703,9 @@ export default function App() {
                 }
               }}
             />
-          </div>
+          </motion.div>
         )}
 
-        {/* ═══════════════════════════════════════════════════════════════
-             RIGHT: Solar Term Info Panel (during solar-terms demo)
-           ═══════════════════════════════════════════════════════════════ */}
-        {isDemoActive && demoState.activePhenomenon === 'solar-terms' && selectedSolarTermIndex !== null && (
-          <div className="absolute top-20 right-5 z-20">
-            <SolarTermInfoPanel
-              lang={lang}
-              theme={theme}
-              selectedSolarTermIndex={selectedSolarTermIndex}
-              onClose={() => setSelectedSolarTermIndex(null)}
-            />
-          </div>
-        )}
       </main>
 
       {/* ═══════════════════════════════════════════════════════════════

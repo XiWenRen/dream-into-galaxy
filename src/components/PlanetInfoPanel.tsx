@@ -115,11 +115,11 @@ function StatCardsSection({ stats, lang }: { stats: StatCard[]; lang: 'zh' | 'en
           {lang === 'zh' ? '关键数字' : 'Key Numbers'}
         </span>
       </div>
-      <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+      <div className="grid grid-cols-4 gap-2 pb-1">
         {stats.map((stat, idx) => (
           <div
             key={idx}
-            className={`flex-shrink-0 w-[72px] bg-gradient-to-br ${gradients[idx % gradients.length]} backdrop-blur-sm rounded-xl border p-2.5 flex flex-col items-center text-center group cursor-default transition-transform hover:scale-105`}
+            className={`flex flex-col items-center justify-center p-1.5 rounded-xl border bg-gradient-to-br ${gradients[idx % gradients.length]} backdrop-blur-md relative overflow-hidden group`}
             title={stat.tip || ''}
           >
             <span className="text-lg leading-none mb-1">{stat.emoji}</span>
@@ -602,15 +602,257 @@ export default function PlanetInfoPanel({
       </div>
 
       {/* ==================== 新增：丰富互动科普内容 ==================== */}
-      {hasProfile && (
-        <div className="space-y-4">
-          <StatCardsSection stats={profile.stats} lang={lang} />
-          <FlipCardsSection cards={profile.flipCards} lang={lang} />
-          <ComparisonCardsSection cards={profile.comparisons} lang={lang} />
-          <FunFactsSection facts={profile.funFacts} lang={lang} />
-          <ImagineSection imagine={profile.imagine} lang={lang} />
-        </div>
-      )}
+      {hasProfile && (() => {
+        // ── 扫描 profile.stats 已有的概念标签，避免重复 ──
+        const existingLabels = profile.stats.map(s => s.label);
+        const hasSize   = existingLabels.some(l => /直径|半径|diameter|radius/i.test(l));
+        const hasSpin   = existingLabels.some(l => /自转|rotation|spin/i.test(l));
+        const hasOrbit  = existingLabels.some(l => /公转|orbital period|revolution/i.test(l));
+        const hasDist   = existingLabels.some(l => /距太阳|距地球|距火星|dist/i.test(l));
+
+        // ── 工具函数：AU → 光行时间的直观字符串 ──
+        // 光速 ≈ 499.0 秒/AU
+        const auToLightTime = (au: number): { value: string; unit: string; tip: string } => {
+          const secs = Math.round(au * 499.0);
+          if (secs < 90) {
+            return {
+              value: String(secs),
+              unit: isZh ? '光秒' : 'light-sec',
+              tip: isZh ? `光从太阳出发 ${secs} 秒后抵达这里` : `Light from the Sun takes ${secs}s to arrive here`,
+            };
+          }
+          const mins = (secs / 60);
+          if (mins < 90) {
+            return {
+              value: mins.toFixed(1),
+              unit: isZh ? '光分' : 'light-min',
+              tip: isZh ? `光从太阳出发约 ${mins.toFixed(1)} 分钟后才能到达！` : `It takes ${mins.toFixed(1)} min for sunlight to arrive!`,
+            };
+          }
+          const hrs = (secs / 3600);
+          return {
+            value: hrs.toFixed(1),
+            unit: isZh ? '光小时' : 'light-hr',
+            tip: isZh ? `太阳光要飞行 ${hrs.toFixed(1)} 小时才能照到这里！` : `Sunlight takes ${hrs.toFixed(1)} hours to reach here!`,
+          };
+        };
+
+        // ── 工具函数：半径 → "N 个地球并排" 的直观描述 ──
+        const EARTH_RADIUS_KM = 6371;
+        const radiusToEarthCompare = (r: number): { value: string; unit: string; tip: string } => {
+          const ratio = r / EARTH_RADIUS_KM;
+          if (ratio >= 2) {
+            return {
+              value: ratio.toFixed(1),
+              unit: isZh ? '倍地球半径' : '× Earth',
+              tip: isZh ? `半径约是地球的 ${ratio.toFixed(1)} 倍，可以并排放 ${(ratio * 2).toFixed(0)} 个地球！`
+                        : `Radius is ${ratio.toFixed(1)}× Earth's; ${(ratio * 2).toFixed(0)} Earths side by side!`,
+            };
+          }
+          if (ratio < 0.5) {
+            const pct = Math.round(ratio * 100);
+            return {
+              value: `${pct}%`,
+              unit: isZh ? '地球半径' : 'Earth radius',
+              tip: isZh ? `半径只有地球的 ${pct}%，比一个大洲还小！` : `Radius is only ${pct}% of Earth's`,
+            };
+          }
+          return {
+            value: ratio.toFixed(2),
+            unit: isZh ? '倍地球半径' : '× Earth R',
+            tip: isZh ? `半径约是地球的 ${ratio.toFixed(2)} 倍` : `Radius ~${ratio.toFixed(2)}× Earth`,
+          };
+        };
+
+        // ── 工具函数：自转周期 → 直观字符串 ──
+        const spinToReadable = (hrs: number): { value: string; unit: string; tip: string } => {
+          const absHrs = Math.abs(hrs);
+          const isRetro = hrs < 0;
+          const retroNote = isRetro ? (isZh ? '（逆向自转）' : ' (retrograde)') : '';
+          if (absHrs < 48) {
+            return {
+              value: absHrs.toFixed(1),
+              unit: isZh ? '小时/圈' : 'hrs/rev',
+              tip: isZh ? `自转一圈需 ${absHrs.toFixed(1)} 小时${retroNote}` : `One full rotation takes ${absHrs.toFixed(1)} h${retroNote}`,
+            };
+          }
+          const days = absHrs / 24;
+          return {
+            value: days.toFixed(1),
+            unit: isZh ? '天/圈' : 'days/rev',
+            tip: isZh ? `自转极慢，转一圈需 ${days.toFixed(1)} 天${retroNote}，比公转还慢！`
+                      : `Rotates once every ${days.toFixed(1)} days${retroNote} — slower than its year!`,
+          };
+        };
+
+        // ── 工具函数：轴倾角 → 比喻文字 ──
+        const obliquityToDesc = (deg: number): { value: string; unit: string; tip: string } => {
+          const absDeg = Math.abs(deg);
+          let desc: string;
+          let tip: string;
+          if (absDeg < 5) {
+            desc = isZh ? '近直立' : 'Upright';
+            tip = isZh ? `轴倾角仅 ${absDeg.toFixed(1)}°，像陀螺一样直立旋转，几乎无四季变化！` : `Only ${absDeg.toFixed(1)}° tilt — spins nearly upright, almost no seasons!`;
+          } else if (absDeg < 30) {
+            desc = isZh ? `${absDeg.toFixed(0)}° 微倾` : `${absDeg.toFixed(0)}° tilt`;
+            tip = isZh ? `轴倾角 ${absDeg.toFixed(1)}°，四季分明，和地球类似！` : `${absDeg.toFixed(1)}° tilt produces distinct seasons, similar to Earth!`;
+          } else if (absDeg < 70) {
+            desc = isZh ? `${absDeg.toFixed(0)}° 大倾` : `${absDeg.toFixed(0)}° tilted`;
+            tip = isZh ? `轴倾角高达 ${absDeg.toFixed(1)}°，季节极度夸张！` : `A steep ${absDeg.toFixed(1)}° tilt creates extreme seasons!`;
+          } else if (absDeg < 110) {
+            desc = isZh ? '横躺自转' : 'Rolling';
+            tip = isZh ? `轴倾角 ${absDeg.toFixed(1)}°，几乎横躺在轨道平面上滚动前进！` : `${absDeg.toFixed(1)}° tilt — rolls through space on its side like a bowling ball!`;
+          } else {
+            desc = isZh ? '倒转自转' : 'Inverted';
+            tip = isZh ? `轴倾角 ${absDeg.toFixed(1)}°，相当于上下颠倒自转，太阳从西边升起！` : `${absDeg.toFixed(1)}° tilt — spins upside-down; the Sun rises in the west!`;
+          }
+          return { value: `${absDeg.toFixed(0)}°`, unit: '', tip };
+        };
+
+        // ── 工具函数：卫星到母星距离 km → 光行时间（秒/分钟）──
+        const kmToLightTime = (km: number): { value: string; unit: string; tip: string } => {
+          const secs = km / 299792; // 光速约 299,792 km/s
+          if (secs < 5) {
+            return {
+              value: secs.toFixed(2),
+              unit: isZh ? '光秒' : 'light-sec',
+              tip: isZh ? `光从母星飞到这里只需 ${secs.toFixed(2)} 秒，近得出乎意料！` : `Light from its planet arrives in just ${secs.toFixed(2)} s!`,
+            };
+          }
+          if (secs < 120) {
+            return {
+              value: secs.toFixed(1),
+              unit: isZh ? '光秒' : 'light-sec',
+              tip: isZh ? `光从母星出发 ${secs.toFixed(1)} 秒后到达` : `Light takes ${secs.toFixed(1)} s to travel from its planet`,
+            };
+          }
+          const mins = secs / 60;
+          return {
+            value: mins.toFixed(1),
+            unit: isZh ? '光分' : 'light-min',
+            tip: isZh ? `光从母星出发 ${mins.toFixed(1)} 分钟后才能到达` : `Light takes ${mins.toFixed(1)} min to arrive`,
+          };
+        };
+
+        const physicsStatCards: import('../data/celestialProfiles').StatCard[] = [];
+
+        // ── 大行星 / 太阳 物理参数卡 ──
+        if (!isSatellite && physics) {
+          // 尺寸：只在 profile 未展示过尺寸时才加
+          if (!hasSize) {
+            const earthCmp = radiusToEarthCompare(physics.radius);
+            physicsStatCards.push({
+              emoji: '📐',
+              value: earthCmp.value,
+              unit: earthCmp.unit,
+              label: isZh ? '体积大小' : 'Size',
+              tip: earthCmp.tip,
+            });
+          }
+          // 自转周期：只在 profile 未展示过自转时才加
+          if (!hasSpin) {
+            const spinInfo = spinToReadable(physics.rotationPeriod);
+            physicsStatCards.push({
+              emoji: '🔄',
+              value: spinInfo.value,
+              unit: spinInfo.unit,
+              label: isZh ? '自转周期' : 'Day Length',
+              tip: spinInfo.tip,
+            });
+          }
+          // 轴倾角：始终显示，用直观描述
+          const oblInfo = obliquityToDesc(physics.obliquity);
+          physicsStatCards.push({
+            emoji: '🌐',
+            value: oblInfo.value,
+            unit: oblInfo.unit,
+            label: isZh ? '自转轴倾角' : 'Axial Tilt',
+            tip: oblInfo.tip,
+          });
+        }
+
+        // ── 大行星轨道参数卡 ──
+        if (!isSatellite && orbit) {
+          // 到太阳的距离：只在 profile 未展示过距离时才加，且换成光行时间
+          if (!hasDist) {
+            const lt = auToLightTime(orbit.a);
+            physicsStatCards.push({
+              emoji: '💡',
+              value: lt.value,
+              unit: lt.unit,
+              label: isZh ? '距太阳光程' : 'Sunlight Travel',
+              tip: lt.tip,
+            });
+          }
+          // 公转周期：只在 profile 未展示过公转时才加
+          if (!hasOrbit) {
+            const years = orbit.period / 365.25;
+            physicsStatCards.push({
+              emoji: '🔭',
+              value: years >= 1 ? `${years.toFixed(1)} 年` : `${Math.round(orbit.period)} 天`,
+              unit: '',
+              label: isZh ? '公转周期' : 'Orbital Period',
+              tip: isZh
+                ? `绕太阳一圈需 ${orbit.period.toLocaleString()} 地球日（${years.toFixed(2)} 地球年）`
+                : `One orbit = ${orbit.period.toLocaleString()} Earth days (${years.toFixed(2)} Earth years)`,
+            });
+          }
+        }
+
+        // ── 卫星物理参数卡 ──
+        if (isSatellite && satPhys) {
+          // 卫星尺寸（profile 未有时才加）
+          if (!hasSize) {
+            const earthCmp = radiusToEarthCompare(satPhys.radius);
+            physicsStatCards.push({
+              emoji: '📐',
+              value: earthCmp.value,
+              unit: earthCmp.unit,
+              label: isZh ? '体积大小' : 'Size',
+              tip: earthCmp.tip,
+            });
+          }
+          // 到母星的距离 → 光行时间
+          if (!hasDist) {
+            const lt = kmToLightTime(satPhys.distance);
+            physicsStatCards.push({
+              emoji: '💡',
+              value: lt.value,
+              unit: lt.unit,
+              label: isZh ? '离母星光程' : 'Light Travel',
+              tip: lt.tip,
+            });
+          }
+          // 公转周期（未有时才加，逆行信息合并进 tip）
+          if (!hasOrbit) {
+            const isRetro = satPhys.period < 0;
+            const absPeriod = Math.abs(satPhys.period);
+            const periodStr = absPeriod < 1
+              ? `${(absPeriod * 24).toFixed(1)} ${isZh ? '小时' : 'hrs'}`
+              : `${absPeriod.toFixed(2)} ${isZh ? '天' : 'd'}`;
+            physicsStatCards.push({
+              emoji: isRetro ? '↺' : '🔭',
+              value: periodStr,
+              unit: '',
+              label: isZh ? (isRetro ? '逆行公转' : '公转周期') : (isRetro ? 'Retrograde' : 'Orbital Period'),
+              tip: isRetro
+                ? (isZh ? `逆行轨道，绕母星一圈需 ${absPeriod.toFixed(3)} 天！太阳系中极为罕见。` : `Retrograde orbit — takes ${absPeriod.toFixed(3)} days. Extremely rare in the solar system!`)
+                : (isZh ? `绕母星一圈需 ${absPeriod.toFixed(3)} 天` : `Orbits its planet every ${absPeriod.toFixed(3)} days`),
+            });
+          }
+        }
+
+        const mergedStats = [...profile.stats, ...physicsStatCards];
+        return (
+          <div className="space-y-4">
+            <StatCardsSection stats={mergedStats} lang={lang} />
+            <FlipCardsSection cards={profile.flipCards} lang={lang} />
+            <ComparisonCardsSection cards={profile.comparisons} lang={lang} />
+            <FunFactsSection facts={profile.funFacts} lang={lang} />
+            <ImagineSection imagine={profile.imagine} lang={lang} />
+          </div>
+        );
+      })()}
 
       {/* ==================== 原有：描述与物性参数卡片 ==================== */}
       <div className="space-y-3">
@@ -678,7 +920,8 @@ export default function PlanetInfoPanel({
               })}
             </div>
           </div>
-        ) : (
+        ) : hasProfile ? null : (
+          // 无科普档案时，在底部保留原始物理参数网格
           <div className="space-y-2 border-t border-white/10 pt-3">
             <h3 className="text-[10px] font-bold text-white/40 uppercase tracking-widest font-mono">
               📋 {translations[lang].parameters}

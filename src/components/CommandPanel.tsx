@@ -71,6 +71,8 @@ interface CommandPanelProps {
   onToggleOrbits: (show: boolean) => void;
   showAxes: boolean;
   onToggleAxes: (show: boolean) => void;
+  showLatLonGrid: boolean;
+  onToggleLatLonGrid: (show: boolean) => void;
 }
 
 // ─── Icons (inline SVG, Lucide-style) ───────────────────────────────────────
@@ -254,6 +256,8 @@ export default function CommandPanel({
   onToggleOrbits,
   showAxes,
   onToggleAxes,
+  showLatLonGrid,
+  onToggleLatLonGrid,
 }: CommandPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [showValidation, setShowValidation] = useState(false);
@@ -486,6 +490,24 @@ export default function CommandPanel({
             />
             <IconMaximize className="w-3.5 h-3.5 text-slate-500" />
             <span>{isZh ? '坐标轴' : 'Axes'}</span>
+          </label>
+
+          {/* 经纬度网格展示开关 */}
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="checkbox"
+              checked={showLatLonGrid}
+              onChange={(e) => onToggleLatLonGrid(e.target.checked)}
+              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <svg className="w-3.5 h-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 2v20" />
+              <path d="M2 12h20" />
+              <path d="M4.93 4.93l14.14 14.14" />
+              <path d="M19.07 4.93L4.93 19.07" />
+            </svg>
+            <span>{isZh ? '经纬度网格' : 'Lat/Lon Grid'}</span>
           </label>
 
           {!useExponentialSpeed && (

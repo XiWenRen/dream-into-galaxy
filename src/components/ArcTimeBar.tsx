@@ -246,8 +246,18 @@ export default function ArcTimeBar({
 
   const arcPath = 'M 20 20 Q 300 60 580 20';
 
-  // 点击弧线任意位置
-  const handleArcClick = (e: React.MouseEvent<SVGSVGElement>) => {
+  const handleArcPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    updateSpeedFromEvent(e);
+  };
+
+  const handleArcPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.buttons > 0) {
+      updateSpeedFromEvent(e);
+    }
+  };
+
+  const updateSpeedFromEvent = (e: React.PointerEvent<SVGSVGElement>) => {
     const svg = e.currentTarget;
     const rect = svg.getBoundingClientRect();
     const viewBoxWidth = 600;
@@ -255,29 +265,9 @@ export default function ArcTimeBar({
     let tClick = ((e.clientX - rect.left) / rect.width * viewBoxWidth - 20) / 560;
     tClick = Math.max(0, Math.min(1, tClick));
 
-    // 优先：判断是否靠近某个 preset，靠近则精确切换到该 preset
-    let closestPreset: typeof TIME_PRESETS[0] | null = null;
-    let minDiff = Infinity;
-    for (const p of TIME_PRESETS) {
-      const diff = Math.abs(p.t - tClick);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestPreset = p;
-      }
-    }
-    if (closestPreset && minDiff < PRESET_SNAP_THRESHOLD) {
-      handlePresetClick(closestPreset);
-      return;
-    }
-
-    // 否则：连续调速
+    // 中心小范围： 1x
     if (Math.abs(tClick - CENTER_T) < 0.02) {
-      // 中心小范围：暂停 / 1x
-      if (timeState.isPaused) {
-        onChangeTimeState({ isPaused: false, speedMultiplier: 1 });
-      } else if (timeState.speedMultiplier === 1) {
-        onChangeTimeState({ isPaused: true });
-      } else {
+      if (timeState.speedMultiplier !== 1 || timeState.isPaused) {
         onChangeTimeState({ isPaused: false, speedMultiplier: 1 });
       }
       return;
@@ -293,11 +283,12 @@ export default function ArcTimeBar({
     >
       {/* SVG Arc Track */}
       <svg
-        viewBox="0 0 600 80"
-        className="w-full cursor-pointer"
-        style={{ height: 'auto', overflow: 'visible' }}
-        onClick={handleArcClick}
-      >
+          viewBox="0 0 600 80"
+          className="w-full cursor-pointer touch-none"
+          style={{ height: 'auto', overflow: 'visible' }}
+          onPointerDown={handleArcPointerDown}
+          onPointerMove={handleArcPointerMove}
+        >
         <defs>
           <filter id="arcGlow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="3" result="blur" />
@@ -370,7 +361,7 @@ export default function ArcTimeBar({
             <g
               key={preset.value}
               className="cursor-pointer"
-              onClick={(e) => {
+              onPointerDown={(e) => {
                 e.stopPropagation();
                 handlePresetClick(preset);
               }}
