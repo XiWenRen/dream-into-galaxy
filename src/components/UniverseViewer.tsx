@@ -2558,9 +2558,9 @@ export default function UniverseViewer({
     // 6a. 太阳→月球黄色光束
     const sunToMoonBeamGeo = new THREE.CylinderGeometry(1, 1, 1, 32, 1, true);
     const sunToMoonBeamMat = new THREE.MeshBasicMaterial({
-      color: 0xffdd44,
+      color: 0xffaa00, // 太阳直射光黄色加深 (由 0xffdd44 改为更深更暖的金黄)
       transparent: true,
-      opacity: 0.06,
+      opacity: 0.08,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       depthWrite: false,
@@ -2576,7 +2576,7 @@ export default function UniverseViewer({
     const moonToEarthBeamMat = new THREE.ShaderMaterial({
       uniforms: {
         uPhaseIndex: { value: 0 },
-        uColor: { value: new THREE.Color(0xfff8e7) },
+        uColor: { value: new THREE.Color(0xe8f0f8) }, // 月球反射光改为苍白色
         uOpacity: { value: 0.15 },
       },
       vertexShader: /* glsl */ `
@@ -2608,29 +2608,29 @@ export default function UniverseViewer({
             lit = 0.05;
           } else if (phase == 1) {
             // 峨眉月：右侧小弯月
-            float edge = sqrt(1.0 - y * y) * 0.35;
-            lit = smoothstep(-edge - 0.1, -edge + 0.1, x) * 0.9 + 0.05;
+            float edge = sqrt(max(0.0, 1.0 - y * y)) * 0.5;
+            lit = smoothstep(edge - 0.1, edge + 0.1, x) * 0.9 + 0.05;
           } else if (phase == 2) {
             // 上弦月：右半圆亮
             lit = smoothstep(-0.1, 0.1, x) * 0.9 + 0.05;
           } else if (phase == 3) {
             // 盈凸月：右侧大半圆亮
-            float edge = sqrt(1.0 - y * y) * 0.65;
-            lit = smoothstep(-edge - 0.1, -edge + 0.1, x) * 0.9 + 0.05;
+            float edge = -sqrt(max(0.0, 1.0 - y * y)) * 0.5;
+            lit = smoothstep(edge - 0.1, edge + 0.1, x) * 0.9 + 0.05;
           } else if (phase == 4) {
             // 满月：全圆亮
             lit = 0.95;
           } else if (phase == 5) {
-            // 亏凸月：左侧大半圆亮
-            float edge = sqrt(1.0 - y * y) * 0.65;
-            lit = smoothstep(edge + 0.1, edge - 0.1, x) * 0.9 + 0.05;
+            // 亏凸月：左侧大半圆亮 (面向太阳一侧亮，由于本地X轴指向太阳，此处与盈凸月公式对称一致)
+            float edge = -sqrt(max(0.0, 1.0 - y * y)) * 0.5;
+            lit = smoothstep(edge - 0.1, edge + 0.1, x) * 0.9 + 0.05;
           } else if (phase == 6) {
-            // 下弦月：左半圆亮
-            lit = smoothstep(0.1, -0.1, x) * 0.9 + 0.05;
+            // 下弦月：左半圆亮 (面向太阳一侧亮，此处与上弦月公式对称一致)
+            lit = smoothstep(-0.1, 0.1, x) * 0.9 + 0.05;
           } else if (phase == 7) {
-            // 残月：左侧小弯月
-            float edge = sqrt(1.0 - y * y) * 0.35;
-            lit = smoothstep(edge + 0.1, edge - 0.1, x) * 0.9 + 0.05;
+            // 残月：左侧小弯月 (面向太阳一侧亮，此处与峨眉月公式对称一致)
+            float edge = sqrt(max(0.0, 1.0 - y * y)) * 0.5;
+            lit = smoothstep(edge - 0.1, edge + 0.1, x) * 0.9 + 0.05;
           }
 
           // 如果不亮，直接丢弃该片段，形成月相形状的空心光束
@@ -2658,7 +2658,7 @@ export default function UniverseViewer({
     const moonPhaseProjMat = new THREE.ShaderMaterial({
       uniforms: {
         uPhaseIndex: { value: 0 },
-        uColor: { value: new THREE.Color(0xfff8e7) },
+        uColor: { value: new THREE.Color(0xe8f0f8) }, // 与苍白色月光一致
         uOpacity: { value: 0.35 },
       },
       vertexShader: /* glsl */ `
@@ -2692,29 +2692,29 @@ export default function UniverseViewer({
             lit = 0.05;
           } else if (phase == 1) {
             // 峨眉月：右侧小弯月
-            float edge = sqrt(1.0 - y * y) * 0.35;
-            lit = smoothstep(-edge, edge, x) * 0.9 + 0.05;
+            float edge = sqrt(max(0.0, 1.0 - y * y)) * 0.5;
+            lit = smoothstep(edge - 0.05, edge + 0.05, x) * 0.9 + 0.05;
           } else if (phase == 2) {
             // 上弦月：右半圆亮
-            lit = smoothstep(-0.02, 0.02, x) * 0.9 + 0.05;
+            lit = smoothstep(-0.05, 0.05, x) * 0.9 + 0.05;
           } else if (phase == 3) {
             // 盈凸月：右侧大半圆亮
-            float edge = sqrt(1.0 - y * y) * 0.65;
-            lit = smoothstep(-edge, edge, x) * 0.9 + 0.05;
+            float edge = -sqrt(max(0.0, 1.0 - y * y)) * 0.5;
+            lit = smoothstep(edge - 0.05, edge + 0.05, x) * 0.9 + 0.05;
           } else if (phase == 4) {
             // 满月：全圆亮
             lit = 0.95;
           } else if (phase == 5) {
-            // 亏凸月：左侧大半圆亮
-            float edge = sqrt(1.0 - y * y) * 0.65;
-            lit = smoothstep(edge, -edge, x) * 0.9 + 0.05;
+            // 亏凸月：左侧大半圆亮 (与盈凸月公式对称一致)
+            float edge = -sqrt(max(0.0, 1.0 - y * y)) * 0.5;
+            lit = smoothstep(edge - 0.05, edge + 0.05, x) * 0.9 + 0.05;
           } else if (phase == 6) {
-            // 下弦月：左半圆亮
-            lit = smoothstep(0.02, -0.02, x) * 0.9 + 0.05;
+            // 下弦月：左半圆亮 (与上弦月公式对称一致)
+            lit = smoothstep(-0.05, 0.05, x) * 0.9 + 0.05;
           } else if (phase == 7) {
-            // 残月：左侧小弯月
-            float edge = sqrt(1.0 - y * y) * 0.35;
-            lit = smoothstep(edge, -edge, x) * 0.9 + 0.05;
+            // 残月：左侧小弯月 (与峨眉月公式对称一致)
+            float edge = sqrt(max(0.0, 1.0 - y * y)) * 0.5;
+            lit = smoothstep(edge - 0.05, edge + 0.05, x) * 0.9 + 0.05;
           }
 
           // Edge softness
@@ -4136,89 +4136,111 @@ export default function UniverseViewer({
         }
 
         // 月相演示专用视觉效果：太阳→月球光束、月球→地球光束、地球暗面月相投影
-        if (aids.sunToMoonBeam) {
-          aids.sunToMoonBeam.visible = isMoonPhaseDemo;
-          if (isMoonPhaseDemo && moonPos) {
-            const sunPos = new THREE.Vector3(0, 0, 0);
-            const moonRad = getCurrentPlanetRadius('moon');
-            const beamDir = new THREE.Vector3().subVectors(moonPos, sunPos).normalize();
-            const totalDist = sunPos.distanceTo(moonPos);
-            // 光束从太阳表面到月球表面，不穿过天体
-            const beamLen = totalDist - moonRad;
-            const beamCenter = sunPos.clone().add(beamDir.clone().multiplyScalar(moonRad + beamLen * 0.5));
-            const beamRadius = moonRad * 0.5;
+        if (isMoonPhaseDemo && moonPos && earthPos) {
+          const sunPos = new THREE.Vector3(0, 0, 0);
+          const sunRad = getCurrentPlanetRadius('sun');
+          const moonRad = getCurrentPlanetRadius('moon');
+          const earthRad = getCurrentPlanetRadius('earth');
+
+          // 将太阳直射光束的起点设在太阳上方日冕层 (sunRad * 1.15)，既紧贴太阳表面又能在满月时越过地球
+          const sunSourcePos = new THREE.Vector3(0, sunRad * 1.15, 0);
+
+          // 动态计算当前的精确月相数值 [-0.5, 7.5)，确保光影形状随月球在轨道上的移动而平滑渐变更新
+          const dir_es = new THREE.Vector3().subVectors(sunPos, earthPos).normalize();
+          const dir_em = new THREE.Vector3().subVectors(moonPos, earthPos).normalize();
+          let diffAngle = Math.atan2(dir_em.z, dir_em.x) - Math.atan2(dir_es.z, dir_es.x);
+          if (diffAngle < 0) diffAngle += Math.PI * 2;
+          let currentPhase = (diffAngle / (Math.PI * 2)) * 8.0;
+          currentPhase = (currentPhase + 8.0) % 8.0;
+          if (currentPhase >= 7.5) {
+            currentPhase -= 8.0; // 绕回区间以便在 Shader 中四舍五入映射为 0 (新月)
+          }
+
+          // 1. 太阳上方→月球直射光束
+          if (aids.sunToMoonBeam) {
+            aids.sunToMoonBeam.visible = true;
+            const beamDir = new THREE.Vector3().subVectors(moonPos, sunSourcePos).normalize();
+            const totalDist = sunSourcePos.distanceTo(moonPos);
+            
+            // 计算太阳上方到月球的光线是否被地球阻挡 (求射线与地球球体的最近交点)
+            let beamLen = totalDist - moonRad;
+            const V = new THREE.Vector3().subVectors(sunSourcePos, earthPos);
+            const b = 2.0 * beamDir.dot(V);
+            const c = V.lengthSq() - earthRad * earthRad;
+            const discriminant = b * b - 4.0 * c;
+            if (discriminant > 0) {
+              const t1 = (-b - Math.sqrt(discriminant)) / 2.0;
+              if (t1 > 0 && t1 < totalDist) {
+                // 被地球遮挡，光柱截断在地球表面
+                beamLen = t1;
+              }
+            }
+            
+            const beamCenter = sunSourcePos.clone().add(beamDir.clone().multiplyScalar(beamLen * 0.5));
+            const beamRadius = moonRad; // 直径与月球一致
             aids.sunToMoonBeam.position.copy(beamCenter);
             aids.sunToMoonBeam.lookAt(moonPos);
             aids.sunToMoonBeam.rotateX(Math.PI / 2);
             aids.sunToMoonBeam.scale.set(beamRadius, beamLen, beamRadius);
           }
-        }
 
-        if (aids.moonToEarthBeam) {
-          aids.moonToEarthBeam.visible = isMoonPhaseDemo;
-          if (isMoonPhaseDemo && moonPos && earthPos) {
-            const sunPos = new THREE.Vector3(0, 0, 0);
-            const moonRad = getCurrentPlanetRadius('moon');
-            const earthRad = getCurrentPlanetRadius('earth');
-            
-            // Vector from Moon to Earth
-            const V_me = new THREE.Vector3().subVectors(earthPos, moonPos);
-            const dist = V_me.length();
-            const dir_me = V_me.clone().normalize();
-            
-            // Vector from Moon to Sun
-            const V_ms = new THREE.Vector3().subVectors(sunPos, moonPos).normalize();
-            
-            // Position the beam between Moon surface and Earth surface
+          // 2. 计算月地相对几何坐标基底 (供光束与地球投影共用)
+          const V_me = new THREE.Vector3().subVectors(earthPos, moonPos);
+          const dist = V_me.length();
+          const dir_me = V_me.clone().normalize();
+          // 光源朝向调整为与上方光源对齐，使得反射光轴完全一致
+          const V_ms = new THREE.Vector3().subVectors(sunSourcePos, moonPos).normalize();
+          
+          const yAxis = dir_me;
+          const xAxis = V_ms.clone().sub(yAxis.clone().multiplyScalar(V_ms.dot(yAxis))).normalize();
+          if (xAxis.lengthSq() < 0.001) {
+            xAxis.set(1, 0, 0).cross(yAxis).normalize();
+          }
+          const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
+
+          // 3. 月球→地球反射光束
+          if (aids.moonToEarthBeam) {
+            aids.moonToEarthBeam.visible = true;
             const beamLen = dist - moonRad - earthRad;
             const beamCenter = moonPos.clone().add(dir_me.clone().multiplyScalar(moonRad + beamLen * 0.5));
-            const beamRadius = moonRad * 0.6; // slightly larger than Moon radius to look like emission
+            const beamRadius = moonRad; // 反射光柱直径与月球本体一致
             
             aids.moonToEarthBeam.position.copy(beamCenter);
             aids.moonToEarthBeam.scale.set(beamRadius, beamLen, beamRadius);
             
-            // Align local Y-axis with dir_me, and local X-axis with the projection of V_ms
-            const yAxis = dir_me;
-            // project V_ms onto plane perpendicular to yAxis
-            const xAxis = V_ms.clone().sub(yAxis.clone().multiplyScalar(V_ms.dot(yAxis))).normalize();
-            if (xAxis.lengthSq() < 0.001) {
-              // fallback if collinear
-              xAxis.set(1, 0, 0).cross(yAxis).normalize();
-            }
-            const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
-            
+            // 应用对齐矩阵，Y轴沿月地，X轴指向投影太阳方向
             const basisMatrix = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
             aids.moonToEarthBeam.rotation.setFromRotationMatrix(basisMatrix);
             
-            // Update phase index in material
             if (aids.moonToEarthBeam.material instanceof THREE.ShaderMaterial) {
-              const currentPhase = demoCam.phase % 8;
               aids.moonToEarthBeam.material.uniforms.uPhaseIndex.value = currentPhase;
             }
           }
-        }
 
-        if (aids.moonPhaseProjection) {
-          aids.moonPhaseProjection.visible = isMoonPhaseDemo;
-          if (isMoonPhaseDemo && earthPos) {
-            const sunPos = new THREE.Vector3(0, 0, 0);
-            const earthRad = getCurrentPlanetRadius('earth');
-            // 放置在地球背向太阳的一侧表面
-            const toSunDir = new THREE.Vector3().subVectors(sunPos, earthPos).normalize();
-            const projPos = earthPos.clone().add(toSunDir.negate().multiplyScalar(earthRad * 1.02));
+          // 4. 地球表面的月相投影
+          if (aids.moonPhaseProjection) {
+            aids.moonPhaseProjection.visible = true;
+            const dir_em = yAxis.clone().negate(); // 地球指向月球的向量
+            const projPos = earthPos.clone().add(dir_em.clone().multiplyScalar(earthRad * 1.005));
             aids.moonPhaseProjection.position.copy(projPos);
-            // 投影面法线指向地球外侧（背向太阳），与地面相切
-            const outwardDir = toSunDir.clone().negate();
-            aids.moonPhaseProjection.lookAt(earthPos.clone().add(outwardDir));
-            // 缩放为地球表面投影大小
-            const projScale = earthRad * 0.35;
+            
+            // 投影截面大小与月球光柱直径完全一致（与月球本体大小相同）
+            const projScale = moonRad;
             aids.moonPhaseProjection.scale.set(projScale, projScale, projScale);
-            // 更新 shader uniform
-            const currentPhase = demoCam.phase % 8;
+            
+            // 投影切于地球表面，且使用与光柱相同的对齐轴系 (xAxis, zAxis, -yAxis)，确保明暗面在所有轨道位置完全不反转
+            const projBasis = new THREE.Matrix4().makeBasis(xAxis, zAxis, yAxis.clone().negate());
+            aids.moonPhaseProjection.rotation.setFromRotationMatrix(projBasis);
+            
             if (aids.moonPhaseProjection.material instanceof THREE.ShaderMaterial) {
               aids.moonPhaseProjection.material.uniforms.uPhaseIndex.value = currentPhase;
             }
           }
+        } else {
+          // 非月相演示模式下，全部隐藏
+          if (aids.sunToMoonBeam) aids.sunToMoonBeam.visible = false;
+          if (aids.moonToEarthBeam) aids.moonToEarthBeam.visible = false;
+          if (aids.moonPhaseProjection) aids.moonPhaseProjection.visible = false;
         }
 
         if (aids.eclipticPlane) {
