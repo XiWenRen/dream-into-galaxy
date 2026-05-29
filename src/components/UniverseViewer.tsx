@@ -5352,19 +5352,32 @@ export default function UniverseViewer({
             const dy = finalScreenY - centerY;
             const offCenterDist = Math.sqrt(dx * dx + dy * dy);
             const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
-            // 0→1: 太阳从中心移到半对角线位置，鬼影强度从 20% 升至 100%
-            const offCenterFactor = 0.2 + 0.8 * Math.min(1, offCenterDist / (maxDist * 0.45));
-            // 轴线角度（太阳→画面中心方向），用于 streak 跟随 & 鬼影微偏
-            const axisAngle = Math.atan2(dy, dx);
+            // 0→1: 太阳从中心移到半对角线位置，鬼影强度从 35% 升至 100% (略微提升中心可视度，保证锁焦太阳时足够明显)
+            const offCenterFactor = 0.35 + 0.65 * Math.min(1, offCenterDist / (maxDist * 0.45));
+            // ─── 动态鬼影终点 (Ghost Axis Endpoint) ───
+            // 核心修复：不再使用固定的视口中心 (centerX, centerY) 作为鬼影轴线终点。
+            // 因为 OrbitControls 将 target 锁定在选中的星体上，视口中心永远等于选中星体的屏幕位置，
+            // 导致鬼影链始终沿 "太阳→选中星体" 连线排列，切换星体时鬼影刚性跳转。
+            //
+            // 修复方案：根据相机相对于旋转目标 (controls.target) 的球极坐标 (Yaw/Pitch) 计算一个"虚拟镜头光学终点"，
+            // 这样能 100% 确保在拖拽相机（OrbitControls 触发 position 变化）时，鬼影终点能够即时、平滑地响应。
+            const relativePos = (cameraRef.current && controlsRef.current) 
+              ? cameraRef.current.position.clone().sub(controlsRef.current.target) 
+              : new THREE.Vector3(0, 0, 1);
+            const cameraYaw = Math.atan2(relativePos.x, relativePos.z);
+            const cameraPitch = Math.atan2(relativePos.y, Math.sqrt(relativePos.x * relativePos.x + relativePos.z * relativePos.z));
+
+            const baselineShift = curWidth * 0.08;
+            const axisShiftScale = Math.min(curWidth * 0.25, offCenterDist * 0.4 + baselineShift);
+            const ghostEndX = centerX + Math.sin(cameraYaw * 3.0) * axisShiftScale;
+            const ghostEndY = centerY + Math.sin(cameraPitch * 3.0 + 0.5) * axisShiftScale;
+
+            // 轴线角度（太阳→动态鬼影终点方向），用于 streak 跟随 & 鬼影偏移计算
+            const ghostDx = finalScreenX - ghostEndX;
+            const ghostDy = finalScreenY - ghostEndY;
+            const axisAngle = Math.atan2(ghostDy, ghostDx);
             const perpX = -Math.sin(axisAngle);  // 轴线法线方向
             const perpY =  Math.cos(axisAngle);
-
-            // ─── 动态镜头旋转偏离（Sway） ───
-            // 提取相机当前的 Yaw (y) 和 Pitch (x) 弧度，根据视角偏向和偏心距，计算垂直于轴线的动态偏移
-            // 使得光晕轴线随相机旋转发生微小的偏转和摇摆，消除“贯穿锁定星体”的死板感
-            const cameraYaw = cameraRef.current ? cameraRef.current.rotation.y : 0;
-            const cameraPitch = cameraRef.current ? cameraRef.current.rotation.x : 0;
-            const sway = offCenterDist * 0.12 * Math.sin(axisAngle * 2 + cameraYaw * 1.8 + cameraPitch * 0.8);
 
             // 基础强度：远距离太阳系尺度时显现
             const ghostIntensity = finalVisible
@@ -5426,12 +5439,9 @@ export default function UniverseViewer({
                 // 计算动态缩放后的半径 r
                 const curRadius = g.rBase * (1.0 + (g.rScale - 1.0) * normDist);
 
-                // 将 dynamic sway 乘以 dynamicT，使越靠近边缘/外侧的光斑摆动幅度越大，太阳起点处 (t=0) 摆动为 0
-                const gx = finalScreenX + (centerX - finalScreenX) * dynamicT + perpX * (g.perpOff + sway * dynamicT);
-                const gy = finalScreenY + (centerY - finalScreenY) * g.tBase + perpY * (g.perpOff + sway * dynamicT); // 保持 gy 对称计算
-                
-                // 修正 gy 轴方向的偏移投影以防偏心，让 gy 与 gx 一致使用 dynamicT 映射
-                const correctedGy = finalScreenY + (centerY - finalScreenY) * dynamicT + perpY * (g.perpOff + sway * dynamicT);
+                // 沿动态鬼影轴线 (太阳→ghostEnd) 插值每个光斑的位置
+                const gx = finalScreenX + (ghostEndX - finalScreenX) * dynamicT + perpX * g.perpOff;
+                const correctedGy = finalScreenY + (ghostEndY - finalScreenY) * dynamicT + perpY * g.perpOff;
 
                 const alpha = ghostIntensity * g.a;
 
