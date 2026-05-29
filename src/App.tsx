@@ -78,7 +78,7 @@ export default function App() {
   // 国定星空星座辅助标记开关
   const [showConstellLines, setShowConstellLines] = useState<boolean>(true);
   const [showStarNames, setShowStarNames] = useState<boolean>(true);
-  const [showConstellNames, setShowConstellNames] = useState<boolean>(true);
+  const [showConstellNames, setShowConstellNames] = useState<boolean>(false);
   const [magLimit, setMagLimit] = useState<number>(5.5);
 
   // 行星/卫星名称标签开关
@@ -575,10 +575,12 @@ export default function App() {
               currentTimestamp={timeState.currentTimestamp}
               selectedPlanetId={selectedPlanetId}
               onSelectPlanet={handleSelectPlanet}
+              onFocusPlanet={handleFocusPlanet}
               crossSectionActive={crossSectionActive}
               cloudsVisible={cloudsVisible}
               lang={lang}
               showConstellLines={showConstellLines}
+              showConstellNames={showConstellNames}
               showPlanetLabels={showPlanetLabels}
               magLimit={magLimit}
               strictPhysics={strictPhysics}
@@ -595,6 +597,7 @@ export default function App() {
               onSelectSolarTerm={handleSelectSolarTerm}
               selectedMoonPhaseIndex={selectedMoonPhaseIndex}
               onSelectMoonPhase={handleSelectMoonPhase}
+              focusTrigger={focusTrigger}
             />
           )}
         </div>
@@ -676,6 +679,8 @@ export default function App() {
               onSelectPhase={handleSelectPhase}
               selectedMoonPhaseIndex={selectedMoonPhaseIndex}
               onClearMoonPhaseSelection={() => setSelectedMoonPhaseIndex(null)}
+              selectedPlanetId={selectedPlanetId}
+              onSelectPlanet={setSelectedPlanetId}
               eclipseEventTs={eclipseEventTs}
               eclipseEventType={eclipseEventType}
               eclipseProgress={eclipseProgress}

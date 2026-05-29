@@ -468,6 +468,31 @@ export default function CommandPanel({
             <span>{isZh ? '行星名称标签' : 'Planet Name Labels'}</span>
           </label>
 
+          {/* 星座连线开关 */}
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="checkbox"
+              checked={showConstellLines}
+              onChange={(e) => onToggleConstellLines(e.target.checked)}
+              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <IconEye className="w-3.5 h-3.5 text-slate-500" />
+            <span>{isZh ? '星座连线' : 'Constellations'}</span>
+          </label>
+
+          {/* 星座名称开关 */}
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
+            <input
+              type="checkbox"
+              checked={!!showConstellNames}
+              onChange={(e) => onToggleConstellNames?.(e.target.checked)}
+              disabled={!showConstellLines}
+              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer disabled:opacity-30"
+            />
+            <IconStar className="w-3.5 h-3.5 text-slate-500" />
+            <span className={!showConstellLines ? 'opacity-40' : ''}>{isZh ? '星座名称' : 'Constellation Names'}</span>
+          </label>
+
           {/* 轨道线展示开关 */}
           <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
             <input

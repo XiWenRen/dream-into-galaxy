@@ -1,0 +1,167 @@
+{
+  "results": [
+    {
+      "name": "Earth J2000 distance",
+      "actual": 0.9833160858085569,
+      "expected": "0.98-1.02",
+      "tolerance": null,
+      "unit": "AU",
+      "status": "PASS"
+    },
+    {
+      "name": "Earth period closure",
+      "actual": 0,
+      "expected": 0,
+      "tolerance": 0.01,
+      "unit": "AU",
+      "status": "PASS"
+    },
+    {
+      "name": "Mars orbital period",
+      "actual": 686.98,
+      "expected": 686.98,
+      "tolerance": 0.01,
+      "unit": "days",
+      "status": "PASS"
+    },
+    {
+      "name": "Moon semi-major axis",
+      "actual": 0.00257,
+      "expected": 0.00257,
+      "tolerance": 0,
+      "unit": "AU",
+      "status": "PASS"
+    },
+    {
+      "name": "Moon distance at J2000",
+      "actual": 399938.40282167733,
+      "expected": "363300-405500",
+      "tolerance": null,
+      "unit": "km",
+      "status": "PASS"
+    },
+    {
+      "name": "Moon orbital inclination",
+      "actual": 5.145,
+      "expected": 5.145,
+      "tolerance": 0,
+      "unit": "degrees",
+      "status": "PASS"
+    },
+    {
+      "name": "J2000 epoch timestamp",
+      "actual": 946728000000,
+      "expected": 946728000000,
+      "tolerance": 0,
+      "unit": "ms",
+      "status": "PASS"
+    },
+    {
+      "name": "Earth period in data",
+      "actual": 365.256,
+      "expected": 365.256,
+      "tolerance": 0.001,
+      "unit": "days",
+      "status": "PASS"
+    },
+    {
+      "name": "Sidereal day length",
+      "actual": 86164090.5,
+      "expected": 86164090.5,
+      "tolerance": 0.1,
+      "unit": "ms",
+      "status": "PASS"
+    },
+    {
+      "name": "GMST at J2000",
+      "actual": 18.697374558,
+      "expected": 18.697374558,
+      "tolerance": 0.000001,
+      "unit": "hours",
+      "status": "PASS"
+    },
+    {
+      "name": "Mercury Kepler residual",
+      "actual": -4.440892098500626e-16,
+      "expected": 0,
+      "tolerance": 1e-10,
+      "unit": "rad",
+      "status": "PASS"
+    },
+    {
+      "name": "Mercury J2000 distance",
+      "actual": 0.4664618473054519,
+      "expected": "0.3-0.48",
+      "tolerance": null,
+      "unit": "AU",
+      "status": "PASS"
+    },
+    {
+      "name": "Synodic month length",
+      "actual": 29.53059,
+      "expected": 29.530588,
+      "tolerance": 0.00001,
+      "unit": "days",
+      "status": "PASS"
+    },
+    {
+      "name": "Venus retrograde rotation",
+      "actual": -5832.5,
+      "expected": -5832.5,
+      "tolerance": 0,
+      "unit": "hours",
+      "status": "PASS"
+    },
+    {
+      "name": "Earth obliquity",
+      "actual": 23.44,
+      "expected": 23.4392911,
+      "tolerance": 0.01,
+      "unit": "degrees",
+      "status": "PASS"
+    },
+    {
+      "name": "Earth ascending node",
+      "actual": 0,
+      "expected": 0,
+      "tolerance": 0,
+      "unit": "degrees",
+      "status": "PASS"
+    },
+    {
+      "name": "Earth J2000 z-coordinate",
+      "actual": 0,
+      "expected": 0,
+      "tolerance": 0.001,
+      "unit": "AU",
+      "status": "PASS"
+    },
+    {
+      "name": "Jupiter orbital period",
+      "actual": 4332.589,
+      "expected": 4332.589,
+      "tolerance": 0.001,
+      "unit": "days",
+      "status": "PASS"
+    },
+    {
+      "name": "Neptune orbital period",
+      "actual": 60190,
+      "expected": 60190,
+      "tolerance": 0.1,
+      "unit": "days",
+      "status": "PASS"
+    },
+    {
+      "name": "Moon mean motion",
+      "actual": 13.176396,
+      "expected": 13.176396,
+      "tolerance": 0.0001,
+      "unit": "deg/day",
+      "status": "PASS"
+    }
+  ],
+  "passed": 20,
+  "failed": 0,
+  "total": 20
+}

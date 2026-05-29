@@ -35,6 +35,8 @@ interface PhenomenaGuidePanelProps {
   eclipseWindow?: { start: number; end: number } | null;
   onSelectEclipseEvent?: (ts: number, type: 'solar' | 'lunar') => void;
   onChangeEclipseProgress?: (progress: number) => void;
+  selectedPlanetId?: string;
+  onSelectPlanet?: (id: string) => void;
 }
 
 interface StepContent {
@@ -152,6 +154,8 @@ export default function PhenomenaGuidePanel({
   eclipseWindow,
   onSelectEclipseEvent,
   onChangeEclipseProgress: _onChangeEclipseProgress,
+  selectedPlanetId,
+  onSelectPlanet,
 }: PhenomenaGuidePanelProps) {
   const t = translations[lang];
   const isZh = lang === 'zh';
@@ -300,6 +304,37 @@ export default function PhenomenaGuidePanel({
             <h4 className="text-sm font-bold text-slate-100 mb-1.5">{stepTitle}</h4>
             <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line">{stepBody}</p>
           </>
+        )}
+
+        {/* Viewpoint toggle button for moon-phases demo */}
+        {activePhenomenon === 'moon-phases' && (
+          <div className="mt-3 mb-2 p-2.5 rounded-xl bg-white/[0.03] border border-white/5 flex flex-col gap-2">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              {isZh ? '视角聚焦' : 'Camera Focus'}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => onSelectPlanet?.('earth')}
+                className={`flex-1 py-1 rounded text-xs font-semibold border transition-all cursor-pointer ${
+                  selectedPlanetId === 'earth'
+                    ? getThemeBtn(theme)
+                    : 'bg-white/5 border-white/5 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {isZh ? '🌍 地球' : '🌍 Earth'}
+              </button>
+              <button
+                onClick={() => onSelectPlanet?.('moon')}
+                className={`flex-1 py-1 rounded text-xs font-semibold border transition-all cursor-pointer ${
+                  selectedPlanetId === 'moon'
+                    ? getThemeBtn(theme)
+                    : 'bg-white/5 border-white/5 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {isZh ? '🌑 月球' : '🌑 Moon'}
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Solar-terms: integrated info panel */}

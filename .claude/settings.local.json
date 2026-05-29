@@ -40,7 +40,11 @@
       "mcp__Claude_in_Chrome__navigate",
       "Bash(python3 -c ' *)",
       "mcp__fetch__fetch",
-      "mcp__plugin_playwright_playwright__browser_tabs"
+      "mcp__plugin_playwright_playwright__browser_tabs",
+      "Bash(ls -R \"C:/Users/dom_zhou/.claude/plugins/cache/anthropic-agent-skills/document-skills/690f15cac7f7/skills/skill-creator/\")",
+      "Bash(mkdir -p \"C:/Users/dom_zhou/.claude/plugins/cache/anthropic-agent-skills/document-skills/690f15cac7f7/skills/astro-accuracy-validator/references\" \"C:/Users/dom_zhou/.claude/plugins/cache/anthropic-agent-skills/document-skills/690f15cac7f7/skills/astro-accuracy-validator/scripts\" \"C:/Users/dom_zhou/.claude/plugins/cache/anthropic-agent-skills/document-skills/690f15cac7f7/skills/astro-accuracy-validator/evals\")",
+      "Read(//c/Users/dom_zhou/.claude/plugins/cache/anthropic-agent-skills/document-skills/690f15cac7f7/skills/astro-accuracy-validator-workspace/iteration-1/eval-orbital-mechanics/with_skill/**)",
+      "Read(//c/Users/dom_zhou/.claude/plugins/cache/anthropic-agent-skills/document-skills/690f15cac7f7/skills/astro-accuracy-validator-workspace/iteration-1/eval-orbital-mechanics/without_skill/**)"
     ]
   }
 }

@@ -26,6 +26,7 @@ import {
   createProceduralRingTexture,
   createMoonGlowTexture,
   createUniverseStarTexture,
+  createConstellationLabelSprite,
 } from '../engine/TextureFactory';
 
 /** 全局共享 TextureLoader 实例，避免重复创建与 window 污染 */
@@ -146,9 +147,11 @@ interface UniverseViewerProps {
   setStrictPhysics?: (val: boolean) => void;
   selectedPlanetId: string;
   onSelectPlanet: (id: string) => void;
+  onFocusPlanet?: () => void;
   crossSectionActive: boolean;
   lang: 'zh' | 'en';
   showConstellLines?: boolean;
+  showConstellNames?: boolean;
   showPlanetLabels?: boolean;
   magLimit?: number;
   textureOffsets?: Record<string, { u: number; v: number }>;
@@ -164,6 +167,7 @@ interface UniverseViewerProps {
   onSelectSolarTerm?: (index: number) => void;
   selectedMoonPhaseIndex?: number | null;
   onSelectMoonPhase?: (index: number) => void;
+  focusTrigger?: number;
 }
 
 export interface SatelliteDef {
@@ -921,9 +925,11 @@ export default function UniverseViewer({
   setStrictPhysics,
   selectedPlanetId,
   onSelectPlanet,
+  onFocusPlanet,
   crossSectionActive,
   lang,
   showConstellLines = false,
+  showConstellNames = false,
   showPlanetLabels = true,
   magLimit = 5.5,
   textureOffsets = {},
@@ -939,6 +945,7 @@ export default function UniverseViewer({
   onSelectSolarTerm,
   selectedMoonPhaseIndex,
   onSelectMoonPhase,
+  focusTrigger = 0,
 }: UniverseViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -949,12 +956,14 @@ export default function UniverseViewer({
   const orbitLinesRef = useRef<Record<string, THREE.Line>>({});
   const sunMeshRef = useRef<THREE.Group | null>(null);
   const constellLinesRef = useRef<THREE.LineSegments | null>(null);
+  const constellNameSpritesRef = useRef<THREE.Sprite[]>([]);
   const domeStarsRef = useRef<THREE.Points | null>(null);
   const galaxySpriteRef = useRef<THREE.Mesh | null>(null);
   const hipparcosRef = useRef<THREE.Points | null>(null);
   const hipparcosCatalogRef = useRef<HipparcosStar[] | null>(null);
   const magLimitRef = useRef(magLimit);
   const textureOffsetsRef = useRef<Record<string, { u: number; v: number }>>(textureOffsets);
+  const skipNextFocusRef = useRef(false);
   const transitionInfoRef = useRef<{
     active: boolean;
     phase: 'flight' | 'glide' | 'none';
@@ -1109,6 +1118,8 @@ export default function UniverseViewer({
   const lastSelectedPlanetIdRef = useRef<string>(selectedPlanetId);
   const lastTargetPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
   const lastRadOfTargetRef = useRef<number>(1.0);
+  const justSkippedFocusRef = useRef(false);
+  const forceFocusRef = useRef(false);
 
   useEffect(() => {
     currentTimestampRef.current = currentTimestamp;
@@ -1116,7 +1127,24 @@ export default function UniverseViewer({
 
   useEffect(() => {
     selectedPlanetIdRef.current = selectedPlanetId;
+    // 单击选中星体时跳过自动聚焦，只在双击时聚焦
+    if (skipNextFocusRef.current) {
+      lastSelectedPlanetIdRef.current = selectedPlanetId;
+      skipNextFocusRef.current = false;
+      justSkippedFocusRef.current = true;
+    }
+    if (demoCameraRef.current.active) {
+      demoCameraRef.current.transitionProgress = 0;
+      if (cameraRef.current && controlsRef.current) {
+        demoCameraRef.current.startZoomDistance = cameraRef.current.position.distanceTo(controlsRef.current.target);
+      }
+    }
   }, [selectedPlanetId]);
+
+  // focusTrigger 变化时触发相机聚焦（用于双击聚焦星体）
+  useEffect(() => {
+    forceFocusRef.current = true;
+  }, [focusTrigger]);
 
   useEffect(() => {
     crossSectionActiveRef.current = crossSectionActive;
@@ -1157,7 +1185,11 @@ export default function UniverseViewer({
     if (constellLinesRef.current) {
       constellLinesRef.current.visible = !!showConstellLines;
     }
-  }, [showConstellLines]);
+    // 星座名称依赖星座连线显示，连线关闭时名称也隐藏
+    constellNameSpritesRef.current.forEach(sprite => {
+      sprite.visible = !!showConstellLines && !!showConstellNames;
+    });
+  }, [showConstellLines, showConstellNames]);
 
   // 轨道线可见性控制
   useEffect(() => {
@@ -1205,6 +1237,7 @@ export default function UniverseViewer({
     transitionProgress: number;
     transitionSpeed: number;
     lastPhase: number;
+    startZoomDistance?: number;
   }>({
     active: false,
     phenomenon: null,
@@ -1235,6 +1268,14 @@ export default function UniverseViewer({
   }, [startEntryAnimation]);
 
 
+  const flareOpacityRef = useRef(1.0);  // 镜头光晕平滑淡入淡出插值机点
+
+  // 镜头光晕 (Lens Flare) 直接 DOM 操控 refs —— 绕过 React setState 异步调度，在动画帧内同步更新
+  const sunFlareContainerRef = useRef<HTMLDivElement>(null);
+  const sunFlareInnerRef = useRef<HTMLDivElement>(null);
+  const sunFlareScaleRef = useRef(0);
+  const ghostCanvasRef = useRef<HTMLCanvasElement>(null);
+  const sunFlareDistToSunRef = useRef(100);  // 缓存太阳距离用于鬼影强度计算
   const [planetLabels, setPlanetLabels] = useState<Record<string, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }>>({});
   const [solarTermLabels, setSolarTermLabels] = useState<Record<number, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }>>({});
   const [moonPhaseLabels, setMoonPhaseLabels] = useState<Record<number, { x: number; y: number; visible: boolean; opacity: number; name: string; icon: string }>>({});
@@ -1295,6 +1336,9 @@ export default function UniverseViewer({
         demoCameraRef.current.phase = demoState.demoPhase;
         demoCameraRef.current.transitionProgress = 0;
         demoCameraRef.current.lastPhase = demoState.demoPhase;
+        if (cameraRef.current && controlsRef.current) {
+          demoCameraRef.current.startZoomDistance = cameraRef.current.position.distanceTo(controlsRef.current.target);
+        }
       }
     } else {
       demoCameraRef.current.active = false;
@@ -1380,16 +1424,52 @@ export default function UniverseViewer({
 
     switch (phenomenon) {
       case 'moon-phases': {
-        // Look at Earth from above the orbital plane, offset by phase to see moon orbit
+        const targetBody = selectedPlanetIdRef.current === 'moon' ? 'moon' : 'earth';
+        const lookTarget = targetBody === 'moon' ? moonPos : earthPos;
+        look.copy(lookTarget);
+
+        // 计算当前尺度下的轨道缩放因子（通过地月实际距离计算）
+        const moonOrbitRadius = earthPos.distanceTo(moonPos);
+        const scaleFactor = moonOrbitRadius / 1.5;
+
         const angle = (phase / 8) * Math.PI * 2 + Math.PI / 6;
-        const camDist = 5;
-        const camHeight = 4;
-        pos.set(
-          earthPos.x + Math.cos(angle) * camDist,
-          earthPos.y + camHeight,
-          earthPos.z + Math.sin(angle) * camDist
+
+        let camDist, camHeight;
+        if (targetBody === 'moon') {
+          // 聚焦月球时，默认视角拉得更近
+          camDist = 0.5 * scaleFactor;
+          camHeight = 0.3 * scaleFactor;
+        } else {
+          // 聚焦地球时，显示完整公转轨道
+          camDist = 5 * scaleFactor;
+          camHeight = 4 * scaleFactor;
+        }
+
+        const defaultOffset = new THREE.Vector3(
+          Math.cos(angle) * camDist,
+          camHeight,
+          Math.sin(angle) * camDist
         );
-        look.copy(earthPos);
+
+        // 保持用户当前的缩放级别，除非距离太远/太近需要重置为默认值
+        const currentTarget = controlsRef.current?.target || look;
+        const currentDist = cameraRef.current ? cameraRef.current.position.distanceTo(currentTarget) : defaultOffset.length();
+        const startDist = demoCameraRef.current.startZoomDistance;
+
+        let targetDist = defaultOffset.length();
+        // 允许的缩放距离范围：在真实尺度或可观测尺度下由 scaleFactor 动态调整
+        const minVal = 0.0001 * scaleFactor;
+        const maxVal = 12.0 * scaleFactor;
+
+        // 如果之前的缩放级别在合理范围内，则继承该缩放级别
+        if (startDist !== undefined && startDist > minVal && startDist < maxVal) {
+          targetDist = startDist;
+        } else if (currentDist > minVal && currentDist < maxVal) {
+          targetDist = currentDist;
+        }
+
+        defaultOffset.setLength(targetDist);
+        pos.copy(look).add(defaultOffset);
         break;
       }
       case 'eclipses': {
@@ -1785,6 +1865,38 @@ export default function UniverseViewer({
     constellationLines.visible = !!showConstellLines;
     scene.add(constellationLines);
     constellLinesRef.current = constellationLines;
+
+    // 创建星座名称标签 Sprite
+    const nameSprites: THREE.Sprite[] = [];
+    const currentLang = lang;
+    for (const constell of ALL_CONSTELLATIONS) {
+      const uniqueStarIds = new Set<number>();
+      constell.seq.forEach(pair => {
+        uniqueStarIds.add(pair[0]);
+        uniqueStarIds.add(pair[1]);
+      });
+      let sumPos = new THREE.Vector3();
+      let visibleCount = 0;
+      uniqueStarIds.forEach(starId => {
+        const star = ALL_STARS.find(s => s.id === starId);
+        if (!star || star.mag > magLimitRef.current) return;
+        const pos = domeStarPositionsMap.get(starId);
+        if (pos) {
+          sumPos.add(pos);
+          visibleCount++;
+        }
+      });
+      if (visibleCount >= 2) {
+        const avgPos = sumPos.divideScalar(visibleCount);
+        const labelName = currentLang === 'zh' ? constell.nameZh : constell.nameEn;
+        const sprite = createConstellationLabelSprite(labelName);
+        sprite.position.copy(avgPos);
+        sprite.visible = !!showConstellLines && !!showConstellNames;
+        scene.add(sprite);
+        nameSprites.push(sprite);
+      }
+    }
+    constellNameSpritesRef.current = nameSprites;
 
     // 异步加载 Hipparcos 真实 3D 星场（8785颗恒星，B-V色指数着色）
     loadHipparcosCatalog().then(catalog => {
@@ -2955,10 +3067,12 @@ export default function UniverseViewer({
         if (validHit) {
           const hit = validHit.object;
           if (hit.userData?.isSatellite) {
+            skipNextFocusRef.current = true;
             onSelectPlanet(hit.userData.nameEn);
           } else {
             const pid = hit.userData?.planetId;
             if (pid) {
+              skipNextFocusRef.current = true;
               onSelectPlanet(pid);
             }
           }
@@ -3726,6 +3840,7 @@ export default function UniverseViewer({
       const screenY = (-(sunProj.y * 0.5) + 0.5) * curHeight;
 
       const distToSun = cameraRef.current.position.distanceTo(sunWorldPos);
+      const distAU = distToSun / 22.0;
 
       // 用 Raycaster 进行物理遮挡碰撞检测，任何大型固体星体 (或卫星) 挡在太阳前，光晕就会完美熄灭
       let obscured = false;
@@ -3756,7 +3871,29 @@ export default function UniverseViewer({
         }
       }
 
+      // 如果相机拉得极度近 (例: 直穿太阳体表面)，让光量子流消散
+      let targetOpacity = 1.0;
+      if (distToSun < 6.0) {
+        targetOpacity = Math.max(0, (distToSun - 3.0) / 3.0);
+      }
 
+      // 如果相机偏离太阳系尺度 (例: 远至星际/银河系视角)，光量子流完全消散
+      if (distAU > 100.0) {
+        // 100 AU 至 200 AU 之间平滑渐变消退至 0
+        const farFade = Math.max(0, Math.min(1.0, (200.0 - distAU) / 100.0));
+        targetOpacity *= farFade;
+      }
+
+      // 镜头光晕平滑过渡，告别硬生生的闪现 (lerp平滑插值/Cinematic transition)
+      const targetFlareOpacity = (obscured || isBehind) ? 0.0 : targetOpacity;
+      flareOpacityRef.current = THREE.MathUtils.lerp(flareOpacityRef.current, targetFlareOpacity, 0.12);
+
+      // 计算贴切真实宇宙规律的大气衍射微变与宏观缩放关系 (远小近大)
+      const targetScale = Math.max(0.12, Math.min(0.65, 1.2 * Math.pow(15 / distToSun, 0.45)));
+
+      // 仅缓存遮挡/衰减计算结果到 ref，实际 DOM 更新延迟到 controls.update() 之后以使用最新相机矩阵
+      sunFlareScaleRef.current = targetScale;
+      sunFlareDistToSunRef.current = distToSun;
 
       // -------------------------------------------------------------
       // 计算八大行星的名称标签屏幕投影位置
@@ -3907,8 +4044,10 @@ export default function UniverseViewer({
 
           const distToGhost = cameraRef.current!.position.distanceTo(worldPos);
           let labelOpacity = 1.0;
-          if (distToGhost < 2.0) {
-            labelOpacity = Math.max(0, (distToGhost - 0.5) / 1.5);
+          const fadeThreshold = 2.0 * ghostLabelBodyScale;
+          const fadeMin = 0.5 * ghostLabelBodyScale;
+          if (distToGhost < fadeThreshold) {
+            labelOpacity = fadeThreshold > fadeMin ? Math.max(0, (distToGhost - fadeMin) / (fadeThreshold - fadeMin)) : 1.0;
           }
 
           if (!isBehindCam && !isOccluded && proj.z <= 1 && labelOpacity > 0.01) {
@@ -3968,16 +4107,21 @@ export default function UniverseViewer({
             }
           }
 
-          // 标签位置：虚影正上方
-          worldPos.y += 0.35;
+          // 标签位置：虚影正上方（偏移量随虚影缩放动态调整，防止真实尺度下虚影过大吞噬轨道，与节气虚影处理逻辑对齐）
+          const ghostLabelMoonInitRadius = TeachingModeEngine.getRadius('moon');
+          const ghostLabelMoonCurrentRadius = getCurrentPlanetRadius('moon');
+          const ghostLabelBodyScale = ghostLabelMoonCurrentRadius / ghostLabelMoonInitRadius;
+          worldPos.y += 0.35 * ghostLabelBodyScale;
           const proj = worldPos.clone().project(cameraRef.current!);
           const px = (proj.x * 0.5 + 0.5) * curWidth;
           const py = (-(proj.y * 0.5) + 0.5) * curHeight;
 
           const distToGhost = cameraRef.current!.position.distanceTo(worldPos);
           let labelOpacity = 1.0;
-          if (distToGhost < 2.0) {
-            labelOpacity = Math.max(0, (distToGhost - 0.5) / 1.5);
+          const fadeThreshold = 2.0 * ghostLabelBodyScale;
+          const fadeMin = 0.5 * ghostLabelBodyScale;
+          if (distToGhost < fadeThreshold) {
+            labelOpacity = fadeThreshold > fadeMin ? Math.max(0, (distToGhost - fadeMin) / (fadeThreshold - fadeMin)) : 1.0;
           }
 
           if (!isBehindCam && !isOccluded && proj.z <= 1 && labelOpacity > 0.01) {
@@ -4012,7 +4156,6 @@ export default function UniverseViewer({
       }
 
       // 计算当前相机距离中心太阳的实际距离，展示在底部
-      const distAU = distToSun / 22.0;
       let distText: string;
       if (distAU < 10) {
         distText = `${distAU.toFixed(2)} AU`;
@@ -4109,6 +4252,11 @@ export default function UniverseViewer({
           const baseTime = getCurrentCycleNewMoon(currentTimestampRef.current);
           const smoothTeachingProgress = THREE.MathUtils.smoothstep(teachingModeProgressRef.current, 0, 1);
           
+          // 计算当前月球的实际半径与教学模式半径之比，作为虚影的动态缩放比例
+          const currentMoonRad = getCurrentPlanetRadius('moon');
+          const teachingMoonRad = TeachingModeEngine.getRadius('moon'); // 0.15
+          const ghostScale = currentMoonRad / teachingMoonRad;
+          
           moonPhaseGhostMeshesRef.current.forEach((group, idx) => {
             const phaseTime = getExactMoonPhaseTime(baseTime, idx);
             const daysSinceJ2000 = TimeEngine.getDaysSinceJ2000(phaseTime);
@@ -4132,6 +4280,9 @@ export default function UniverseViewer({
               earthPos.y + currentMoonRelPos.y,
               earthPos.z + currentMoonRelPos.z
             );
+            
+            // 动态缩放虚影大小，与当前模式下的月球大小保持 100% 比例同步，防止真实尺度下虚影过大吞噬轨道
+            group.scale.setScalar(ghostScale);
           });
         }
 
@@ -4875,7 +5026,8 @@ export default function UniverseViewer({
           controlsRef.current.minDistance = radOfTarget * 1.05;
 
           // 选中星体改变时，重设 controls target 与相机视角位置以实现聚焦跟随
-          if (selectedPlanetIdRef.current !== lastSelectedPlanetIdRef.current) {
+          const shouldFocus = selectedPlanetIdRef.current !== lastSelectedPlanetIdRef.current || forceFocusRef.current;
+          if (shouldFocus) {
             const isSat = !!getParentPlanetId(selectedPlanetIdRef.current) && !['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','sun','moon'].includes(selectedPlanetIdRef.current.toLowerCase());
             let offset: number;
             if (strictPhysicsRef.current) {
@@ -4892,7 +5044,7 @@ export default function UniverseViewer({
 
             // 平滑动画过渡效果 (Lerp) 替代硬切
             // 先不直接设置相机位置，而是存储目标位置到 lastSelectedPlanetIdRef 中供追踪插值使用
-            
+
             // 为了让相机总是“正对”星球（而不是背对或侧面飞过去），我们以太阳为中心，
             // 确保相机的目标点在星球和太阳连线的延长线上（背向太阳），这样飞过去的时候总是能看到被太阳照亮的正面。
             // 除非选中的是太阳本身，那就随便保持一个相对位置即可
@@ -4910,9 +5062,9 @@ export default function UniverseViewer({
               // 这样相机停在星球和太阳之间，看向星球时看到的就是被太阳完全照亮的亮面
               idealCameraPos = targetPos.clone().sub(sunToPlanetDir.multiplyScalar(offset));
             }
-            
+
             // 为了防止初始状态相机突变，如果之前没有选中过任何东西，可以直接切过去
-            if (lastSelectedPlanetIdRef.current === '') {
+            if (lastSelectedPlanetIdRef.current === '' && !forceFocusRef.current) {
               cameraRef.current.position.copy(idealCameraPos);
               controlsRef.current.target.copy(targetPos);
               lastSelectedPlanetIdRef.current = selectedPlanetIdRef.current;
@@ -5019,6 +5171,7 @@ export default function UniverseViewer({
                   trans.active = false;
                   trans.phase = 'none';
                   lastSelectedPlanetIdRef.current = selectedPlanetIdRef.current;
+                  forceFocusRef.current = false;
                   cameraRef.current.position.copy(trans.finalPos);
                   controlsRef.current.target.copy(targetPos);
                 } else {
@@ -5043,21 +5196,28 @@ export default function UniverseViewer({
             lastTargetPosRef.current.copy(targetPos);
             lastRadOfTargetRef.current = radOfTarget;
           } else {
-            // 在公转过程中平滑自适应追踪：利用增量(deltaMove)整体移动相机，防范星体高速公转时由于相机静止而直接飞出特写视口
-            const deltaMove = new THREE.Vector3().subVectors(targetPos, lastTargetPosRef.current);
-            cameraRef.current.position.add(deltaMove);
-            
-            // 响应教学模式带来的星体体积变化：自适应推拉相机距离以防穿模
-            if (lastRadOfTargetRef.current > 0 && Math.abs(radOfTarget - lastRadOfTargetRef.current) > 0.000001) {
-              const relPos = new THREE.Vector3().subVectors(cameraRef.current.position, targetPos);
-              const scaleRatio = radOfTarget / lastRadOfTargetRef.current;
-              relPos.multiplyScalar(scaleRatio);
-              cameraRef.current.position.copy(targetPos).add(relPos);
-            }
+            if (justSkippedFocusRef.current) {
+              justSkippedFocusRef.current = false;
+              lastTargetPosRef.current.copy(targetPos);
+              lastRadOfTargetRef.current = radOfTarget;
+              controlsRef.current.target.copy(targetPos);
+            } else {
+              // 在公转过程中平滑自适应追踪：利用增量(deltaMove)整体移动相机，防范星体高速公转时由于相机静止而直接飞出特写视口
+              const deltaMove = new THREE.Vector3().subVectors(targetPos, lastTargetPosRef.current);
+              cameraRef.current.position.add(deltaMove);
 
-            controlsRef.current.target.copy(targetPos);
-            lastTargetPosRef.current.copy(targetPos);
-            lastRadOfTargetRef.current = radOfTarget;
+              // 响应教学模式带来的星体体积变化：自适应推拉相机距离以防穿模
+              if (lastRadOfTargetRef.current > 0 && Math.abs(radOfTarget - lastRadOfTargetRef.current) > 0.000001) {
+                const relPos = new THREE.Vector3().subVectors(cameraRef.current.position, targetPos);
+                const scaleRatio = radOfTarget / lastRadOfTargetRef.current;
+                relPos.multiplyScalar(scaleRatio);
+                cameraRef.current.position.copy(targetPos).add(relPos);
+              }
+
+              controlsRef.current.target.copy(targetPos);
+              lastTargetPosRef.current.copy(targetPos);
+              lastRadOfTargetRef.current = radOfTarget;
+            }
           }
         }
       } else if (!isEnteringRef.current && startEntryRef.current && !demoCam.active) {
@@ -5108,7 +5268,24 @@ export default function UniverseViewer({
       // 12. 更新控制器
       controlsRef.current.update();
 
-      // 在 controls.update() 之后重新投影太阳到屏幕坐标，确保光晕和 3D 渲染使用同一帧相机矩阵
+      // 13. 动态调整星座名称 Sprite 的 scale，使其在屏幕上保持固定可读大小
+      if (cameraRef.current && container) {
+        const curHeight = container.clientHeight || 600;
+        const fovRad = cameraRef.current.fov * Math.PI / 180;
+        const worldHeightFactor = 2 * Math.tan(fovRad / 2) / curHeight;
+        constellNameSpritesRef.current.forEach(sprite => {
+          if (!sprite.visible || !sprite.material?.map?.image) return;
+          const dist = cameraRef.current!.position.distanceTo(sprite.position);
+          const targetPixelHeight = 18;
+          const worldHeight = targetPixelHeight * dist * worldHeightFactor;
+          const img = sprite.material.map.image;
+          const aspect = img.width / img.height;
+          sprite.scale.set(worldHeight * aspect, worldHeight, 1);
+        });
+      }
+
+      // 在 controls.update() 之后重新投影太阳到屏幕坐标，直接操作 DOM 样式
+      // 确保镜头光晕 CSS 覆盖层与 WebGL 3D 渲染使用完全同一帧的相机矩阵，彻底消除拖拽时的位置偏移
       if (sunMeshRef.current && cameraRef.current && container) {
         const sunWorldPos = new THREE.Vector3();
         sunMeshRef.current.getWorldPosition(sunWorldPos);
@@ -5123,6 +5300,196 @@ export default function UniverseViewer({
         cameraRef.current.getWorldDirection(camDir);
         const isBehind = toSun.dot(camDir) <= 0 || sunProj.z > 1;
 
+        const finalScreenX = (sunProj.x * 0.5 + 0.5) * curWidth;
+        const finalScreenY = (-(sunProj.y * 0.5) + 0.5) * curHeight;
+        const finalVisible = flareOpacityRef.current > 0.01 && !isBehind;
+
+        // 直接写入 DOM —— 零延迟同步更新，绝不经过 React 异步调度
+        if (sunFlareContainerRef.current) {
+          sunFlareContainerRef.current.style.display = finalVisible ? '' : 'none';
+        }
+        if (sunFlareInnerRef.current) {
+          sunFlareInnerRef.current.style.left = `${finalScreenX}px`;
+          sunFlareInnerRef.current.style.top = `${finalScreenY}px`;
+          sunFlareInnerRef.current.style.transform = `translate(-50%, -50%) scale(${sunFlareScaleRef.current * 0.45})`;
+          sunFlareInnerRef.current.style.opacity = `${flareOpacityRef.current}`;
+        }
+
+        // ─── 镜头鬼影 (Lens Ghost Artifacts) —— Canvas 2D 绘制，零 CSS 开销，与 WebGL 同帧同步 ───
+        const ghostCanvas = ghostCanvasRef.current;
+        if (ghostCanvas) {
+          // 动态尺寸同步
+          if (ghostCanvas.width !== curWidth || ghostCanvas.height !== curHeight) {
+            ghostCanvas.width = curWidth;
+            ghostCanvas.height = curHeight;
+          }
+          const ctx = ghostCanvas.getContext('2d');
+          if (ctx) {
+            ctx.clearRect(0, 0, curWidth, curHeight);
+
+            // 绘制正五边形的辅助函数
+            const drawPentagon = (c: CanvasRenderingContext2D, px: number, py: number, r: number, rotation: number) => {
+              c.beginPath();
+              for (let i = 0; i < 5; i++) {
+                const angle = rotation + (i * 2 * Math.PI) / 5 - Math.PI / 2;
+                const x = px + Math.cos(angle) * r;
+                const y = py + Math.sin(angle) * r;
+                if (i === 0) {
+                  c.moveTo(x, y);
+                } else {
+                  c.lineTo(x, y);
+                }
+              }
+              c.closePath();
+            };
+
+            const centerX = curWidth * 0.5;
+            const centerY = curHeight * 0.5;
+            const dSun = sunFlareDistToSunRef.current;
+
+            // ── 偏心响应：太阳越偏离画面中心，鬼影越强烈（真实镜头光学行为） ──
+            const dx = finalScreenX - centerX;
+            const dy = finalScreenY - centerY;
+            const offCenterDist = Math.sqrt(dx * dx + dy * dy);
+            const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
+            // 0→1: 太阳从中心移到半对角线位置，鬼影强度从 20% 升至 100%
+            const offCenterFactor = 0.2 + 0.8 * Math.min(1, offCenterDist / (maxDist * 0.45));
+            // 轴线角度（太阳→画面中心方向），用于 streak 跟随 & 鬼影微偏
+            const axisAngle = Math.atan2(dy, dx);
+            const perpX = -Math.sin(axisAngle);  // 轴线法线方向
+            const perpY =  Math.cos(axisAngle);
+
+            // ─── 动态镜头旋转偏离（Sway） ───
+            // 提取相机当前的 Yaw (y) 和 Pitch (x) 弧度，根据视角偏向和偏心距，计算垂直于轴线的动态偏移
+            // 使得光晕轴线随相机旋转发生微小的偏转和摇摆，消除“贯穿锁定星体”的死板感
+            const cameraYaw = cameraRef.current ? cameraRef.current.rotation.y : 0;
+            const cameraPitch = cameraRef.current ? cameraRef.current.rotation.x : 0;
+            const sway = offCenterDist * 0.12 * Math.sin(axisAngle * 2 + cameraYaw * 1.8 + cameraPitch * 0.8);
+
+            // 基础强度：远距离太阳系尺度时显现
+            const ghostIntensity = finalVisible
+              ? Math.max(0, Math.min(1, (dSun - 5) / 15)) * flareOpacityRef.current * offCenterFactor
+              : 0;
+
+            if (ghostIntensity > 0.005) {
+              ctx.globalCompositeOperation = 'lighter';
+
+              // 镜头鬼影参数定义表 (V2)：支持非线性位移、动态缩放、重叠交互以及统一的高级金黄色调
+              // 参数：
+              // - tBase: 太阳在中心时的基础位置比例
+              // - tSpeed: 随偏心距增大时的二次位置偏移速度系数 (可正可负，形成相向运动/交叉重叠)
+              // - tSin: 随偏心距增大时的正弦扰动系数
+              // - rBase: 基础半径 (px)
+              // - rScale: 偏心最大时半径的缩放系数 (1.0表示尺寸恒定, >1表示放大, <1表示缩小)
+              // - a: 透明度系数
+              // - hue: 色调 (统一在 38° - 45° 的暖金/琥珀色区间，告别花哨)
+              // - shape: 类型
+              // - perpOff: 基础法线偏移量
+              interface GhostDef {
+                tBase: number;
+                tSpeed: number;
+                tSin: number;
+                rBase: number;
+                rScale: number;
+                a: number;
+                hue: number;
+                shape: 'ring' | 'disc';
+                perpOff: number;
+              }
+
+              const ghostDefs: GhostDef[] = [
+                // 1. 靠近太阳的小光斑：移动慢，边缘微增
+                { tBase: 0.15, tSpeed: 0.08, tSin: -0.04, rBase: 16, rScale: 1.25, a: 0.45, hue: 45, shape: 'disc', perpOff: 0 },
+                // 2. 中等环形光斑：负速度，向太阳方向逆向移动
+                { tBase: 0.35, tSpeed: -0.15, tSin: 0.08, rBase: 36, rScale: 0.85, a: 0.30, hue: 43, shape: 'ring', perpOff: 3 },
+                // 3. 大型环形光斑：正速度，快速扩散且边缘大幅度膨胀
+                { tBase: 0.55, tSpeed: 0.35, tSin: -0.18, rBase: 48, rScale: 1.60, a: 0.20, hue: 40, shape: 'ring', perpOff: -5 },
+                // 4. 实心光斑：快速反向运动 (tSpeed 为负，会与 3 号环形光斑发生大面积重叠与交叉)
+                { tBase: 0.85, tSpeed: -0.45, tSin: 0.22, rBase: 30, rScale: 0.65, a: 0.35, hue: 42, shape: 'disc', perpOff: 2 },
+                // 5. 中等环形光斑：在中心处缓慢飘动
+                { tBase: 1.10, tSpeed: 0.15, tSin: -0.06, rBase: 44, rScale: 1.15, a: 0.28, hue: 44, shape: 'ring', perpOff: -4 },
+                // 6. 经典小实心光斑：移动慢，尺寸收缩
+                { tBase: 1.30, tSpeed: -0.12, tSin: 0.05, rBase: 22, rScale: 0.75, a: 0.38, hue: 41, shape: 'disc', perpOff: 0 },
+                // 7. 特大环形光斑：在外侧极边缘处大而淡，起均衡画面作用
+                { tBase: 1.55, tSpeed: 0.42, tSin: -0.22, rBase: 68, rScale: 1.55, a: 0.15, hue: 38, shape: 'ring', perpOff: 6 },
+                // 8. 边缘小光斑：快速划过画面边缘
+                { tBase: 1.80, tSpeed: -0.32, tSin: 0.12, rBase: 26, rScale: 0.80, a: 0.10, hue: 42, shape: 'ring', perpOff: -3 }
+              ];
+
+              // 设定固定渲染旋转角，使所有五边形光圈朝向保持一致，符合同镜头孔径叶片结构
+              const pentagonRotation = 0.25;
+              const normDist = Math.min(1.0, offCenterDist / maxDist);
+
+              for (const g of ghostDefs) {
+                // 计算非线性动态位置比 t (利用二次函数与正弦的组合)
+                const dynamicT = g.tBase + g.tSpeed * normDist * normDist + g.tSin * Math.sin(normDist * Math.PI);
+                // 计算动态缩放后的半径 r
+                const curRadius = g.rBase * (1.0 + (g.rScale - 1.0) * normDist);
+
+                // 将 dynamic sway 乘以 dynamicT，使越靠近边缘/外侧的光斑摆动幅度越大，太阳起点处 (t=0) 摆动为 0
+                const gx = finalScreenX + (centerX - finalScreenX) * dynamicT + perpX * (g.perpOff + sway * dynamicT);
+                const gy = finalScreenY + (centerY - finalScreenY) * g.tBase + perpY * (g.perpOff + sway * dynamicT); // 保持 gy 对称计算
+                
+                // 修正 gy 轴方向的偏移投影以防偏心，让 gy 与 gx 一致使用 dynamicT 映射
+                const correctedGy = finalScreenY + (centerY - finalScreenY) * dynamicT + perpY * (g.perpOff + sway * dynamicT);
+
+                const alpha = ghostIntensity * g.a;
+
+                const grad = ctx.createRadialGradient(gx, correctedGy, 0, gx, correctedGy, curRadius);
+
+                if (g.shape === 'ring') {
+                  // 锐利环形五边形：中空 + 强烈的边缘发光 (高级暖金渐变)
+                  grad.addColorStop(0,    `hsla(${g.hue}, 85%, 72%, ${alpha * 0.03})`);
+                  grad.addColorStop(0.55, `hsla(${g.hue}, 85%, 70%, ${alpha * 0.12})`);
+                  grad.addColorStop(0.82, `hsla(${g.hue}, 80%, 65%, ${alpha * 0.45})`);
+                  grad.addColorStop(0.94, `hsla(${g.hue}, 75%, 60%, ${alpha * 0.65})`);
+                  grad.addColorStop(1.0,  `hsla(${g.hue}, 70%, 50%, ${alpha * 0.35})`);
+                } else {
+                  // 锐利实心五边形：扁平渐变，边缘保持明显的半透明度，保证轮廓清晰
+                  grad.addColorStop(0,    `hsla(${g.hue}, 90%, 82%, ${alpha * 0.60})`);
+                  grad.addColorStop(0.35, `hsla(${g.hue}, 85%, 72%, ${alpha * 0.40})`);
+                  grad.addColorStop(0.80, `hsla(${g.hue}, 75%, 62%, ${alpha * 0.28})`);
+                  grad.addColorStop(1.0,  `hsla(${g.hue}, 70%, 55%, ${alpha * 0.22})`);
+                }
+
+                ctx.fillStyle = grad;
+                
+                // 绘制并填充五边形路径
+                drawPentagon(ctx, gx, correctedGy, curRadius, pentagonRotation);
+                ctx.fill();
+
+                // 绘制极细的锐利描边，使五边形孔径边缘更加鲜明、高级 (描边也采用高级琥珀金，低透明度)
+                ctx.strokeStyle = `hsla(${g.hue}, 75%, 68%, ${alpha * 0.20})`;
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+              }
+
+              // —— 变形镜头光线 (Anamorphic Streak) ——
+              // 沿太阳→画面中心轴线方向拉伸，跟随视角旋转
+              const streakAlpha = ghostIntensity * 0.22;
+              if (streakAlpha > 0.005) {
+                ctx.save();
+                ctx.translate(finalScreenX, finalScreenY);
+                ctx.rotate(axisAngle);
+                const streakW = Math.min(curWidth * 0.65, 650);
+                const streakH = 2.0;
+                const streakGrad = ctx.createLinearGradient(-streakW / 2, 0, streakW / 2, 0);
+                streakGrad.addColorStop(0, 'transparent');
+                streakGrad.addColorStop(0.15, `hsla(35, 90%, 80%, ${streakAlpha * 0.2})`);
+                streakGrad.addColorStop(0.40, `hsla(45, 95%, 88%, ${streakAlpha * 0.7})`);
+                streakGrad.addColorStop(0.50, `hsla(45, 100%, 95%, ${streakAlpha})`);
+                streakGrad.addColorStop(0.60, `hsla(45, 95%, 88%, ${streakAlpha * 0.7})`);
+                streakGrad.addColorStop(0.85, `hsla(35, 90%, 80%, ${streakAlpha * 0.2})`);
+                streakGrad.addColorStop(1, 'transparent');
+                ctx.fillStyle = streakGrad;
+                ctx.fillRect(-streakW / 2, -streakH / 2, streakW, streakH);
+                ctx.restore();
+              }
+
+              ctx.globalCompositeOperation = 'source-over';
+            }
+          }
+        }
       }
 
       rendererRef.current.render(sceneRef.current, cameraRef.current);
@@ -5208,6 +5575,12 @@ export default function UniverseViewer({
         }
       }
       constellLinesRef.current = null;
+      constellNameSpritesRef.current.forEach(sprite => {
+        sprite.parent?.remove(sprite);
+        sprite.material?.map?.dispose();
+        sprite.material?.dispose();
+      });
+      constellNameSpritesRef.current = [];
       if (hipparcosRef.current) {
         hipparcosRef.current.geometry.dispose();
         const mat = hipparcosRef.current.material;
@@ -5387,6 +5760,34 @@ export default function UniverseViewer({
       constellLinesRef.current.geometry = new THREE.BufferGeometry().setFromPoints(constellationPoints);
     }
 
+    // 动态同步星座名称标签位置
+    constellNameSpritesRef.current.forEach((sprite, idx) => {
+      const constell = ALL_CONSTELLATIONS[idx];
+      if (!constell) return;
+      const uniqueStarIds = new Set<number>();
+      constell.seq.forEach(pair => {
+        uniqueStarIds.add(pair[0]);
+        uniqueStarIds.add(pair[1]);
+      });
+      let sumPos = new THREE.Vector3();
+      let visibleCount = 0;
+      uniqueStarIds.forEach(starId => {
+        const star = ALL_STARS.find(s => s.id === starId);
+        if (!star || star.mag > magLimit) return;
+        const pos = domeStarPositionsMap.get(starId);
+        if (pos) {
+          sumPos.add(pos);
+          visibleCount++;
+        }
+      });
+      if (visibleCount >= 2) {
+        sprite.position.copy(sumPos.divideScalar(visibleCount));
+        sprite.visible = !!showConstellLines && !!showConstellNames;
+      } else {
+        sprite.visible = false;
+      }
+    });
+
     // 同步 Hipparcos 3D 真实星场的星等过滤
     if (hipparcosRef.current && hipparcosCatalogRef.current) {
       const newData = buildHipparcosEclipticField(hipparcosCatalogRef.current, magLimit);
@@ -5397,7 +5798,7 @@ export default function UniverseViewer({
       newGeom.setAttribute('size', new THREE.BufferAttribute(newData.sizes, 1));
       hipparcosRef.current.geometry = newGeom;
     }
-  }, [magLimit]);
+  }, [magLimit, showConstellLines, showConstellNames]);
 
   // 当选择状态改变时，通知重建立体材质（切换剖切/标准模式）
   useEffect(() => {
@@ -5490,10 +5891,12 @@ export default function UniverseViewer({
       const hit = intersects[0].object;
       if (hit.userData?.isSatellite) {
         onSelectPlanet(hit.userData.nameEn);
+        onFocusPlanet?.();
       } else {
         const pid = hit.userData?.planetId;
         if (pid) {
           onSelectPlanet(pid);
+          onFocusPlanet?.();
         }
       }
     }
@@ -5585,8 +5988,30 @@ export default function UniverseViewer({
         </div>
       )}
       
-      {/* 2. 镜头光晕已移至 WebGL 渲染（SunEffects.ts 中的 sun-lens-flare sprite），
-           彻底消除 DOM/WebGL 不同步问题 */}
+      {/* 2. 核心高度仿真：直视光源时所产生的镜头光晕 (Lens Flare Overlays) */}
+      {/* 使用 ref 直接操控 DOM 样式，绕过 React 异步调度，与 WebGL 渲染同步更新，消除快速拖拽时的位置偏移 */}
+      <div ref={sunFlareContainerRef} className="absolute inset-0 pointer-events-none z-10 overflow-hidden" style={{ display: 'none' }}>
+        {/* A. 强光中心炫目日光球 */}
+        <div 
+          ref={sunFlareInnerRef}
+          className="absolute"
+        >
+          {/* 暖金色渐变多层光晕星爆 (Diffraction Starburst) */}
+          <div className="absolute top-1/2 left-1/2 w-[340px] h-[340px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(251,191,36,0.3)_0%,rgba(244,63,94,0.1)_30%,rgba(249,115,22,0.04)_55%,rgba(0,0,0,0)_75%)] mix-blend-screen blur-[6px]" />
+          <div className="absolute top-1/2 left-1/2 w-52 h-52 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.4)_0%,rgba(251,191,36,0.15)_35%,rgba(0,0,0,0)_65%)] mix-blend-screen blur-[3px]" />
+          <div className="absolute top-1/2 left-1/2 w-24 h-24 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.65)_0%,rgba(217,119,6,0.25)_40%,rgba(0,0,0,0)_100%)] mix-blend-screen" />
+
+          {/* 柔亮多重同心光圈 (Multi-layer concentric halo rings - Cinematic Diffraction Rings) */}
+          <div className="absolute top-1/2 left-1/2 w-[380px] h-[380px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-orange-500/12 bg-[radial-gradient(circle,rgba(249,115,22,0.15)_0%,rgba(244,63,94,0.05)_45%,rgba(0,0,0,0)_80%)] mix-blend-screen" />
+        </div>
+
+        {/* B. 镜头鬼影光圈 (Lens Ghost Artifacts) —— Canvas 2D 绘制，同帧同步，零 CSS 开销 */}
+        <canvas
+          ref={ghostCanvasRef}
+          className="absolute inset-0 pointer-events-none"
+          style={{ mixBlendMode: 'screen' }}
+        />
+      </div>
 
       {/* 3. 八大行星名称标签 (Planet Name Labels) */}
       <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
@@ -5605,7 +6030,12 @@ export default function UniverseViewer({
               }}
               onClick={(e) => {
                 e.stopPropagation();
+                skipNextFocusRef.current = true;
                 onSelectPlanet(id);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                onFocusPlanet?.();
               }}
             >
               <div className="flex flex-col items-center group">
