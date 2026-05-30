@@ -131,8 +131,15 @@ export default function App() {
   // 日食/月食演示：选中的事件时间戳和进度 (0-1)
   const [eclipseEventTs, setEclipseEventTs] = useState<number | null>(null);
   const [eclipseEventType, setEclipseEventType] = useState<'solar' | 'lunar' | null>(null);
-  const [eclipseProgress, setEclipseProgress] = useState<number>(0.5);
   const [eclipseWindow, setEclipseWindow] = useState<{ start: number; end: number } | null>(null);
+
+  const eclipseProgress = useMemo(() => {
+    if (!eclipseWindow) return 0.0;
+    const total = eclipseWindow.end - eclipseWindow.start;
+    if (total <= 0) return 0.0;
+    const pct = (timeState.currentTimestamp - eclipseWindow.start) / total;
+    return Math.max(0, Math.min(1, pct));
+  }, [timeState.currentTimestamp, eclipseWindow]);
 
   // 贴图便宜位置调试 (用于行星面板上交互式校准纹理偏移)
   // 月球默认偏移 u=0.42，经滑块校准后固定
@@ -281,6 +288,9 @@ export default function App() {
     });
     setSelectedSolarTermIndex(null);
     setPhenomenaPanelOpen(false);
+    setEclipseEventTs(null);
+    setEclipseEventType(null);
+    setEclipseWindow(null);
   };
 
   const handleNextStep = () => {
@@ -597,6 +607,8 @@ export default function App() {
               onSelectSolarTerm={handleSelectSolarTerm}
               selectedMoonPhaseIndex={selectedMoonPhaseIndex}
               onSelectMoonPhase={handleSelectMoonPhase}
+              eclipseEventType={eclipseEventType}
+              eclipseEventTs={eclipseEventTs}
               focusTrigger={focusTrigger}
             />
           )}
@@ -688,15 +700,16 @@ export default function App() {
               onSelectEclipseEvent={(ts, type) => {
                 setEclipseEventTs(ts);
                 setEclipseEventType(type);
-                setEclipseProgress(0.5);
-                setTimeState(prev => ({ ...prev, currentTimestamp: ts }));
                 if (type) {
                   const win = AstrophenomenaEngine.getEclipseWindow(ts, type);
                   setEclipseWindow(win);
+                  setTimeState(prev => ({ ...prev, currentTimestamp: win.start }));
+                } else {
+                  setEclipseWindow(null);
+                  setTimeState(prev => ({ ...prev, currentTimestamp: ts - 3 * 3600000 }));
                 }
               }}
               onChangeEclipseProgress={(progress) => {
-                setEclipseProgress(progress);
                 if (eclipseEventTs) {
                   if (eclipseWindow) {
                     const ts = eclipseWindow.start + progress * (eclipseWindow.end - eclipseWindow.start);

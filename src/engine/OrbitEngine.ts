@@ -5,6 +5,8 @@
 
 import { J2000_TIMESTAMP } from './TimeEngine';
 import { SATELLITE_CATALOG, getSatelliteHeliocentricPosition } from './SatelliteData';
+import { LUNAR_TA, LUNAR_TB } from '../data/lunarMeeusCoefficients';
+import { LUT_DATA } from '../data/astroCalibrationLUT';
 
 export interface KeplerElements {
   id: string;
@@ -60,12 +62,13 @@ export const CELESTIAL_PHYSICS = {
 
 export class OrbitEngine {
   /**
-   * 主要计算方法：计算某天体在特定日期相对于太阳 (Heliocentric) 的克卜勒 3D 坐标位
+   * 主要计算方法：计算某天体在特定日期相对于太阳 (Heliocentric) 的克卜勒 3D 坐标位置
    * @param id 星体ID
    * @param days 距离 J2000.0 历元的日子数
+   * @param useOffsets 是否应用 NASA Horizons LUT 校准偏移 (默认为 true)
    * @returns 真实物理坐标 (AU)
    */
-  static getHeliocentricPosition(id: string, days: number): { x: number; y: number; z: number } {
+  static getHeliocentricPosition(id: string, days: number, useOffsets = true): { x: number; y: number; z: number } {
     if (id === 'sun') {
       return { x: 0, y: 0, z: 0 };
     }
@@ -73,8 +76,8 @@ export class OrbitEngine {
     // 针对月球的处理，月球属于地球系统的卫星，单独调用 getLunarPosition
     if (id === 'moon') {
       // 在太阳视角下，月球坐标 = 地球坐标 + 月地相对坐标
-      const earthPos = this.getHeliocentricPosition('earth', days);
-      const moonRelPos = this.getLunarRelativePosition(days);
+      const earthPos = this.getHeliocentricPosition('earth', days, useOffsets);
+      const moonRelPos = useOffsets ? this.getLunarRelativePosition(days) : this.getLunarRelativePositionRaw(days);
       return {
         x: earthPos.x + moonRelPos.x,
         y: earthPos.y + moonRelPos.y,
@@ -85,53 +88,61 @@ export class OrbitEngine {
     const elem = PLANET_ORBITAL_DATA[id];
     if (elem) {
       // 1. 计算平均近点角 Mean Anomaly (M)
+      // 公转角速度 n = 360 / period
+      const n = 360.0 / elem.period;
+      // 平均近点角 M = L - longPeri + n * days
+      let M = (elem.L - elem.longPeri + n * days) % 360;
+      if (M < 0) M += 360;
+      const mRad = (M * Math.PI) / 180.0;
 
-    // 1. 计算平均近点角 Mean Anomaly (M)
-    // 公转角速度 n = 360 / period
-    const n = 360.0 / elem.period;
-    // 平均近点角 M = L - longPeri + n * d  (弧度制/角度制转化需格外小心)
-    let M = (elem.L - elem.longPeri + n * days) % 360;
-    if (M < 0) M += 360;
-    const mRad = (M * Math.PI) / 180.0;
+      // 2. 解克卜勒方程： E - e * sin(E) = M
+      let E = mRad;
+      const e = elem.e;
+      for (let count = 0; count < 5; count++) {
+        const deltaE = (E - e * Math.sin(E) - mRad) / (1.0 - e * Math.cos(E));
+        E -= deltaE;
+      }
 
-    // 2. 解克卜勒方程： E - e * sin(E) = M
-    // 使用一阶近似加上牛顿迭代来求解离心近点角 (E)
-    let E = mRad;
-    const e = elem.e;
-    for (let count = 0; count < 5; count++) {
-      const deltaE = (E - e * Math.sin(E) - mRad) / (1.0 - e * Math.cos(E));
-      E -= deltaE;
-    }
+      // 3. 计算在轨道平面 (Orbit Plane) 内的直角坐标
+      const a = elem.a;
+      const xOrbit = a * (Math.cos(E) - e);
+      const yOrbit = a * Math.sqrt(1.0 - e * e) * Math.sin(E);
 
-    // 3. 计算在轨道平面 (Orbit Plane) 内的直角坐标（始终使用真实半长轴 AU）
-    const a = elem.a;
+      // 4. 将轨道平面坐标，结合升交点黄经(Ω), 轨道倾角(i)，近日点角(ω) 变换为黄道坐标系 (Ecliptic Coordinate System)
+      const iRad = (elem.I * Math.PI) / 180.0;
+      const nodeRad = (elem.node * Math.PI) / 180.0;
+      const omegaRad = ((elem.longPeri - elem.node) * Math.PI) / 180.0; // 近日点幅角
 
-    const xOrbit = a * (Math.cos(E) - e);
-    const yOrbit = a * Math.sqrt(1.0 - e * e) * Math.sin(E);
+      const cosNode = Math.cos(nodeRad);
+      const sinNode = Math.sin(nodeRad);
+      const cosOmega = Math.cos(omegaRad);
+      const sinOmega = Math.sin(omegaRad);
+      const cosI = Math.cos(iRad);
+      const sinI = Math.sin(iRad);
 
-    // 4. 将轨道平面坐标，结合升交点黄经(Ω), 轨道倾角(i)，近日点角(ω) 变换为黄道坐标系 (Ecliptic Coordinate System)
-    const iRad = (elem.I * Math.PI) / 180.0;
-    const nodeRad = (elem.node * Math.PI) / 180.0;
-    const omegaRad = ((elem.longPeri - elem.node) * Math.PI) / 180.0; // 近日点幅角
+      const xEcliptic = xOrbit * (cosOmega * cosNode - sinOmega * sinNode * cosI) - yOrbit * (sinOmega * cosNode + cosOmega * sinNode * cosI);
+      const yEcliptic = xOrbit * (cosOmega * sinNode + sinOmega * cosNode * cosI) - yOrbit * (sinOmega * sinNode - cosOmega * cosNode * cosI);
+      const zEcliptic = xOrbit * (sinOmega * sinI) + yOrbit * (cosOmega * sinI);
 
-    const cosNode = Math.cos(nodeRad);
-    const sinNode = Math.sin(nodeRad);
-    const cosOmega = Math.cos(omegaRad);
-    const sinOmega = Math.sin(omegaRad);
-    const cosI = Math.cos(iRad);
-    const sinI = Math.sin(iRad);
+      let x = xEcliptic;
+      let y = yEcliptic;
+      let z = zEcliptic;
 
-    const xEcliptic = xOrbit * (cosOmega * cosNode - sinOmega * sinNode * cosI) - yOrbit * (sinOmega * cosNode + cosOmega * sinNode * cosI);
-    const yEcliptic = xOrbit * (cosOmega * sinNode + sinOmega * cosNode * cosI) - yOrbit * (sinOmega * sinNode - cosOmega * cosNode * cosI);
-    const zEcliptic = xOrbit * (sinOmega * sinI) + yOrbit * (cosOmega * sinI);
+      if (useOffsets) {
+        const jd = 2451545.0 + days;
+        const offset = this.interpolateOffsetForBody(jd, id);
+        x += offset.x;
+        y += offset.y;
+        z += offset.z;
+      }
 
-    return { x: xEcliptic, y: yEcliptic, z: zEcliptic };
+      return { x, y, z };
     }
 
     // 支持其他天然卫星（如土卫六 Titan）
     const sat = SATELLITE_CATALOG.find(s => s.id === id);
     if (sat) {
-      const parentPos = this.getHeliocentricPosition(sat.parentId, days);
+      const parentPos = this.getHeliocentricPosition(sat.parentId, days, useOffsets);
       const relPos = getSatelliteHeliocentricPosition(sat, days);
       return {
         x: parentPos.x + relPos.x,
@@ -144,62 +155,159 @@ export class OrbitEngine {
   }
 
   /**
-   * 计算月球相对于地球中心的距离与位置（真实物理坐标）
+   * Horner's polynomial evaluation helper
+   */
+  private static horner(x: number, ...c: number[]): number {
+    let i = c.length - 1;
+    let y = c[i];
+    while (i > 0) {
+      i--;
+      y = y * x + c[i];
+    }
+    return y;
+  }
+
+  // Mapping from planet/moon ID to index in the 9-body LUT (each step has 27 floats)
+  private static readonly LUT_BODY_INDEX: Record<string, number> = {
+    mercury: 0,
+    venus: 1,
+    earth: 2,
+    mars: 3,
+    jupiter: 4,
+    saturn: 5,
+    uranus: 6,
+    neptune: 7,
+    moon: 8
+  };
+
+  /**
+   * Interpolate 3D offset for a specific celestial body from the unified LUT data
+   */
+  private static interpolateOffsetForBody(jd: number, bodyId: string): { x: number; y: number; z: number } {
+    const bodyIdx = OrbitEngine.LUT_BODY_INDEX[bodyId];
+    if (bodyIdx === undefined) {
+      return { x: 0, y: 0, z: 0 };
+    }
+
+    const startJd = 2415020.5; // 1900-01-01 00:00:00 UTC
+    const stepDays = 10;
+    const stepsCount = 7305;
+    const endJd = startJd + (stepsCount - 1) * stepDays;
+
+    if (jd < startJd || jd > endJd) {
+      let targetIndex = 0;
+      if (jd < startJd && jd >= startJd - 30) {
+        targetIndex = 0;
+      } else if (jd > endJd && jd <= endJd + 30) {
+        targetIndex = stepsCount - 1;
+      } else {
+        return { x: 0, y: 0, z: 0 };
+      }
+
+      const baseIdx = targetIndex * 27 + bodyIdx * 3;
+      return {
+        x: LUT_DATA[baseIdx],
+        y: LUT_DATA[baseIdx + 1],
+        z: LUT_DATA[baseIdx + 2]
+      };
+    }
+
+    const idx = (jd - startJd) / stepDays;
+    const i0 = Math.floor(idx);
+    const i1 = Math.min(i0 + 1, stepsCount - 1);
+    const t = idx - i0;
+
+    const base0 = i0 * 27 + bodyIdx * 3;
+    const base1 = i1 * 27 + bodyIdx * 3;
+
+    return {
+      x: LUT_DATA[base0] * (1 - t) + LUT_DATA[base1] * t,
+      y: LUT_DATA[base0 + 1] * (1 - t) + LUT_DATA[base1 + 1] * t,
+      z: LUT_DATA[base0 + 2] * (1 - t) + LUT_DATA[base1 + 2] * t
+    };
+  }
+
+  /**
+   * 获取特定日期的星体校准偏移 (AU)
+   */
+  static getCalibrationOffset(id: string, days: number): { x: number; y: number; z: number } {
+    const jd = 2451545.0 + days;
+    return this.interpolateOffsetForBody(jd, id);
+  }
+
+  /**
+   * 计算月球相对于地球中心的距离与位置（使用完整 Meeus ELP-2000 级数模型计算）
    * @param days 距 J2000.0 天数
    * @returns 真实物理相对坐标 (AU)
    */
+  static getLunarRelativePositionRaw(days: number): { x: number; y: number; z: number } {
+    const T = days / 36525.0; // 儒略世纪数
+    const D2R = Math.PI / 180.0;
+
+    // 1. 计算月球基本轨道要素 (以弧度表示)
+    const D = (this.horner(T, 297.8501921 * D2R, 445267.1114034 * D2R, -0.0018819 * D2R, D2R / 545868, -D2R / 113065000)) % (2 * Math.PI);
+    const M = (this.horner(T, 357.5291092 * D2R, 35999.0502909 * D2R, -0.0001536 * D2R, D2R / 24490000)) % (2 * Math.PI);
+    const Mp = (this.horner(T, 134.9633964 * D2R, 477198.8675055 * D2R, 0.0087414 * D2R, D2R / 69699, -D2R / 14712000)) % (2 * Math.PI);
+    const F = (this.horner(T, 93.272095 * D2R, 483202.0175233 * D2R, -0.0036539 * D2R, -D2R / 3526000, D2R / 863310000)) % (2 * Math.PI);
+    const L_ = (this.horner(T, 218.3164477 * D2R, 481267.88123421 * D2R, -0.0015786 * D2R, D2R / 538841, -D2R / 65194000)) % (2 * Math.PI);
+
+    const a1 = 119.75 * D2R + 131.849 * D2R * T;
+    const a2 = 53.09 * D2R + 479264.29 * D2R * T;
+    const a3 = 313.45 * D2R + 481266.484 * D2R * T;
+
+    const e = this.horner(T, 1, -0.002516, -0.0000074);
+    const e2 = e * e;
+
+    let sumL = 3958 * Math.sin(a1) + 1962 * Math.sin(L_ - F) + 318 * Math.sin(a2);
+    let sumR = 0.0;
+    let sumB = -2235 * Math.sin(L_) + 382 * Math.sin(a3) + 175 * Math.sin(a1 - F) + 175 * Math.sin(a1 + F) + 127 * Math.sin(L_ - Mp) - 115 * Math.sin(L_ + Mp);
+
+    LUNAR_TA.forEach((r) => {
+      const angle = D * r.d + M * r.m + Mp * r.m_ + F * r.f;
+      const sina = Math.sin(angle);
+      const cosa = Math.cos(angle);
+      let termE = 1.0;
+      if (r.m === -1 || r.m === 1) termE = e;
+      else if (r.m === -2 || r.m === 2) termE = e2;
+
+      sumL += r.sl * sina * termE;
+      sumR += r.sr * cosa * termE;
+    });
+
+    LUNAR_TB.forEach((r) => {
+      const angle = D * r.d + M * r.m + Mp * r.m_ + F * r.f;
+      const sb = Math.sin(angle);
+      let termE = 1.0;
+      if (r.m === -1 || r.m === 1) termE = e;
+      else if (r.m === -2 || r.m === 2) termE = e2;
+
+      sumB += r.sb * sb * termE;
+    });
+
+    const lon = (L_ + sumL * 1e-6 * D2R) % (2 * Math.PI);
+    const lat = sumB * 1e-6 * D2R;
+    const distKm = 385000.56 + sumR * 1e-3;
+    const distAU = distKm / 149597870.7;
+
+    return {
+      x: distAU * Math.cos(lat) * Math.cos(lon),
+      y: distAU * Math.cos(lat) * Math.sin(lon),
+      z: distAU * Math.sin(lat)
+    };
+  }
+
+  /**
+   * 获取地月相对坐标（包含 NASA LUT 差值校准）
+   */
   static getLunarRelativePosition(days: number): { x: number; y: number; z: number } {
-    // 月球轨道根数 (基于 J2000.0 epoch 的简化模型)
-    // 真实物理半长轴：约 384,400 km = 0.00257 AU
-    const moonA = 0.00257;
-    const e = 0.0549; // 月球轨道偏心率
-
-    // 平均近点角角速度 ~ 13.176396 度/天
-    const n = 13.176396;
-    const M = ((135 + n * days) % 360) * Math.PI / 180.0;
-
-    // 解克卜勒方程求离心近点角 E
-    let E = M;
-    for (let i = 0; i < 5; i++) {
-      const delta = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
-      E -= delta;
-    }
-
-    // 真近点角与瞬时距离
-    const trueAnomaly = 2 * Math.atan2(
-      Math.sqrt(1 + e) * Math.sin(E / 2),
-      Math.sqrt(1 - e) * Math.cos(E / 2)
-    );
-    const r = moonA * (1 - e * Math.cos(E));
-
-    // 轨道平面坐标 (以近地点为参考)
-    const xOrbit = r * Math.cos(trueAnomaly);
-    const yOrbit = r * Math.sin(trueAnomaly);
-
-    // 倾角：约 5.145°
-    const iRad = (5.145 * Math.PI) / 180.0;
-
-    // 近地点黄经与升交点黄经的长期进动 (简化)
-    const periDeg = (318.15 + 0.1114 * days) % 360;
-    const nodeDeg = (125.08 - 0.05295 * days) % 360;
-    const omega = ((periDeg - nodeDeg) * Math.PI) / 180.0;
-    const node = (nodeDeg * Math.PI) / 180.0;
-
-    const cosOmega = Math.cos(omega);
-    const sinOmega = Math.sin(omega);
-    const cosNode = Math.cos(node);
-    const sinNode = Math.sin(node);
-    const cosI = Math.cos(iRad);
-    const sinI = Math.sin(iRad);
-
-    const x1 = cosOmega * xOrbit - sinOmega * yOrbit;
-    const y1 = sinOmega * xOrbit + cosOmega * yOrbit;
-
-    const x = cosNode * x1 - sinNode * y1 * cosI;
-    const y = sinNode * x1 + cosNode * y1 * cosI;
-    const z = y1 * sinI;
-
-    return { x, y, z };
+    const rawPos = this.getLunarRelativePositionRaw(days);
+    const jd = 2451545.0 + days;
+    const offset = this.interpolateOffsetForBody(jd, 'moon');
+    return {
+      x: rawPos.x + offset.x,
+      y: rawPos.y + offset.y,
+      z: rawPos.z + offset.z
+    };
   }
 
   /**

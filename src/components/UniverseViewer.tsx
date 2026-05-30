@@ -11,7 +11,7 @@ import { SATELLITE_CATALOG } from '../engine/SatelliteData';
 import { createAdvancedRingMaterial } from '../engine/PlanetMaterials';
 import { buildSunGroup, updateSunEffects, SunGroup } from '../engine/SunEffects';
 import { ScaleEngine } from '../engine/ScaleEngine';
-import { TimeEngine } from '../engine/TimeEngine';
+import { TimeEngine, J2000_TIMESTAMP } from '../engine/TimeEngine';
 import { TeachingModeEngine } from '../engine/TeachingModeEngine';
 import { translations } from '../i18n';
 import { SOLAR_TERMS } from '../data/solarTerms';
@@ -168,6 +168,8 @@ interface UniverseViewerProps {
   selectedMoonPhaseIndex?: number | null;
   onSelectMoonPhase?: (index: number) => void;
   focusTrigger?: number;
+  eclipseEventType?: 'solar' | 'lunar' | null;
+  eclipseEventTs?: number | null;
 }
 
 export interface SatelliteDef {
@@ -946,6 +948,8 @@ export default function UniverseViewer({
   selectedMoonPhaseIndex,
   onSelectMoonPhase,
   focusTrigger = 0,
+  eclipseEventType = null,
+  eclipseEventTs = null,
 }: UniverseViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -1001,6 +1005,7 @@ export default function UniverseViewer({
   const moonPhaseGhostMeshesRef = useRef<THREE.Group[]>([]);
   const selectedMoonPhaseRef = useRef<number | null>(null);
   const lastAngleTextRef = useRef<string>('');
+  const lastMoonOrbitDaysRef = useRef<number>(0);
   const [isRotationSimActive, setIsRotationSimActive] = useState<boolean>(false);
   const isRotationSimActiveRef = useRef<boolean>(false);
   const solarTermsSelfRotationOffsetRef = useRef<number>(0);
@@ -1012,6 +1017,17 @@ export default function UniverseViewer({
   const solarDaylightHoursTextRef = useRef<HTMLSpanElement | null>(null);
   const solarNightHoursTextRef = useRef<HTMLSpanElement | null>(null);
   const solarDeclinationTextRef = useRef<HTMLSpanElement | null>(null);
+
+
+
+  const eclipseEventTypeRef = useRef<'solar' | 'lunar' | null>(eclipseEventType);
+  const eclipseEventTsRef = useRef<number | null>(eclipseEventTs);
+
+  // 同步 prop 到 ref
+  useEffect(() => {
+    eclipseEventTypeRef.current = eclipseEventType;
+    eclipseEventTsRef.current = eclipseEventTs;
+  }, [eclipseEventType, eclipseEventTs]);
 
   const currentTerm = (selectedSolarTermIndex !== null && selectedSolarTermIndex !== undefined)
     ? SOLAR_TERMS[selectedSolarTermIndex]
@@ -1027,7 +1043,8 @@ export default function UniverseViewer({
     moonShadowCone: THREE.Mesh | null;
     moonUmbraCone: THREE.Mesh | null;        // 月球本影锥 (日食)
     moonPenumbraCone: THREE.Mesh | null;     // 月球半影锥 (日食)
-    earthUmbraCone: THREE.Mesh | null;       // 地球本影锥 (月食)
+    earthUmbraCone: THREE.Mesh | null;       // 地球本影截头锥 (月食)
+    earthUmbraDisc: THREE.Mesh | null;       // 地球本影截面盘 (月食)
     earthPenumbraCone: THREE.Mesh | null;    // 地球半影锥 (月食)
     eclipticPlane: THREE.LineLoop | THREE.Mesh | null;
     earthAxis: THREE.Line | null;
@@ -1053,6 +1070,7 @@ export default function UniverseViewer({
     moonUmbraCone: null,
     moonPenumbraCone: null,
     earthUmbraCone: null,
+    earthUmbraDisc: null,
     earthPenumbraCone: null,
     eclipticPlane: null,
     earthAxis: null,
@@ -1086,6 +1104,23 @@ export default function UniverseViewer({
     const realRad = id === 'sun' ? getSunRadius() : getPlanetRadius(id);
     const teachingRad = TeachingModeEngine.getRadius(id);
     return THREE.MathUtils.lerp(realRad, teachingRad, smoothTeachingProgress);
+  };
+
+  /**
+   * 计算月食演示模式下所需的经度修正角 deltaLon。
+   * 简化轨道模型精度不足（偏差可达 0.5°~2°），无法精确复现历史交食。
+   * 在演示特定月食事件时，通过固定经度旋转让简化模型的月球黄经
+   * 在食甚时刻对齐到地日连线反方向，使 3D 视觉效果与 NASA 数据匹配。
+   * 此修正仅影响渲染，不污染 OrbitEngine 的物理计算。
+   */
+  const getLunarDeltaLon = (): number => {
+    if (eclipseEventTypeRef.current !== 'lunar' || !eclipseEventTsRef.current) return 0;
+    const eventDays = (eclipseEventTsRef.current - J2000_TIMESTAMP) / 86400000;
+    const earthPosEvent = OrbitEngine.getHeliocentricPosition('earth', eventDays);
+    const targetLon = Math.atan2(earthPosEvent.y, earthPosEvent.x);
+    const moonEventRaw = OrbitEngine.getLunarRelativePositionRaw(eventDays);
+    const moonLon = Math.atan2(moonEventRaw.y, moonEventRaw.x);
+    return targetLon - moonLon;
   };
 
   // 地月轨道显示数值动态计算（统一比例管道，确保UI显示与3D渲染完全一致）
@@ -1324,6 +1359,10 @@ export default function UniverseViewer({
     packingProgressDoneRef.current = 0;
     setPackingProgressDone(0);
   }, [strictPhysics]);
+
+  useEffect(() => {
+    eclipseEventTypeRef.current = eclipseEventType;
+  }, [eclipseEventType]);
 
   // Demo state tracking
   const demoStateRef = useRef(demoState);
@@ -2274,7 +2313,7 @@ export default function UniverseViewer({
         const samples = 2500;
         for (let j = 0; j <= samples; j++) {
           const daysEquivalent = (j / samples) * (PLANET_ORBITAL_DATA[config.id]?.period || 365);
-          const pos = OrbitEngine.getHeliocentricPosition(config.id, daysEquivalent);
+          const pos = OrbitEngine.getHeliocentricPosition(config.id, daysEquivalent, false);
           orbitPoints.push(toThreePos(pos, ORBIT_SCALE));
         }
         const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPoints);
@@ -2288,40 +2327,16 @@ export default function UniverseViewer({
         orbitLinesRef.current[config.id] = orbitLine;
       } else {
         // == 绘制月球围绕地球的公转轨道 (Natural Moon Orbit around Earth) ==
-        // 使用固定轨道平面采样闭合椭圆，避免升交点进动导致轨道线开口
+        // 使用与月球位置完全相同的计算管线，确保 100% 同源同算
         const orbitPoints: THREE.Vector3[] = [];
         const samples = 1000;
         const baseDays = TimeEngine.getDaysSinceJ2000(currentTimestamp);
-        const moonA = 0.00257;
-        const e = 0.0549;
-        const iRad = (5.145 * Math.PI) / 180.0;
-        const fixedPeriDeg = (318.15 + 0.1114 * baseDays) % 360;
-        const fixedNodeDeg = (125.08 - 0.05295 * baseDays) % 360;
-        const omega = ((fixedPeriDeg - fixedNodeDeg) * Math.PI) / 180.0;
-        const node = (fixedNodeDeg * Math.PI) / 180.0;
-        const cosOmega = Math.cos(omega), sinOmega = Math.sin(omega);
-        const cosNode = Math.cos(node), sinNode = Math.sin(node);
-        const cosI = Math.cos(iRad), sinI = Math.sin(iRad);
+
         for (let j = 0; j <= samples; j++) {
-          const M = (j / samples) * Math.PI * 2;
-          let E = M;
-          for (let i = 0; i < 5; i++) {
-            const delta = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
-            E -= delta;
-          }
-          const trueAnomaly = 2 * Math.atan2(
-            Math.sqrt(1 + e) * Math.sin(E / 2),
-            Math.sqrt(1 - e) * Math.cos(E / 2)
-          );
-          const r = moonA * (1 - e * Math.cos(E));
-          const xOrbit = r * Math.cos(trueAnomaly);
-          const yOrbit = r * Math.sin(trueAnomaly);
-          const x1 = cosOmega * xOrbit - sinOmega * yOrbit;
-          const y1 = sinOmega * xOrbit + cosOmega * yOrbit;
-          const x = cosNode * x1 - sinNode * y1 * cosI;
-          const y = sinNode * x1 + cosNode * y1 * cosI;
-          const z = y1 * sinI;
-          const pos = toThreePos({ x, y, z }, ORBIT_SCALE);
+          // 在一个轨道周期内均匀采样，使用当前显示时刻的瞬时轨道根数
+          const days = baseDays + (j / samples) * 27.32166;
+          const moonRel = OrbitEngine.getLunarRelativePosition(days);
+          const pos = toThreePos(moonRel, ORBIT_SCALE);
           if (!strictPhysics) {
             const earthStrictRad = ScaleEngine.getStrictRadius('earth');
             const earthObsRad = ScaleEngine.getObservableRadius('earth');
@@ -2593,8 +2608,8 @@ export default function UniverseViewer({
     scene.add(earthShadowCone);
     visualAidsRef.current.earthShadowCone = earthShadowCone;
 
-    // 2b. 地球本影锥 (月食) — 深色收敛锥，从地球向外变细
-    const earthUmbraGeo = new THREE.ConeGeometry(1, 1, 48, 1, true);
+    // 2b. 地球本影截头锥 (月食) — 从地球半径收敛到月球距离处的截面半径
+    const earthUmbraGeo = new THREE.CylinderGeometry(1, 1, 1, 48, 1, true);
     const earthUmbraMat = createConeGradientMaterial(0x3333cc, 0x6666ff, 0.45);
     const earthUmbraCone = new THREE.Mesh(earthUmbraGeo, earthUmbraMat);
     earthUmbraCone.name = 'visual-aid-earth-umbra';
@@ -2602,7 +2617,23 @@ export default function UniverseViewer({
     scene.add(earthUmbraCone);
     visualAidsRef.current.earthUmbraCone = earthUmbraCone;
 
-    // 2c. 地球半影锥 (月食) — 浅色发散锥，从地球向外变宽
+    // 2c. 地球本影截面盘 (月食) — 在月球当前距离处的实体半透明圆盘
+    const earthUmbraDiscGeo = new THREE.CircleGeometry(1, 48);
+    const earthUmbraDiscMat = new THREE.MeshBasicMaterial({
+      color: 0x222288,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const earthUmbraDisc = new THREE.Mesh(earthUmbraDiscGeo, earthUmbraDiscMat);
+    earthUmbraDisc.name = 'visual-aid-earth-umbra-disc';
+    earthUmbraDisc.visible = false;
+    scene.add(earthUmbraDisc);
+    visualAidsRef.current.earthUmbraDisc = earthUmbraDisc;
+
+    // 2d. 地球半影锥 (月食) — 浅色发散锥，从地球向外变宽
     const earthPenumbraGeo = new THREE.ConeGeometry(1, 1, 48, 1, true);
     const earthPenumbraMat = createConeGradientMaterial(0x444488, 0x8888ff, 0.3);
     const earthPenumbraCone = new THREE.Mesh(earthPenumbraGeo, earthPenumbraMat);
@@ -2643,7 +2674,7 @@ export default function UniverseViewer({
     const eclipticSamples = 1000;
     for (let j = 0; j <= eclipticSamples; j++) {
       const daysEquivalent = (j / eclipticSamples) * (PLANET_ORBITAL_DATA['earth']?.period || 365.256);
-      const pos = OrbitEngine.getHeliocentricPosition('earth', daysEquivalent);
+      const pos = OrbitEngine.getHeliocentricPosition('earth', daysEquivalent, false);
       eclipticPoints.push(toThreePos(pos, 22.0)); // 22.0 为轨道公转比例常数 (ORBIT_SCALE)
     }
     const eclipticGeo = createEllipticalRibbonGeometry(eclipticPoints, 0.025); // 0.025 场景单位宽度，与地球赤道线条粗细一致
@@ -2845,6 +2876,33 @@ export default function UniverseViewer({
     moonPhaseProjection.visible = false;
     scene.add(moonPhaseProjection);
     visualAidsRef.current.moonPhaseProjection = moonPhaseProjection;
+
+    // == 增加交食对齐指示线与影轴线 ==
+    const alignmentLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0)]);
+    const alignmentLineMat = new THREE.LineBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.8,
+    });
+    const eclipseAlignmentLine = new THREE.Line(alignmentLineGeo, alignmentLineMat);
+    eclipseAlignmentLine.name = 'visual-aid-eclipse-alignment-line';
+    eclipseAlignmentLine.visible = false;
+    scene.add(eclipseAlignmentLine);
+    visualAidsRef.current.eclipseAlignmentLine = eclipseAlignmentLine;
+
+    const umbraAxisLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0)]);
+    const umbraAxisLineMat = new THREE.LineDashedMaterial({
+      color: 0x888888,
+      dashSize: 0.5,
+      gapSize: 0.5,
+      transparent: true,
+      opacity: 0.6,
+    });
+    const umbraAxisLine = new THREE.Line(umbraAxisLineGeo, umbraAxisLineMat);
+    umbraAxisLine.name = 'visual-aid-umbra-axis-line';
+    umbraAxisLine.visible = false;
+    scene.add(umbraAxisLine);
+    visualAidsRef.current.umbraAxisLine = umbraAxisLine;
 
     // 处理窗口/容器尺寸调整 (使用 ResizeObserver 确保响应性)
     const resizeObserver = new ResizeObserver((entries) => {
@@ -3206,6 +3264,30 @@ export default function UniverseViewer({
 
       const daysSinceJ2000 = TimeEngine.getDaysSinceJ2000(currentTimestampRef.current);
 
+      // 月球轨道线动态更新：当显示时间变化超过 0.5 天时，使用当前瞬时根数重绘
+      // 确保轨道线与月球位置始终同源同算，根治时间跳跃后的轨道-位置偏差
+      if (Math.abs(daysSinceJ2000 - lastMoonOrbitDaysRef.current) > 0.5) {
+        lastMoonOrbitDaysRef.current = daysSinceJ2000;
+        const moonOrbitLine = orbitLinesRef.current['moon'];
+        if (moonOrbitLine) {
+          const orbitPoints: THREE.Vector3[] = [];
+          const samples = 1000;
+          for (let j = 0; j <= samples; j++) {
+            const d = daysSinceJ2000 + (j / samples) * 27.32166;
+            const moonRel = OrbitEngine.getLunarRelativePosition(d);
+            const pos = toThreePos(moonRel, ORBIT_SCALE);
+            if (!strictPhysicsRef.current) {
+              const earthStrictRad = ScaleEngine.getStrictRadius('earth');
+              const earthObsRad = ScaleEngine.getObservableRadius('earth');
+              pos.multiplyScalar(earthObsRad / earthStrictRad);
+            }
+            orbitPoints.push(pos);
+          }
+          moonOrbitLine.geometry.dispose();
+          moonOrbitLine.geometry = new THREE.BufferGeometry().setFromPoints(orbitPoints);
+        }
+      }
+
       // 太阳自转更新：带 7.25° 黄赤倾角自旋转
       if (sunMeshRef.current) {
         const sunRotateY = OrbitEngine.getRotationAngle('sun', currentTimestampRef.current);
@@ -3255,13 +3337,19 @@ export default function UniverseViewer({
             const scaleFactor = earthObsRad / earthStrictRad;
             moonRelPos.multiplyScalar(scaleFactor);
           }
-          
+
+          // 月食演示模式下，应用经度修正使简化模型的月球在食甚时刻对齐到地日反方向
+          const deltaLon = getLunarDeltaLon();
+          if (deltaLon !== 0) {
+            moonRelPos.applyAxisAngle(new THREE.Vector3(0, 1, 0), -deltaLon);
+          }
+
           originalMoonOrbitRadius = moonRelPos.length();
-          
+
           // 教学模式混合：先求出地球混合后的位置
           const earthTeachingPos = TeachingModeEngine.getHeliocentricPosition('earth', earthPos);
           const currentEarthPos = new THREE.Vector3().lerpVectors(earthPos, earthTeachingPos, smoothTeachingProgress);
-          
+
           // 求出月球相对地球的混合位置
           const moonTeachingRelPos = TeachingModeEngine.getRelativePosition('moon', moonRelPos, 'earth');
           const currentMoonRelPos = new THREE.Vector3().lerpVectors(moonRelPos, moonTeachingRelPos, smoothTeachingProgress);
@@ -3296,10 +3384,26 @@ export default function UniverseViewer({
             const targetWorldScale = currentMoonOrbitRadius / originalMoonOrbitRadius;
             const localScale = targetWorldScale / earthScale;
             orbitLine.scale.set(localScale, localScale, localScale);
-            // 注意：月球轨道线由 getLunarRelativePosition 采样生成，已包含正确的升交点方向，无需额外旋转
+
+            // 月食演示模式下，同步旋转轨道线使月球始终位于轨道上
+            const deltaLon = getLunarDeltaLon();
+            orbitLine.rotation.y = -deltaLon;
+
+            // 同步缩放白道面、交点线与升降交点标记，保持与月球轨道大小比例一致
+            const aids = visualAidsRef.current;
+            if (aids.moonOrbitPlane) aids.moonOrbitPlane.scale.setScalar(localScale);
+            if (aids.moonNodesLine) aids.moonNodesLine.scale.setScalar(localScale);
+            if (aids.ascendingNodeMarker) aids.ascendingNodeMarker.scale.setScalar(localScale);
+            if (aids.descendingNodeMarker) aids.descendingNodeMarker.scale.setScalar(localScale);
           } else {
             const orbitScale = THREE.MathUtils.lerp(1.0, TeachingModeEngine.getOrbitScaleFactor(config.id), smoothTeachingProgress);
             orbitLine.scale.set(orbitScale, orbitScale, orbitScale);
+
+            // Shift planetary orbit lines dynamically by their current calibration offsets
+            const offset = OrbitEngine.getCalibrationOffset(config.id, daysSinceJ2000);
+            const threeOffset = toThreePos(offset, ORBIT_SCALE);
+            threeOffset.multiplyScalar(orbitScale);
+            orbitLine.position.copy(threeOffset);
           }
         }
 
@@ -4400,6 +4504,11 @@ export default function UniverseViewer({
             const earthOrbitScale = THREE.MathUtils.lerp(1.0, TeachingModeEngine.getOrbitScaleFactor('earth'), smoothTeachingProgress);
             aids.eclipticPlane.scale.set(earthOrbitScale, earthOrbitScale, earthOrbitScale);
 
+            // 动态计算地球在当前模拟时刻的校准偏移，并应用于黄道面网格
+            const earthOffset = OrbitEngine.getCalibrationOffset('earth', daysSinceJ2000);
+            const threeOffset = toThreePos(earthOffset, ORBIT_SCALE).multiplyScalar(earthOrbitScale);
+            aids.eclipticPlane.position.copy(threeOffset);
+
             // 动态重建黄道带宽几何：使宽度与地球当前半径等比缩放
             // 教学模式下地球半径 ≈ 0.45（TeachingModeEngine），黄道宽度基准 0.025
             // 真实尺度下地球半径缩小 ~480x，黄道宽度也应同比缩小
@@ -4422,12 +4531,34 @@ export default function UniverseViewer({
             // 同步缩放二十四节气虚影组，使其在轨道放大或缩小模式下也能完美落轨
             if (solarTermGhostsRef.current) {
               solarTermGhostsRef.current.scale.set(earthOrbitScale, earthOrbitScale, earthOrbitScale);
+              // 同步平移二十四节气虚影组，使其与地球当前时刻的摄动偏移对齐
+              solarTermGhostsRef.current.position.copy(threeOffset);
 
               // 同步缩放每个虚影球体的尺寸，使其与真实地球的当前半径保持一致
               // 真实地球的缩放比 = currentRadius / initRadius，虚影球体初始半径与教学模式地球一致
               solarTermGhostMeshesRef.current.forEach((wrapper) => {
                 wrapper.scale.set(ghostBodyScale, ghostBodyScale, ghostBodyScale);
               });
+
+              if (selectedSolarTermIndex !== null && selectedSolarTermIndex !== undefined) {
+                const earthPosTmp = new THREE.Vector3();
+                if (earthGroup) earthGroup.getWorldPosition(earthPosTmp);
+                const ghostPosTmp = new THREE.Vector3();
+                solarTermGhostMeshesRef.current[selectedSolarTermIndex]?.getWorldPosition(ghostPosTmp);
+                
+                const rawPosDiag = OrbitEngine.getHeliocentricPosition('earth', daysSinceJ2000);
+                const realPosDiag = toThreePos(rawPosDiag, ORBIT_SCALE);
+
+                console.log("MANGZHONG DIAGNOSTIC:", {
+                  termIndex: selectedSolarTermIndex,
+                  earth: {x: earthPosTmp.x, y: earthPosTmp.y, z: earthPosTmp.z},
+                  ghost: {x: ghostPosTmp.x, y: ghostPosTmp.y, z: ghostPosTmp.z},
+                  offset: {x: threeOffset.x, y: threeOffset.y, z: threeOffset.z},
+                  days: daysSinceJ2000,
+                  rawPosDiag,
+                  realPosDiag
+                });
+              }
             }
           }
         }
@@ -4530,40 +4661,9 @@ export default function UniverseViewer({
           }
         }
 
-        // 本影锥：日食时显示月球影锥，月食时显示地球影锥
-        if (aids.earthShadowCone) {
-          const showEarthCone = isEclipseDemo && moonPos.distanceTo(earthPos) > 0.01;
-          aids.earthShadowCone.visible = showEarthCone;
-          if (showEarthCone) {
-            const sunToEarth = earthPos.clone().sub(new THREE.Vector3(0,0,0)).normalize();
-            const coneLen = moonPos.distanceTo(earthPos) * 3;
-            const earthRad = getCurrentPlanetRadius('earth');
-            const coneApex = earthPos.clone().add(sunToEarth.clone().multiplyScalar(-coneLen));
-            aids.earthShadowCone.position.copy(coneApex);
-            aids.earthShadowCone.lookAt(earthPos);
-            aids.earthShadowCone.rotateX(Math.PI / 2);
-            const topR = earthRad * 0.8;
-            const bottomR = earthRad * 2.5;
-            aids.earthShadowCone.scale.set(topR + bottomR, coneLen, topR + bottomR);
-          }
-        }
-
-        if (aids.moonShadowCone) {
-          const showMoonCone = isEclipseDemo && moonPos.distanceTo(earthPos) > 0.01;
-          aids.moonShadowCone.visible = showMoonCone;
-          if (showMoonCone) {
-            const sunToMoon = moonPos.clone().sub(new THREE.Vector3(0,0,0)).normalize();
-            const coneLen = moonPos.distanceTo(earthPos) * 2.5;
-            const moonRad = getCurrentPlanetRadius('moon');
-            const coneApex = moonPos.clone().add(sunToMoon.clone().multiplyScalar(-coneLen * 0.2));
-            aids.moonShadowCone.position.copy(coneApex);
-            aids.moonShadowCone.lookAt(moonPos.clone().add(sunToMoon.clone().multiplyScalar(coneLen)));
-            aids.moonShadowCone.rotateX(Math.PI / 2);
-            const topR = moonRad * 0.6;
-            const bottomR = moonRad * 2.0;
-            aids.moonShadowCone.scale.set(topR + bottomR, coneLen, topR + bottomR);
-          }
-        }
+        // 本影锥 (旧版，隐藏)
+        if (aids.earthShadowCone) aids.earthShadowCone.visible = false;
+        if (aids.moonShadowCone) aids.moonShadowCone.visible = false;
 
         // ═══════════════════════════════════════════════════════════════
         // 增强日食/月食3D视觉效果 (物理正确阴影锥)
@@ -4586,141 +4686,275 @@ export default function UniverseViewer({
         const moonToEarthDir = new THREE.Vector3().subVectors(earthPos, moonPos).normalize();
         const earthToMoonDist = earthPos.distanceTo(moonPos);
 
-        // 1. 太阳光束 (Sun → Earth/Moon)
+        // 1. 太阳光束 (Sun → Earth/Moon) — 彻底隐藏以恢复清爽
         if (aids.sunLightBeam) {
-          aids.sunLightBeam.visible = isEclipseDemo;
-          if (isEclipseDemo) {
-            // 检测当前是日食还是月食：看月球在太阳和地球之间还是地球在太阳和月球之间
-            const earthToMoon = new THREE.Vector3().subVectors(moonPos, earthPos);
-            const dot = earthToSunDir.dot(earthToMoon);
-            const isSolarEclipse = dot > 0; // 月球在太阳方向（日食）
+          aids.sunLightBeam.visible = false;
+        }
 
-            const targetPos = isSolarEclipse ? moonPos : earthPos;
-            const targetRad = isSolarEclipse ? moonRadiusScene : earthRadiusScene;
-            const beamDir = new THREE.Vector3().subVectors(targetPos, sunPos).normalize();
-            const beamLen = sunPos.distanceTo(targetPos);
-            const beamCenter = sunPos.clone().add(beamDir.clone().multiplyScalar(beamLen * 0.5));
+        // 白道面、交线及升降交点球的可见性更新
+        const showEclipseAids = isEclipseDemo;
+        if (aids.moonOrbitPlane) aids.moonOrbitPlane.visible = showEclipseAids;
+        if (aids.moonNodesLine) aids.moonNodesLine.visible = showEclipseAids;
+        if (aids.ascendingNodeMarker) aids.ascendingNodeMarker.visible = showEclipseAids;
+        if (aids.descendingNodeMarker) aids.descendingNodeMarker.visible = showEclipseAids;
 
-            // 光束半径：从太阳半径渐变到遮挡体半径
-            const startRadius = sunRadiusScene * 0.15;
-            const endRadius = targetRad * 1.5;
+        // 识别日食/月食模式
+        const isSolarMode = eclipseEventTypeRef.current === 'solar';
+        const isLunarMode = eclipseEventTypeRef.current === 'lunar';
 
-            aids.sunLightBeam.position.copy(beamCenter);
-            const up = new THREE.Vector3(0, 1, 0);
-            const q = new THREE.Quaternion().setFromUnitVectors(up, beamDir);
-            aids.sunLightBeam.quaternion.copy(q);
-            aids.sunLightBeam.scale.set(startRadius + endRadius, beamLen, startRadius + endRadius);
+        // 偏差角计算：
+        // 影子方向：背日方向。因为太阳在原点 (0,0,0)，所以：
+        // 地球影子方向 = earthPos.clone().normalize()
+        // 月球影子方向 = moonPos.clone().normalize()
+        let diffDeg = 0;
+        let diffRad = 0;
+        let displayElevationDeg = 0;
+
+        if (earthPos && moonPos) {
+          if (isLunarMode) {
+            // 月食：计算地球影子方向与地月向量的夹角
+            const shadowDir = earthPos.clone().normalize();
+            const earthToMoon = new THREE.Vector3().subVectors(moonPos, earthPos).normalize();
+            const cosDiff = shadowDir.dot(earthToMoon);
+            diffRad = Math.acos(THREE.MathUtils.clamp(cosDiff, -1, 1));
+            diffDeg = (diffRad * 180.0) / Math.PI;
+
+            // 真实的倾角黄纬：考虑自适应还原 (演示放大系数)
+            const angleAmplification = Math.sin(15.0 * Math.PI / 180.0) / Math.sin(5.145 * Math.PI / 180.0);
+            const moonRelPos = new THREE.Vector3().subVectors(moonPos, earthPos);
+            const displayY = strictPhysicsRef.current ? moonRelPos.y : moonRelPos.y / angleAmplification;
+            const horizontalDist = new THREE.Vector3(moonRelPos.x, 0, moonRelPos.z).length();
+            displayElevationDeg = Math.atan2(displayY, horizontalDist) * 180.0 / Math.PI;
+          } else {
+            // 日食：计算月球影子方向与月地向量的夹角
+            const shadowDir = moonPos.clone().normalize();
+            const moonToEarth = new THREE.Vector3().subVectors(earthPos, moonPos).normalize();
+            const cosDiff = shadowDir.dot(moonToEarth);
+            diffRad = Math.acos(THREE.MathUtils.clamp(cosDiff, -1, 1));
+            diffDeg = (diffRad * 180.0) / Math.PI;
+
+            // 真实的倾角黄纬：考虑自适应还原 (演示放大系数)
+            const angleAmplification = Math.sin(15.0 * Math.PI / 180.0) / Math.sin(5.145 * Math.PI / 180.0);
+            const moonRelPos = new THREE.Vector3().subVectors(moonPos, earthPos);
+            const displayY = strictPhysicsRef.current ? moonRelPos.y : moonRelPos.y / angleAmplification;
+            const horizontalDist = new THREE.Vector3(moonRelPos.x, 0, moonRelPos.z).length();
+            displayElevationDeg = Math.atan2(displayY, horizontalDist) * 180.0 / Math.PI;
           }
         }
 
         // 2. 月球阴影锥 (日食演示)
-        // 日食：月球在太阳和地球之间，月球的影子投射到地球
+        // 2. 月球阴影锥 (日食演示)
         if (aids.moonUmbraCone && aids.moonPenumbraCone) {
-          const earthToMoon = new THREE.Vector3().subVectors(moonPos, earthPos);
-          const dot = earthToSunDir.dot(earthToMoon);
-          const isSolarEclipseAlignment = dot > 0;
-          const showMoonCones = isEclipseDemo && isSolarEclipseAlignment && earthToMoonDist > 0.01;
-
+          const showMoonCones = isEclipseDemo && isSolarMode && earthToMoonDist > 0.01;
           aids.moonUmbraCone.visible = showMoonCones;
-          aids.moonPenumbraCone.visible = showMoonCones;
+          aids.moonPenumbraCone.visible = false; // 移除发散半影锥
 
-          if (showMoonCones) {
-            // 月球本影锥：从月球向地球方向收敛（底部在月球，尖头指向地球方向）
-            // ConeGeometry 底部在 -Y，尖头在 +Y
-            // 底部 = 月球处（大），尖头 = 地球方向（小）
-            const umbraLen = earthToMoonDist * 1.5; // 延伸超过地球
-            const umbraCenter = moonPos.clone().add(moonToEarthDir.clone().multiplyScalar(umbraLen * 0.5));
+          if (showMoonCones && moonPos && earthPos) {
+            // 月球本影锥方向：从月球指向远离太阳的方向，等同于 moonPos 从太阳发出的向量（因为太阳在原点）
+            // 注意：由于宇宙学坐标系太阳在原点，背日方向即为星体本身的坐标归一化方向
+            const shadowDir = moonPos.clone().normalize(); // 背日方向
 
-            // 计算物理近似：本影锥在月球处的半径 ≈ 月球半径
-            // 在地球处的半径 = 月球半径 - umbraLen * tan(本影半顶角)
-            // 简化：用月球半径作为底部，在地球处收敛到很小
-            const umbraBottomR = moonRadiusScene * 1.2;
-            const umbraTopR = moonRadiusScene * 0.05; // 尖头很小
+            // 物理本影收敛，尖头指向远离太阳方向
+            const isStrict = strictPhysicsRef.current;
+            const umbraLen = isStrict ? earthToMoonDist * 0.98 : earthToMoonDist * 1.02;
+            // 锥体中心偏移：向着背日方向推出去半个长度
+            const umbraCenter = moonPos.clone().add(shadowDir.clone().multiplyScalar(umbraLen * 0.5));
+            const umbraBottomR = moonRadiusScene * 1.1;
 
-            alignConeToDir(aids.moonUmbraCone, moonToEarthDir, umbraCenter);
+            alignConeToDir(aids.moonUmbraCone, shadowDir, umbraCenter);
             aids.moonUmbraCone.scale.set(umbraBottomR, umbraLen, umbraBottomR);
 
-            // 月球半影锥：从月球向地球方向发散（尖头在月球，底部在地球方向）
-            // ConeGeometry 尖头在 +Y，底部在 -Y
-            // 尖头 = 月球处（小），底部 = 远处（大）
-            const penumbraLen = earthToMoonDist * 2.0;
-            // 半影锥中心点：尖头在月球，底部在远处
-            // position 应设在中心，即 月球 + dir * (penumbraLen/2)
-            const penumbraCenter = moonPos.clone().add(moonToEarthDir.clone().multiplyScalar(penumbraLen * 0.5));
+            // 动态调节透明度：对准时加深
+            const alignmentFactor = Math.max(0, 1 - diffDeg / 8.0);
+            const umbraOpacity = 0.32 + 0.28 * alignmentFactor;
 
-            const penumbraTipR = moonRadiusScene * 0.8; // 月球处
-            const penumbraBottomR = earthRadiusScene * 2.5; // 远处，大到覆盖地球
-
-            // 半影锥：+Y 要指向远离地球的方向（尖头在月球）
-            alignConeToDir(aids.moonPenumbraCone, moonToEarthDir.clone().negate(), penumbraCenter);
-            // 反转后，+Y 指向月球反方向（即远离地球），但我们要尖头在月球...
-            // 重新算：半影锥是发散的，从月球开始变大
-            // 使用默认 ConeGeometry：底部(-Y)大，尖头(+Y)小
-            // 我要底部在远处（大），尖头在月球（小）
-            // 所以 +Y 应该指向月球... 不，+Y 应该指向远处
-            // 等等：alignConeToDir 把 +Y 对齐到传入的 dir
-            // 如果传入 moonToEarthDir（月球→地球），+Y 指向地球
-            // 那尖头(+Y)在地球方向，底部(-Y)在月球方向
-            // 这正是我们想要的：底部在月球（大），尖头在地球方向（小）？
-            // 不！半影锥是发散的，应该月球处小，远处大
-            // 所以尖头在月球（小），底部在远处（大）
-            // 传入 dir = moonToEarthDir，+Y 指向地球，尖头在地球方向
-            // 但我们要尖头在月球... 所以传入 -moonToEarthDir
-            // 然后 position = 月球 + moonToEarthDir * (len/2)
-            // 这样 +Y 指向月球反方向，尖头在月球反方向... 不对
-
-            // 让我重新想：
-            // ConeGeometry: 尖头(+Y)，底部(-Y，radius参数)
-            // 半影锥：月球处小，远处大
-            // 所以 尖头(+Y) 应该在 月球处，底部(-Y) 在远处
-            // 即 +Y 指向 月球，-Y 指向 远处
-            // alignConeToDir(cone, dir, pos): +Y 对齐到 dir
-            // 所以 dir 应该指向 月球
-            // 从中心到月球的方向 = -(moonToEarthDir)
-            // 中心 = 月球 + moonToEarthDir * (len/2)
-            // 从中心到月球 = -moonToEarthDir * (len/2)
-            // 所以 alignConeToDir(aids.moonPenumbraCone, moonToEarthDir.clone().negate(), penumbraCenter)
-            // 这是对的！+Y 指向月球（尖头），-Y 指向地球（底部，大）
-
-            alignConeToDir(aids.moonPenumbraCone, moonToEarthDir.clone().negate(), penumbraCenter);
-            aids.moonPenumbraCone.scale.set(penumbraBottomR, penumbraLen, penumbraBottomR);
+            if (aids.moonUmbraCone.material instanceof THREE.ShaderMaterial) {
+              aids.moonUmbraCone.material.uniforms.uOpacity.value = umbraOpacity;
+            }
           }
         }
 
-        // 3. 地球阴影锥 (月食演示)
-        // 月食：地球在太阳和月球之间，地球的影子投射到月球
-        if (aids.earthUmbraCone && aids.earthPenumbraCone) {
-          const earthToMoon = new THREE.Vector3().subVectors(moonPos, earthPos);
-          const dot = earthToSunDir.dot(earthToMoon);
-          const isLunarEclipseAlignment = dot < 0;
-          const showEarthCones = isEclipseDemo && isLunarEclipseAlignment && earthToMoonDist > 0.01;
-
+        // 3. 地球阴影锥 (月食演示) — 截头锥 + 月球距离处截面盘
+        if (aids.earthUmbraCone && aids.earthUmbraDisc) {
+          const showEarthCones = isEclipseDemo && isLunarMode && earthToMoonDist > 0.01;
           aids.earthUmbraCone.visible = showEarthCones;
-          aids.earthPenumbraCone.visible = showEarthCones;
+          aids.earthUmbraDisc.visible = showEarthCones;
+          if (aids.earthPenumbraCone) aids.earthPenumbraCone.visible = false;
 
-          if (showEarthCones) {
-            // 地球本影锥：从地球向远离太阳方向收敛
-            // 底部在地球（大），尖头在远离太阳方向（小）
-            const umbraLen = earthToMoonDist * 1.8; // 延伸到月球之外
-            const umbraCenter = earthPos.clone().add(earthToSunDir.clone().multiplyScalar(umbraLen * 0.5));
+          if (showEarthCones && earthPos && moonPos) {
+            // 地球影锥方向：从地球指向远离太阳的方向
+            const shadowDir = earthPos.clone().normalize();
 
-            const umbraBottomR = earthRadiusScene * 1.1;
-            const umbraTopR = earthRadiusScene * 0.05;
+            // 影锥长度 = 当前地月场景距离（动态，随月球轨道变化）
+            const coneLen = earthPos.distanceTo(moonPos);
 
-            alignConeToDir(aids.earthUmbraCone, earthToSunDir, umbraCenter);
-            aids.earthUmbraCone.scale.set(umbraBottomR, umbraLen, umbraBottomR);
+            // 物理本影半顶角：由日-地几何唯一决定
+            const earthPosRaw = OrbitEngine.getHeliocentricPosition('earth', daysSinceJ2000);
+            const sunToEarthDistAU = Math.sqrt(earthPosRaw.x * earthPosRaw.x + earthPosRaw.y * earthPosRaw.y + earthPosRaw.z * earthPosRaw.z);
+            const sunToEarthDistKm = sunToEarthDistAU * 149597870.7;
+            const { umbraAngle } = AstrophenomenaEngine.computeShadowCone(696340, 6371, sunToEarthDistKm);
 
-            // 地球半影锥：从地球向远离太阳方向发散
-            // 尖头在地球（小），底部在远处（大）
-            const penumbraLen = earthToMoonDist * 2.5;
-            const penumbraCenter = earthPos.clone().add(earthToSunDir.clone().multiplyScalar(penumbraLen * 0.5));
+            // 截面半径：严格模式用物理公式；演示模式用月球半径（用户指定“月球直径大小”）
+            const sectionRadius = strictPhysicsRef.current
+              ? Math.max(0.0001, earthRadiusScene - coneLen * Math.tan(umbraAngle))
+              : moonRadiusScene;
 
-            const penumbraTipR = earthRadiusScene * 0.9;
-            const penumbraBottomR = earthRadiusScene * 3.0;
+            // 圆盘半径：演示模式下放大1.5倍以确保清晰可见，严格模式保持物理正确
+            const discRadius = strictPhysicsRef.current ? sectionRadius : moonRadiusScene * 1.5;
 
-            // 半影锥：+Y 指向地球（尖头），-Y 指向远离太阳方向（底部，大）
-            alignConeToDir(aids.earthPenumbraCone, earthToSunDir.clone().negate(), penumbraCenter);
-            aids.earthPenumbraCone.scale.set(penumbraBottomR, penumbraLen, penumbraBottomR);
+            // 更新截头锥几何（仅在尺寸变化时重建，避免每帧创建垃圾）
+            const lastSectionR = aids.earthUmbraCone.userData.lastSectionR || 0;
+            const lastEarthR = aids.earthUmbraCone.userData.lastEarthR || 0;
+            const lastLen = aids.earthUmbraCone.userData.lastLen || 0;
+            if (
+              Math.abs(sectionRadius - lastSectionR) > 0.001 ||
+              Math.abs(earthRadiusScene - lastEarthR) > 0.001 ||
+              Math.abs(coneLen - lastLen) > 0.001
+            ) {
+              aids.earthUmbraCone.geometry.dispose();
+              aids.earthUmbraCone.geometry = new THREE.CylinderGeometry(sectionRadius, earthRadiusScene, coneLen, 48, 1, true);
+              aids.earthUmbraCone.userData.lastSectionR = sectionRadius;
+              aids.earthUmbraCone.userData.lastEarthR = earthRadiusScene;
+              aids.earthUmbraCone.userData.lastLen = coneLen;
+            }
+
+            // 截头锥中心位于地影方向中点（CylinderGeometry 沿 Y 轴从 -height/2 到 +height/2）
+            const umbraCenter = earthPos.clone().add(shadowDir.clone().multiplyScalar(coneLen * 0.5));
+            alignConeToDir(aids.earthUmbraCone, shadowDir, umbraCenter);
+
+            // 实体截面盘：放置在月球距离处，垂直于影轴
+            const discPos = earthPos.clone().add(shadowDir.clone().multiplyScalar(coneLen));
+            const discUp = new THREE.Vector3(0, 0, 1);
+            const discQ = new THREE.Quaternion().setFromUnitVectors(discUp, shadowDir);
+            aids.earthUmbraDisc.quaternion.copy(discQ);
+            aids.earthUmbraDisc.position.copy(discPos);
+            aids.earthUmbraDisc.scale.set(discRadius, discRadius, 1);
+
+            // 动态调节透明度：对准时加深
+            const alignmentFactor = Math.max(0, 1 - diffDeg / 8.0);
+            const umbraOpacity = 0.32 + 0.28 * alignmentFactor;
+
+            if (aids.earthUmbraCone.material instanceof THREE.ShaderMaterial) {
+              aids.earthUmbraCone.material.uniforms.uOpacity.value = umbraOpacity;
+            }
+            if (aids.earthUmbraDisc.material instanceof THREE.MeshBasicMaterial) {
+              aids.earthUmbraDisc.material.opacity = 0.4 + 0.25 * alignmentFactor;
+            }
+          }
+        }
+
+        // 4. 对齐指示线与影轴线更新
+        if (aids.eclipseAlignmentLine) {
+          aids.eclipseAlignmentLine.visible = isEclipseDemo;
+          if (isEclipseDemo && earthPos && moonPos) {
+            const positions = (aids.eclipseAlignmentLine.geometry as THREE.BufferGeometry).attributes.position.array as Float32Array;
+            positions[0] = earthPos.x;
+            positions[1] = earthPos.y;
+            positions[2] = earthPos.z;
+            positions[3] = moonPos.x;
+            positions[4] = moonPos.y;
+            positions[5] = moonPos.z;
+            (aids.eclipseAlignmentLine.geometry as THREE.BufferGeometry).attributes.position.needsUpdate = true;
+
+            // 对准时高亮变红，平时为白色
+            if (aids.eclipseAlignmentLine.material instanceof THREE.LineBasicMaterial) {
+              const colorVal = new THREE.Color().lerpColors(new THREE.Color(0xff0000), new THREE.Color(0xffffff), Math.min(1.0, diffDeg / 3.0));
+              aids.eclipseAlignmentLine.material.color.copy(colorVal);
+            }
+          }
+        }
+
+        if (aids.umbraAxisLine) {
+          aids.umbraAxisLine.visible = isEclipseDemo;
+          if (isEclipseDemo && earthPos && moonPos) {
+            const startPos = isLunarMode ? earthPos : moonPos;
+            const axisDir = isLunarMode ? earthPos.clone().normalize() : moonPos.clone().normalize();
+            const axisLen = earthToMoonDist * 2.5;
+            const endPos = startPos.clone().add(axisDir.clone().multiplyScalar(axisLen));
+
+            const positions = (aids.umbraAxisLine.geometry as THREE.BufferGeometry).attributes.position.array as Float32Array;
+            positions[0] = startPos.x;
+            positions[1] = startPos.y;
+            positions[2] = startPos.z;
+            positions[3] = endPos.x;
+            positions[4] = endPos.y;
+            positions[5] = endPos.z;
+            (aids.umbraAxisLine.geometry as THREE.BufferGeometry).attributes.position.needsUpdate = true;
+            aids.umbraAxisLine.computeLineDistances();
+          }
+        }
+
+        // 5. 更新 HUD 文字与仪表盘 (仅在 Eclipses 演示模式下)
+        if (isEclipseDemo && earthPos && moonPos) {
+          // 计算当前食相状态
+          let statusText = '';
+          const d_axis = earthToMoonDist * Math.sin(diffRad);
+
+          if (isLunarMode) {
+            // 月食
+            const R_umbra = earthRadiusScene * 1.05 * (1 - 1 / 1.8);
+            const R_penumbra = earthRadiusScene * (0.9 + 1.9 * (1 / 2.5));
+            
+            if (d_axis + moonRadiusScene < R_umbra) {
+              statusText = lang === 'zh' ? '食甚 - 月全食 🔴' : 'Max Eclipse - Total Lunar Eclipse 🔴';
+            } else if (d_axis - moonRadiusScene < R_umbra) {
+              statusText = lang === 'zh' ? '食甚 - 月偏食 🌗' : 'Max Eclipse - Partial Lunar Eclipse 🌗';
+            } else if (d_axis - moonRadiusScene < R_penumbra) {
+              statusText = lang === 'zh' ? '食甚 - 半影月食 🌑' : 'Max Eclipse - Penumbral Lunar Eclipse 🌑';
+            } else {
+              statusText = lang === 'zh' ? '无交食 - 望月 (满月) 🌕' : 'No Eclipse - Full Moon 🌕';
+            }
+          } else {
+            // 日食
+            const R_umbra = moonRadiusScene * 1.1 * (1 - 1 / 1.5);
+            const R_penumbra = moonRadiusScene * 0.4 + earthRadiusScene * 0.9;
+            
+            if (d_axis < R_umbra) {
+              statusText = lang === 'zh' ? '食甚 - 日全食 🌑' : 'Max Eclipse - Total Solar Eclipse 🌑';
+            } else if (d_axis - earthRadiusScene < R_penumbra) {
+              statusText = lang === 'zh' ? '食甚 - 日偏食 🌘' : 'Max Eclipse - Partial Solar Eclipse 🌘';
+            } else {
+              statusText = lang === 'zh' ? '无交食 - 朔月 (新月) 🌑' : 'No Eclipse - New Moon 🌑';
+            }
+          }
+
+          // 更新 DOM Readouts
+          const statusTextEl = document.getElementById('eclipse-status-val');
+          const deviationTextEl = document.getElementById('eclipse-deviation-val');
+          const elevationTextEl = document.getElementById('eclipse-elevation-val');
+          const gaugePointerEl = document.getElementById('eclipse-pointer');
+
+          if (statusTextEl) {
+            statusTextEl.innerText = statusText;
+            if (statusText.includes('无交食') || statusText.includes('No Eclipse')) {
+              statusTextEl.className = "font-bold text-slate-400";
+            } else {
+              statusTextEl.className = "font-bold text-red-500 animate-pulse";
+            }
+          }
+
+          if (deviationTextEl) {
+            deviationTextEl.innerText = `${diffDeg.toFixed(2)}°`;
+          }
+
+          if (elevationTextEl) {
+            const signSymbol = displayElevationDeg >= 0 ? '+' : '';
+            const demoLabel = strictPhysicsRef.current ? '' : (lang === 'zh' ? ' (演示放大)' : ' (Scaled)');
+            elevationTextEl.innerText = `${signSymbol}${displayElevationDeg.toFixed(2)}°${demoLabel}`;
+          }
+
+          if (gaugePointerEl) {
+            const elevationSign = displayElevationDeg >= 0 ? 1 : -1;
+            const pointerRot = elevationSign * Math.min(60, (diffDeg / 6.0) * 60);
+            gaugePointerEl.style.transform = `rotate(${pointerRot.toFixed(2)}deg)`;
+            
+            if (statusText.includes('无交食') || statusText.includes('No Eclipse')) {
+              gaugePointerEl.style.filter = 'none';
+              gaugePointerEl.style.background = '#ffffff';
+            } else {
+              gaugePointerEl.style.filter = 'drop-shadow(0 0 6px rgba(239, 68, 68, 0.8))';
+              gaugePointerEl.style.background = '#ef4444';
+            }
           }
         }
 
@@ -4968,6 +5202,13 @@ export default function UniverseViewer({
         if (aids.sunToMoonBeam) aids.sunToMoonBeam.visible = false;
         if (aids.moonToEarthBeam) aids.moonToEarthBeam.visible = false;
         if (aids.moonPhaseProjection) aids.moonPhaseProjection.visible = false;
+
+        if (aids.moonOrbitPlane) aids.moonOrbitPlane.visible = false;
+        if (aids.moonNodesLine) aids.moonNodesLine.visible = false;
+        if (aids.ascendingNodeMarker) aids.ascendingNodeMarker.visible = false;
+        if (aids.descendingNodeMarker) aids.descendingNodeMarker.visible = false;
+        if (aids.eclipseAlignmentLine) aids.eclipseAlignmentLine.visible = false;
+        if (aids.umbraAxisLine) aids.umbraAxisLine.visible = false;
 
         // 同时隐藏真实地球赤道环
         const earthGroup = planetMeshesRef.current['earth'];
@@ -5623,6 +5864,7 @@ export default function UniverseViewer({
       if (aids.sunLightBeam) { scene.remove(aids.sunLightBeam); aids.sunLightBeam.geometry.dispose(); (aids.sunLightBeam.material as THREE.Material).dispose(); }
       if (aids.earthShadowCone) { scene.remove(aids.earthShadowCone); aids.earthShadowCone.geometry.dispose(); (aids.earthShadowCone.material as THREE.Material).dispose(); }
       if (aids.earthUmbraCone) { scene.remove(aids.earthUmbraCone); aids.earthUmbraCone.geometry.dispose(); (aids.earthUmbraCone.material as THREE.Material).dispose(); }
+      if (aids.earthUmbraDisc) { scene.remove(aids.earthUmbraDisc); aids.earthUmbraDisc.geometry.dispose(); (aids.earthUmbraDisc.material as THREE.Material).dispose(); }
       if (aids.earthPenumbraCone) { scene.remove(aids.earthPenumbraCone); aids.earthPenumbraCone.geometry.dispose(); (aids.earthPenumbraCone.material as THREE.Material).dispose(); }
       if (aids.moonShadowCone) { scene.remove(aids.moonShadowCone); aids.moonShadowCone.geometry.dispose(); (aids.moonShadowCone.material as THREE.Material).dispose(); }
       if (aids.moonUmbraCone) { scene.remove(aids.moonUmbraCone); aids.moonUmbraCone.geometry.dispose(); (aids.moonUmbraCone.material as THREE.Material).dispose(); }
@@ -5647,6 +5889,12 @@ export default function UniverseViewer({
       disposeObject(aids.sunToMoonBeam);
       disposeObject(aids.moonToEarthBeam);
       disposeObject(aids.moonPhaseProjection);
+      disposeObject(aids.moonOrbitPlane);
+      disposeObject(aids.moonNodesLine);
+      disposeObject(aids.ascendingNodeMarker);
+      disposeObject(aids.descendingNodeMarker);
+      disposeObject(aids.eclipseAlignmentLine);
+      disposeObject(aids.umbraAxisLine);
       // 清理节气虚影地球
       solarTermGhostMeshesRef.current.forEach(group => {
         group.traverse((node) => {
@@ -6287,6 +6535,8 @@ export default function UniverseViewer({
           </button>
         </div>
       )}
+
+
     </div>
   );
 }

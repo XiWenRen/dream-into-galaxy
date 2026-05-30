@@ -153,7 +153,7 @@ export default function PhenomenaGuidePanel({
   eclipseProgress = 0.5,
   eclipseWindow,
   onSelectEclipseEvent,
-  onChangeEclipseProgress: _onChangeEclipseProgress,
+  onChangeEclipseProgress,
   selectedPlanetId,
   onSelectPlanet,
 }: PhenomenaGuidePanelProps) {
@@ -221,7 +221,7 @@ export default function PhenomenaGuidePanel({
 
   const formatTimeShort = (ts: number) => {
     const d = new Date(ts);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
   };
 
   const progressLabel = (() => {
@@ -230,8 +230,8 @@ export default function PhenomenaGuidePanel({
       const total = eclipseWindow.end - eclipseWindow.start;
       const current = eclipseWindow.start + eclipseProgress * total;
       const d = new Date(current);
-      const hh = String(d.getHours()).padStart(2, '0');
-      const mm = String(d.getMinutes()).padStart(2, '0');
+      const hh = String(d.getUTCHours()).padStart(2, '0');
+      const mm = String(d.getUTCMinutes()).padStart(2, '0');
       return `${hh}:${mm}`;
     }
     const hours = (eclipseProgress - 0.5) * 6;
@@ -583,9 +583,101 @@ export default function PhenomenaGuidePanel({
                 </select>
                 {eclipseEventTs && (
                   <p className="mt-1.5 text-[10px] text-slate-400">
-                    {isZh ? '当前时间' : 'Current'}: <span className={`font-bold ${getThemeAccent(theme)}`}>{progressLabel}</span>
+                    {isZh ? '食甚时间' : 'Greatest Time'}: <span className={`font-bold ${getThemeAccent(theme)}`}>{formatTimeShort(eclipseEventTs)}</span>
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* Timeline Slider & Controls */}
+            {eclipseEventTs && (
+              <div className="mt-3 bg-white/[0.02] border border-white/5 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  <span>{isZh ? '交食时间轴' : 'Eclipse Timeline'}</span>
+                  <span className={`font-mono text-xs ${getThemeAccent(theme)}`}>{progressLabel}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.001"
+                  value={eclipseProgress}
+                  onChange={(e) => onChangeEclipseProgress?.(parseFloat(e.target.value))}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className={`w-full h-1.5 rounded-lg appearance-none cursor-pointer outline-none bg-slate-800 ${getThemeTrack(theme)}`}
+                  style={{
+                    background: `linear-gradient(to right, var(--tw-accent-color, #ef4444) ${eclipseProgress * 100}%, #1e293b ${eclipseProgress * 100}%)`
+                  }}
+                />
+                <div className="flex justify-between text-[9px] text-slate-500 font-mono">
+                  <span>{eclipseWindow ? `${isZh ? '初亏' : 'Start'} ${formatTimeShort(eclipseWindow.start)}` : '-3h'}</span>
+                  <span>{isZh ? '食甚' : 'Maximum'}</span>
+                  <span>{eclipseWindow ? `${isZh ? '复圆' : 'End'} ${formatTimeShort(eclipseWindow.end)}` : '+3h'}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Geometry stats & gauge integrated */}
+            {eclipseEventTs && (
+              <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3 space-y-3">
+                <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_6px_#ef4444]" />
+                    <span className="font-bold text-[10px] tracking-wider text-red-400 uppercase">
+                      {isZh ? '交食几何观测指标' : 'Eclipse Geometry'}
+                    </span>
+                  </div>
+                  <span className="text-[9px] bg-slate-800/80 px-1.5 py-0.5 rounded text-slate-400 font-semibold uppercase tracking-wider">
+                    {eclipseCategory === 'solar' 
+                      ? (isZh ? '日食' : 'Solar') 
+                      : (isZh ? '月食' : 'Lunar')}
+                  </span>
+                </div>
+
+                {/* Dial Gauge */}
+                <div className="relative w-28 h-16 mx-auto flex items-end justify-center overflow-hidden border-b border-white/10">
+                  <div className="absolute top-1 w-24 h-24 rounded-full border border-dashed border-white/10 flex items-center justify-center">
+                    <span className="absolute left-1.5 text-[8px] font-mono text-slate-500">-6°</span>
+                    <span className="absolute top-1 text-[8px] font-mono text-slate-500">0°</span>
+                    <span className="absolute right-1.5 text-[8px] font-mono text-slate-500">+6°</span>
+                  </div>
+                  <div className="absolute bottom-0 w-3 h-3 rounded-full bg-slate-950 border border-white/20 flex items-center justify-center z-20">
+                    <div className="w-1 h-1 rounded-full bg-red-500 shadow-[0_0_4px_#ef4444]" />
+                  </div>
+                  <div 
+                    id="eclipse-pointer"
+                    className="absolute bottom-0 w-0.5 h-10 origin-bottom bg-gradient-to-t from-red-500 via-red-400 to-white z-10 transition-transform duration-75"
+                    style={{ transform: 'rotate(0deg)' }}
+                  />
+                </div>
+
+                {/* Digital readout values */}
+                <div className="bg-black/45 rounded-lg p-2.5 border border-white/5 space-y-1.5 text-[10px] font-mono">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">{isZh ? '白道黄道倾斜黄纬' : 'Latitude Elevation'}:</span>
+                    <span id="eclipse-elevation-val" className="text-slate-200 font-bold">-</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">{isZh ? '地月日对齐偏差角' : 'Alignment Deviation'}:</span>
+                    <span id="eclipse-deviation-val" className="text-amber-400 font-bold font-sans">-</span>
+                  </div>
+                  <div className="border-t border-white/5 pt-1.5 text-center">
+                    <span id="eclipse-status-val" className="font-bold text-xs tracking-wide text-slate-400">-</span>
+                  </div>
+                </div>
+
+                {/* Educational Note */}
+                <div className="bg-slate-900/30 rounded-lg p-2 border border-white/5 text-[9px] text-slate-400 leading-normal">
+                  {isZh ? (
+                    <p>
+                      💡 <span className="text-slate-300">交食几何原理</span>：由于白道与黄道存在 <span className="text-amber-400">5.14°</span> 夹角，只有月球运转到黄白交点附近且三点共线时，才会发生交食。使用左下方系统尺度切换按钮可观察演示放大与真实对比。
+                    </p>
+                  ) : (
+                    <p>
+                      💡 <span className="text-slate-300">Geometry Principle</span>: Due to the <span className="text-amber-400">5.14°</span> inclination of the Moon's orbit relative to the Ecliptic, eclipses occur only when the Moon is near the nodes under alignment. Use the system scale button to switch between Demo & Real views.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>

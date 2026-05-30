@@ -208,16 +208,36 @@ export class AstrophenomenaEngine {
     const centerDays = (timestamp / 86400000) - 10957.5;
     const coarseStep = 0.01;   // ~14.4 min
     const fineStep = 0.0005;   // ~43 sec
-    const maxRadius = 0.6;     // 搜索半径上限 ~14.4h
+    const maxRadius = 1.0;     // 搜索半径上限 24h
+
+    // 1. 寻找实际模拟模型中的极值点 (最大食)
+    let peakDays = centerDays;
+    let minAngle = Infinity;
+    for (let d = centerDays - maxRadius; d <= centerDays + maxRadius; d += coarseStep) {
+      const r = this.detectEclipse(d);
+      const angle = type === 'solar' ? r.angleDegrees : Math.abs(180 - r.angleDegrees);
+      if (angle < minAngle) {
+        minAngle = angle;
+        peakDays = d;
+      }
+    }
 
     const isActive = (days: number) => {
       const r = this.detectEclipse(days);
       return type === 'solar' ? r.solarEclipse : r.lunarEclipse;
     };
 
+    // 如果找不到有效交食区间，给一个默认窗口
+    if (!isActive(peakDays)) {
+      return {
+        start: timestamp - 3 * 3600000,
+        end: timestamp + 3 * 3600000
+      };
+    }
+
     // --- 粗搜开始（向后） ---
-    let coarseStart = centerDays;
-    for (let d = centerDays; d > centerDays - maxRadius; d -= coarseStep) {
+    let coarseStart = peakDays;
+    for (let d = peakDays; d > peakDays - maxRadius; d -= coarseStep) {
       if (!isActive(d)) {
         coarseStart = d + coarseStep;
         break;
@@ -227,7 +247,7 @@ export class AstrophenomenaEngine {
 
     // --- 精搜开始（向后） ---
     let startDays = coarseStart;
-    for (let d = coarseStart; d > centerDays - maxRadius; d -= fineStep) {
+    for (let d = coarseStart; d > peakDays - maxRadius; d -= fineStep) {
       if (!isActive(d)) {
         startDays = d + fineStep;
         break;
@@ -236,8 +256,8 @@ export class AstrophenomenaEngine {
     }
 
     // --- 粗搜结束（向前） ---
-    let coarseEnd = centerDays;
-    for (let d = centerDays; d < centerDays + maxRadius; d += coarseStep) {
+    let coarseEnd = peakDays;
+    for (let d = peakDays; d < peakDays + maxRadius; d += coarseStep) {
       if (!isActive(d)) {
         coarseEnd = d - coarseStep;
         break;
@@ -247,7 +267,7 @@ export class AstrophenomenaEngine {
 
     // --- 精搜结束（向前） ---
     let endDays = coarseEnd;
-    for (let d = coarseEnd; d < centerDays + maxRadius; d += fineStep) {
+    for (let d = coarseEnd; d < peakDays + maxRadius; d += fineStep) {
       if (!isActive(d)) {
         endDays = d - fineStep;
         break;

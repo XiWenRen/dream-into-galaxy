@@ -175,9 +175,24 @@ export default function ArcTimeBar({
   const [timezoneOffset, setTimezoneOffset] = useState(0); // 小时偏移，默认 UTC
   const [showTzPicker, setShowTzPicker] = useState(false);
   const [isEditingTime, setIsEditingTime] = useState(false);
+  const [wasPaused, setWasPaused] = useState(false); // 记录编辑前模拟是否已暂停
   const [hoveredPreset, setHoveredPreset] = useState<TimePreset | null>(null);
   const isZh = lang === 'zh';
   const t = translations[lang];
+
+  // 时区敏感的 ISO 格式时间字符串解析器，消除本地浏览器时区干扰
+  const parseDateTimeLocal = (val: string, offsetHours: number): number => {
+    const match = val.match(/^(\d+)-(\d+)-(\d+)T(\d+):(\d+)(?::(\d+))?$/);
+    if (!match) return NaN;
+    const year = parseInt(match[1]);
+    const month = parseInt(match[2]) - 1; // Date.UTC 接受 0-11 月份
+    const day = parseInt(match[3]);
+    const hour = parseInt(match[4]);
+    const minute = parseInt(match[5]);
+    const second = match[6] ? parseInt(match[6]) : 0;
+    const utcTs = Date.UTC(year, month, day, hour, minute, second);
+    return utcTs - offsetHours * 3600 * 1000;
+  };
 
   // 常用时区偏移列表（UTC-12 到 UTC+12）
   const TZ_OPTIONS = useMemo(() => {
@@ -421,28 +436,30 @@ export default function ArcTimeBar({
               onBlur={(e) => {
                 const val = e.target.value;
                 if (val) {
-                  const ts = new Date(val).getTime();
+                  const ts = parseDateTimeLocal(val, timezoneOffset);
                   if (!isNaN(ts)) onJumpDate(ts);
                 }
                 setIsEditingTime(false);
+                onChangeTimeState({ isPaused: wasPaused });
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
-                  const val = (e.target as HTMLInputElement).value;
-                  if (val) {
-                    const ts = new Date(val).getTime();
-                    if (!isNaN(ts)) onJumpDate(ts);
-                  }
-                  setIsEditingTime(false);
+                  e.currentTarget.blur(); // 触发 blur 统一保存，避免双重保存
                 } else if (e.key === 'Escape') {
+                  e.currentTarget.value = ''; // 清空以避开 blur 保存逻辑
                   setIsEditingTime(false);
+                  onChangeTimeState({ isPaused: wasPaused });
                 }
               }}
             />
           ) : (
             <span
               className="text-[11px] font-mono font-semibold text-cyan-300 tracking-wide whitespace-nowrap cursor-pointer select-none"
-              onDoubleClick={() => setIsEditingTime(true)}
+              onDoubleClick={() => {
+                setWasPaused(timeState.isPaused);
+                onChangeTimeState({ isPaused: true }); // 开始编辑时自动暂停模拟
+                setIsEditingTime(true);
+              }}
               title={isZh ? '双击修改时间' : 'Double-click to edit time'}
             >
               {formatTime(timeState.currentTimestamp, timezoneOffset)}
