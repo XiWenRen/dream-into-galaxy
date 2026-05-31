@@ -123,6 +123,9 @@ export default function App() {
   // 天文现象面板开关
   const [phenomenaPanelOpen, setPhenomenaPanelOpen] = useState<boolean>(false);
 
+  // 设置面板开关
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
+
   // 当前选中的节气索引（四季与节气演示模式）
   const [selectedSolarTermIndex, setSelectedSolarTermIndex] = useState<number | null>(null);
   // 当前选中的月相索引（月相演示模式）
@@ -466,9 +469,35 @@ export default function App() {
       <div className="absolute inset-0 bg-radial from-transparent to-[#050608]/95 pointer-events-none z-0" />
 
       {/* ═══════════════════════════════════════════════════════════════
-           TOP-LEFT: Command Panel (collapsible)
+           TOP-LEFT: Settings Button + Left Drawer
          ═══════════════════════════════════════════════════════════════ */}
-      <motion.div drag dragMomentum={false} className="absolute top-5 left-5 z-30 pointer-events-auto touch-none">
+      <div
+        className={`fixed top-3 left-0 z-[45] transition-all duration-300 overflow-hidden ${
+          settingsOpen ? 'max-w-[120px]' : 'max-w-9'
+        } hover:max-w-[120px]`}
+      >
+        <button
+          onClick={() => {
+            const next = !settingsOpen;
+            setSettingsOpen(next);
+            if (next) setPhenomenaPanelOpen(false);
+          }}
+          className={`flex items-center gap-1.5 h-8 rounded-r-xl px-2 transition-all duration-200 bg-black/60 backdrop-blur-xl border border-white/10 border-l-0 shadow-2xl ${
+            settingsOpen
+              ? 'bg-cyan-500/20 text-cyan-300'
+              : 'text-slate-400 hover:text-white hover:bg-white/10'
+          }`}
+        >
+          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <span className={`overflow-hidden transition-all duration-200 text-[11px] font-medium whitespace-nowrap ${settingsOpen ? 'max-w-20' : 'max-w-0'}`}>
+            {lang === 'zh' ? '设置' : 'Settings'}
+          </span>
+        </button>
+      </div>
+      <div className={`fixed top-14 left-3 z-50 w-72 max-h-[calc(100vh-80px)] transition-all duration-300 ${settingsOpen ? 'translate-x-0 opacity-100 pointer-events-auto' : '-translate-x-full opacity-0 pointer-events-none'}`}>
         <CommandPanel
           lang={lang}
           onChangeLang={setLang}
@@ -524,8 +553,157 @@ export default function App() {
           onToggleAxes={setShowAxes}
           showLatLonGrid={showLatLonGrid}
           onToggleLatLonGrid={setShowLatLonGrid}
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
         />
-      </motion.div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════
+           TOP-LEFT (below settings): Astro Phenomena Button + Fused Panel
+         ═══════════════════════════════════════════════════════════════ */}
+      <div
+        className={`fixed top-14 left-0 z-[45] w-72 transition-all duration-300 bg-black/60 backdrop-blur-xl border border-white/10 rounded-r-xl overflow-hidden ${
+          phenomenaPanelOpen ? 'max-h-[calc(100vh-80px)] opacity-100' : 'max-w-9 opacity-100 hover:max-w-[120px]'
+        }`}
+      >
+        <button
+          onClick={() => {
+            const next = !phenomenaPanelOpen;
+            setPhenomenaPanelOpen(next);
+            if (next) setSettingsOpen(false);
+          }}
+          className={`flex items-center gap-1.5 h-8 px-2 transition-all duration-200 w-full ${
+            phenomenaPanelOpen
+              ? 'bg-cyan-500/20 text-cyan-300 border-b border-white/10'
+              : 'text-slate-400 hover:text-white hover:bg-white/10'
+          }`}
+        >
+          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" />
+          </svg>
+          <span className={`overflow-hidden transition-all duration-200 text-[11px] font-medium whitespace-nowrap ${phenomenaPanelOpen ? 'max-w-20' : 'max-w-0'}`}>
+            {lang === 'zh' ? '天文' : 'Astro'}
+          </span>
+        </button>
+        <div className={`transition-all duration-300 ${phenomenaPanelOpen ? 'opacity-100 max-h-[calc(100vh-120px)]' : 'opacity-0 max-h-0 overflow-hidden'}`}>
+          <AstroPhenomenaPanel
+            lang={lang}
+            theme={theme}
+            isOpen={phenomenaPanelOpen}
+            onToggle={() => setPhenomenaPanelOpen(prev => !prev)}
+            onSelectPhenomenon={handleSelectPhenomenon}
+            activePhenomenon={demoState.activePhenomenon}
+          />
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════
+           TOP-RIGHT: Planet Info / Guide Button + Right Drawer
+         ═══════════════════════════════════════════════════════════════ */}
+      <div
+        className={`fixed top-3 right-0 z-[45] transition-all duration-300 overflow-hidden flex justify-end ${
+          (isDemoActive ? demoState.showGuidePanel : showPlanetInfo) ? 'max-w-[120px]' : 'max-w-9'
+        } hover:max-w-[120px]`}
+      >
+        <button
+          onClick={() => {
+            if (isDemoActive) {
+              setDemoState(prev => ({ ...prev, showGuidePanel: !prev.showGuidePanel }));
+            } else {
+              setShowPlanetInfo(v => !v);
+            }
+          }}
+          className={`flex items-center gap-1.5 h-8 rounded-l-xl px-2 transition-all duration-200 bg-black/60 backdrop-blur-xl border border-white/10 border-r-0 shadow-2xl ${
+            (isDemoActive ? demoState.showGuidePanel : showPlanetInfo)
+              ? 'bg-cyan-500/20 text-cyan-300'
+              : 'text-slate-400 hover:text-white hover:bg-white/10'
+          }`}
+        >
+          {isDemoActive ? (
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+              <path d="M2 12h20" />
+            </svg>
+          )}
+          <span className={`overflow-hidden transition-all duration-200 text-[11px] font-medium whitespace-nowrap ${(isDemoActive ? demoState.showGuidePanel : showPlanetInfo) ? 'max-w-20' : 'max-w-0'}`}>
+            {isDemoActive ? (lang === 'zh' ? '指南' : 'Guide') : (lang === 'zh' ? '星体' : 'Planet')}
+          </span>
+        </button>
+      </div>
+      <div className={`fixed top-14 right-3 z-50 w-72 max-h-[calc(100vh-80px)] transition-all duration-300 ${(isDemoActive ? demoState.showGuidePanel : showPlanetInfo) ? 'translate-x-0 opacity-100 pointer-events-auto' : 'translate-x-full opacity-0 pointer-events-none'}`}>
+        {isDemoActive ? (
+          <PhenomenaGuidePanel
+            lang={lang}
+            theme={theme}
+            demoState={demoState}
+            onNextStep={handleNextStep}
+            onPrevStep={handlePrevStep}
+            onSwitchView={handleSwitchView}
+            onExitDemo={handleExitDemo}
+            onHidePanel={() => setDemoState(prev => ({ ...prev, showGuidePanel: false }))}
+            onTogglePlay={handleTogglePlay}
+            onChangeSpeed={handleChangeSpeed}
+            onSelectPhase={handleSelectPhase}
+            selectedMoonPhaseIndex={selectedMoonPhaseIndex}
+            onClearMoonPhaseSelection={() => setSelectedMoonPhaseIndex(null)}
+            selectedPlanetId={selectedPlanetId}
+            onSelectPlanet={setSelectedPlanetId}
+            eclipseEventTs={eclipseEventTs}
+            eclipseEventType={eclipseEventType}
+            eclipseProgress={eclipseProgress}
+            eclipseWindow={eclipseWindow}
+            onSelectEclipseEvent={(ts, type) => {
+              setEclipseEventTs(ts);
+              setEclipseEventType(type);
+              if (type) {
+                const win = AstrophenomenaEngine.getEclipseWindow(ts, type);
+                setEclipseWindow(win);
+                setTimeState(prev => ({ ...prev, currentTimestamp: win.start }));
+              } else {
+                setEclipseWindow(null);
+                setTimeState(prev => ({ ...prev, currentTimestamp: ts - 3 * 3600000 }));
+              }
+            }}
+            onChangeEclipseProgress={(progress) => {
+              if (eclipseEventTs) {
+                if (eclipseWindow) {
+                  const ts = eclipseWindow.start + progress * (eclipseWindow.end - eclipseWindow.start);
+                  setTimeState(prev => ({ ...prev, currentTimestamp: ts }));
+                } else {
+                  const offsetMs = (progress - 0.5) * 6 * 3600000;
+                  setTimeState(prev => ({ ...prev, currentTimestamp: eclipseEventTs + offsetMs }));
+                }
+              }
+            }}
+          />
+        ) : (
+          <PlanetInfoPanel
+            planetId={selectedPlanetId}
+            crossSectionActive={crossSectionActive}
+            onToggleCrossSection={(active) => {
+              setCrossSectionActive(active);
+              if (active) setCloudsVisible(false);
+            }}
+            cloudsVisible={cloudsVisible}
+            onToggleClouds={() => setCloudsVisible(v => !v)}
+            lang={lang}
+            onClose={() => setShowPlanetInfo(false)}
+            landed={landed}
+            onToggleLanding={handleToggleLanding}
+            isLandable={LANDABLE_PLANETS.includes(selectedPlanetId)}
+            textureOffset={textureOffsets[selectedPlanetId] ?? { u: 0, v: 0 }}
+            onChangeTextureOffset={(offset) => setTextureOffsets(prev => ({ ...prev, [selectedPlanetId]: offset }))}
+            activeLayer={activeLayer}
+            onLayerHover={setActiveLayer}
+          />
+        )}
+      </div>
 
       {/* ═══════════════════════════════════════════════════════════════
            MAIN VIEWPORT
@@ -613,116 +791,6 @@ export default function App() {
             />
           )}
         </div>
-
-        {/* 右侧：悬浮天体结构剖析与物理常数面板 (仅在 3D 宇宙模式、且选择特定星球时悬浮在右侧) */}
-        {!landed && selectedPlanetId && showPlanetInfo && !isDemoActive && (
-          <motion.div
-            drag
-            dragMomentum={false}
-            className="absolute top-20 right-5 w-[24rem] max-h-[calc(100vh-180px)] bg-black/75 border border-white/10 rounded-2xl p-0 shadow-2xl z-20 backdrop-blur-md hidden md:block select-none touch-none animate-in fade-in-0 slide-in-from-right-5 duration-300"
-          >
-            <PlanetInfoPanel
-              planetId={selectedPlanetId}
-              crossSectionActive={crossSectionActive}
-              onToggleCrossSection={(active) => {
-                setCrossSectionActive(active);
-                if (active) setCloudsVisible(false);
-              }}
-              cloudsVisible={cloudsVisible}
-              onToggleClouds={() => setCloudsVisible(v => !v)}
-              lang={lang}
-              onClose={() => setShowPlanetInfo(false)}
-              landed={landed}
-              onToggleLanding={handleToggleLanding}
-              isLandable={LANDABLE_PLANETS.includes(selectedPlanetId)}
-              textureOffset={textureOffsets[selectedPlanetId] ?? { u: 0, v: 0 }}
-              onChangeTextureOffset={(offset) => setTextureOffsets(prev => ({ ...prev, [selectedPlanetId]: offset }))}
-              activeLayer={activeLayer}
-              onLayerHover={setActiveLayer}
-            />
-          </motion.div>
-        )}
-
-        {/* 当面板关闭时，在右侧悬浮一个小巧精致的展开按钮泡泡 */}
-        {!landed && selectedPlanetId && !showPlanetInfo && !isDemoActive && (
-          <button
-            onClick={() => setShowPlanetInfo(true)}
-            className="absolute top-20 right-5 z-20 w-10 h-10 flex items-center justify-center bg-black/80 hover:bg-black border border-white/10 hover:border-cyan-500/50 text-cyan-400 hover:text-white rounded-xl shadow-2xl backdrop-blur-md cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 animate-in zoom-in-90"
-            id="btn-reopen-planet-info"
-            title={lang === 'zh' ? '展开星体介绍' : 'Open Planet Info'}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-              <polyline points="10 9 9 9 8 9" />
-            </svg>
-          </button>
-        )}
-
-        {/* ═══════════════════════════════════════════════════════════════
-             LEFT: Astro Phenomena Panel (floating drawer)
-           ═══════════════════════════════════════════════════════════════ */}
-        <AstroPhenomenaPanel
-          lang={lang}
-          theme={theme}
-          isOpen={phenomenaPanelOpen}
-          onToggle={() => setPhenomenaPanelOpen(prev => !prev)}
-          onSelectPhenomenon={handleSelectPhenomenon}
-          activePhenomenon={demoState.activePhenomenon}
-        />
-
-        {/* ═══════════════════════════════════════════════════════════════
-             RIGHT: Phenomena Guide Panel (during demo, replaces PlanetInfoPanel)
-           ═══════════════════════════════════════════════════════════════ */}
-        {isDemoActive && demoState.showGuidePanel && (
-          <motion.div drag dragMomentum={false} className="absolute top-20 right-5 z-20 touch-none">
-            <PhenomenaGuidePanel
-              lang={lang}
-              theme={theme}
-              demoState={demoState}
-              onNextStep={handleNextStep}
-              onPrevStep={handlePrevStep}
-              onSwitchView={handleSwitchView}
-              onExitDemo={handleExitDemo}
-              onTogglePlay={handleTogglePlay}
-              onChangeSpeed={handleChangeSpeed}
-              onSelectPhase={handleSelectPhase}
-              selectedMoonPhaseIndex={selectedMoonPhaseIndex}
-              onClearMoonPhaseSelection={() => setSelectedMoonPhaseIndex(null)}
-              selectedPlanetId={selectedPlanetId}
-              onSelectPlanet={setSelectedPlanetId}
-              eclipseEventTs={eclipseEventTs}
-              eclipseEventType={eclipseEventType}
-              eclipseProgress={eclipseProgress}
-              eclipseWindow={eclipseWindow}
-              onSelectEclipseEvent={(ts, type) => {
-                setEclipseEventTs(ts);
-                setEclipseEventType(type);
-                if (type) {
-                  const win = AstrophenomenaEngine.getEclipseWindow(ts, type);
-                  setEclipseWindow(win);
-                  setTimeState(prev => ({ ...prev, currentTimestamp: win.start }));
-                } else {
-                  setEclipseWindow(null);
-                  setTimeState(prev => ({ ...prev, currentTimestamp: ts - 3 * 3600000 }));
-                }
-              }}
-              onChangeEclipseProgress={(progress) => {
-                if (eclipseEventTs) {
-                  if (eclipseWindow) {
-                    const ts = eclipseWindow.start + progress * (eclipseWindow.end - eclipseWindow.start);
-                    setTimeState(prev => ({ ...prev, currentTimestamp: ts }));
-                  } else {
-                    const offsetMs = (progress - 0.5) * 6 * 3600000;
-                    setTimeState(prev => ({ ...prev, currentTimestamp: eclipseEventTs + offsetMs }));
-                  }
-                }
-              }}
-            />
-          </motion.div>
-        )}
 
       </main>
 

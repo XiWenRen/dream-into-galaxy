@@ -1000,6 +1000,7 @@ export default function UniverseViewer({
   // Solar term ghost Earth meshes
   const solarTermGhostsRef = useRef<THREE.Group | null>(null);
   const solarTermGhostMeshesRef = useRef<THREE.Group[]>([]);
+  const lastSolarTermsYearRef = useRef<number | null>(null);
   const selectedSolarTermRef = useRef<number | null>(null);
   const moonPhaseGhostsRef = useRef<THREE.Group | null>(null);
   const moonPhaseGhostMeshesRef = useRef<THREE.Group[]>([]);
@@ -1149,6 +1150,7 @@ export default function UniverseViewer({
   const cloudsVisibleRef = useRef(cloudsVisible);
   const showAxesRef = useRef(showAxes);
   const showLatLonGridRef = useRef(showLatLonGrid);
+  const showPlanetLabelsRef = useRef(showPlanetLabels);
 
   const lastSelectedPlanetIdRef = useRef<string>(selectedPlanetId);
   const lastTargetPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
@@ -1196,6 +1198,10 @@ export default function UniverseViewer({
   useEffect(() => {
     showLatLonGridRef.current = showLatLonGrid;
   }, [showLatLonGrid]);
+
+  useEffect(() => {
+    showPlanetLabelsRef.current = showPlanetLabels;
+  }, [showPlanetLabels]);
 
   // 经纬度网格可见性控制
   useEffect(() => {
@@ -1981,19 +1987,19 @@ export default function UniverseViewer({
       0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee,
     ];
 
-    const e = 0.0167;
-    const longPeriRad = (102.937 * Math.PI) / 180;
+    const initYear = new Date(currentTimestampRef.current).getUTCFullYear();
+    lastSolarTermsYearRef.current = initYear;
 
     SOLAR_TERMS.forEach((term, index) => {
-      // eclipticLongitude 是太阳黄经（从地球看太阳的方向），地球实际在相反位置
-      const lonRad = ((term.eclipticLongitude + 180) * Math.PI) / 180;
-      // 极坐标椭圆方程计算极径 r
-      const theta = lonRad - longPeriRad;
-      const r = (EARTH_ORBIT_RADIUS * (1 - e * e)) / (1 + e * Math.cos(theta));
+      // 计算该年份当前节气的精确时间戳，获取此时地球无校准偏移的克卜勒轨道位置
+      const targetTimestamp = AstrophenomenaEngine.getSolarTermTimestamp(initYear, term.eclipticLongitude);
+      const days = TimeEngine.getDaysSinceJ2000(targetTimestamp);
+      const rawPos = OrbitEngine.getHeliocentricPosition('earth', days, false);
+      const targetPos = toThreePos(rawPos, ORBIT_SCALE);
       
-      const x = r * Math.cos(lonRad);
-      const z = r * Math.sin(lonRad);
-      const y = 0;
+      const x = targetPos.x;
+      const y = targetPos.y;
+      const z = targetPos.z;
 
       const ghostColor = new THREE.Color(SEASON_COLORS[index]);
       const ghostColorHex = SEASON_COLORS[index];
@@ -2043,19 +2049,6 @@ export default function UniverseViewer({
       eqMesh.name = `solar-term-equator-${index}`;
       tiltGroup.add(eqMesh);
 
-      // 外发光光晕（季节色）
-      const glowGeo = new THREE.SphereGeometry(GHOST_RADIUS * 1.6, 24, 12);
-      const glowMat = new THREE.MeshBasicMaterial({
-        color: ghostColorHex,
-        transparent: true,
-        opacity: 0.08,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.BackSide,
-      });
-      const glowMesh = new THREE.Mesh(glowGeo, glowMat);
-      glowMesh.name = `solar-term-glow-${index}`;
-      tiltGroup.add(glowMesh);
     });
 
     // 8.6 创建月相轨道虚影 (Moon Phase Ghost Moons)
@@ -3182,6 +3175,24 @@ export default function UniverseViewer({
 
     renderer.domElement.addEventListener('wheel', handleWheel, { capture: true, passive: false });
 
+    // 动态更新二十四节气虚影地球位置，使其对齐特定年份的摄动轨道
+    const updateSolarTermGhostPositions = (year: number) => {
+      if (!solarTermGhostMeshesRef.current || solarTermGhostMeshesRef.current.length === 0) return;
+      
+      SOLAR_TERMS.forEach((term, index) => {
+        const wrapper = solarTermGhostMeshesRef.current[index];
+        if (!wrapper) return;
+        
+        // 计算该年份当前节气的精确时间戳，获取此时地球无校准偏移的克卜勒轨道位置
+        const targetTimestamp = AstrophenomenaEngine.getSolarTermTimestamp(year, term.eclipticLongitude);
+        const days = TimeEngine.getDaysSinceJ2000(targetTimestamp);
+        const rawPos = OrbitEngine.getHeliocentricPosition('earth', days, false);
+        const targetPos = toThreePos(rawPos, ORBIT_SCALE);
+        
+        wrapper.position.copy(targetPos);
+      });
+    };
+
     // 9. 核心帧渲染循环
     let reqId = 0;
     const clock = new THREE.Clock();
@@ -3263,6 +3274,13 @@ export default function UniverseViewer({
       const smoothTeachingProgress = THREE.MathUtils.smoothstep(rawProgress, 0, 1);
 
       const daysSinceJ2000 = TimeEngine.getDaysSinceJ2000(currentTimestampRef.current);
+
+      // 检查年份是否改变，动态更新二十四节气虚影地球位置，确保它们在当前年份的扰动轨道上完美重合
+      const currentYear = new Date(currentTimestampRef.current).getUTCFullYear();
+      if (currentYear !== lastSolarTermsYearRef.current) {
+        lastSolarTermsYearRef.current = currentYear;
+        updateSolarTermGhostPositions(currentYear);
+      }
 
       // 月球轨道线动态更新：当显示时间变化超过 0.5 天时，使用当前瞬时根数重绘
       // 确保轨道线与月球位置始终同源同算，根治时间跳跃后的轨道-位置偏差
@@ -4005,7 +4023,7 @@ export default function UniverseViewer({
       const newPlanetLabels: Record<string, { x: number; y: number; visible: boolean; opacity: number; nameZh: string; nameEn: string }> = {};
       const majorPlanets = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
       
-      if (showPlanetLabels) {
+      if (showPlanetLabelsRef.current) {
         majorPlanets.forEach(id => {
           const group = planetMeshesRef.current[id];
           if (group) {
@@ -4539,26 +4557,6 @@ export default function UniverseViewer({
               solarTermGhostMeshesRef.current.forEach((wrapper) => {
                 wrapper.scale.set(ghostBodyScale, ghostBodyScale, ghostBodyScale);
               });
-
-              if (selectedSolarTermIndex !== null && selectedSolarTermIndex !== undefined) {
-                const earthPosTmp = new THREE.Vector3();
-                if (earthGroup) earthGroup.getWorldPosition(earthPosTmp);
-                const ghostPosTmp = new THREE.Vector3();
-                solarTermGhostMeshesRef.current[selectedSolarTermIndex]?.getWorldPosition(ghostPosTmp);
-                
-                const rawPosDiag = OrbitEngine.getHeliocentricPosition('earth', daysSinceJ2000);
-                const realPosDiag = toThreePos(rawPosDiag, ORBIT_SCALE);
-
-                console.log("MANGZHONG DIAGNOSTIC:", {
-                  termIndex: selectedSolarTermIndex,
-                  earth: {x: earthPosTmp.x, y: earthPosTmp.y, z: earthPosTmp.z},
-                  ghost: {x: ghostPosTmp.x, y: ghostPosTmp.y, z: ghostPosTmp.z},
-                  offset: {x: threeOffset.x, y: threeOffset.y, z: threeOffset.z},
-                  days: daysSinceJ2000,
-                  rawPosDiag,
-                  realPosDiag
-                });
-              }
             }
           }
         }
@@ -6414,128 +6412,6 @@ export default function UniverseViewer({
           </span>
         </div>
       </div>
-
-      {/* 24节气日照时钟仪表盘 */}
-      {demoState?.activePhenomenon === 'solar-terms' && (
-        <div 
-          className="absolute bottom-5 right-6 z-30 pointer-events-auto bg-slate-950/85 border border-slate-800/80 backdrop-blur-xl rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] p-4 text-slate-100 flex flex-col space-y-3.5 w-[280px] select-none animate-in fade-in duration-300"
-          id="solar-terms-daylight-observatory"
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/10 pb-2">
-            <div className="flex items-center space-x-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_#f59e0b]" />
-              <span className="font-bold text-xs tracking-wider text-amber-400">
-                {lang === 'zh' ? '日照观测台' : 'Daylight Observatory'}
-              </span>
-            </div>
-            <span className="text-[10px] bg-slate-850 px-2 py-0.5 rounded text-slate-400 font-mono">
-              {lang === 'zh' ? '北京 40°N' : 'Beijing 40°N'}
-            </span>
-          </div>
-
-          {/* Active solar term indicator */}
-          <div className="bg-slate-900/40 rounded-lg py-1.5 px-3 border border-white/5 flex items-center justify-between text-xs font-semibold text-slate-300">
-            <span>{lang === 'zh' ? '当前选中节气:' : 'Selected Term:'}</span>
-            <span className="text-amber-400 font-bold">
-              {currentTerm ? (lang === 'zh' ? currentTerm.nameZh : currentTerm.nameEn) : (lang === 'zh' ? '春分' : 'Spring Equinox')}
-            </span>
-          </div>
-
-          {/* Circular Clock Dial */}
-          <div className="relative w-28 h-28 mx-auto flex items-center justify-center rounded-full border border-white/10 shadow-[0_4px_16px_rgba(0,0,0,0.6)] overflow-hidden">
-            {/* Dynamic conic-gradient background */}
-            <div 
-              ref={solarClockFaceRef}
-              className="absolute inset-0 w-full h-full rounded-full transition-all duration-300"
-            />
-            {/* Center glass cap / disc overlay */}
-            <div className="absolute w-[82%] h-[82%] rounded-full bg-slate-950/75 backdrop-blur-[2px] border border-white/5 flex items-center justify-center z-10">
-              {/* Hour scale markers */}
-              <span className="absolute top-1.5 text-[8px] font-bold font-mono text-blue-300/80">00</span>
-              <span className="absolute right-1.5 text-[8px] font-bold font-mono text-amber-400/80">06</span>
-              <span className="absolute bottom-1.5 text-[8px] font-bold font-mono text-amber-500/80">12</span>
-              <span className="absolute left-1.5 text-[8px] font-bold font-mono text-blue-400/80">18</span>
-              
-              {/* Digital local solar time readout */}
-              <div className="flex flex-col items-center mt-2.5">
-                <span 
-                  ref={solarTimeTextRef}
-                  className="text-sm font-bold font-mono text-white tracking-widest drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
-                >
-                  12:00
-                </span>
-                <span className="text-[7px] text-slate-500 uppercase tracking-widest">
-                  {lang === 'zh' ? '地方太阳时' : 'Solar Time'}
-                </span>
-              </div>
-            </div>
-            {/* Clock needle hand */}
-            <div 
-              ref={solarClockNeedleRef}
-              className="absolute inset-0 z-20 pointer-events-none transition-transform duration-75"
-              style={{ transform: 'rotate(180deg)' }}
-            >
-              {/* Needle hand line */}
-              <div className="absolute top-2.5 bottom-1/2 left-1/2 -translate-x-1/2 w-[2px] bg-gradient-to-t from-amber-500 via-amber-400 to-white rounded-full shadow-[0_0_6px_#f59e0b]" />
-              {/* Pointer tip dot */}
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_#fff]" />
-              {/* Center cap pivot */}
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-slate-900 border-2 border-amber-400 shadow-[0_0_4px_rgba(245,158,11,0.5)]" />
-            </div>
-          </div>
-
-          {/* Stats details panel */}
-          <div className="bg-slate-900/60 rounded-xl p-3 border border-white/5 space-y-2 text-[10px] font-mono">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">{lang === 'zh' ? '直射点纬度' : 'Declination'}:</span>
-              <span ref={solarDeclinationTextRef} className="text-slate-200 font-bold">-</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">{lang === 'zh' ? '白昼时长' : 'Daylight Hours'}:</span>
-              <span ref={solarDaylightHoursTextRef} className="text-amber-400 font-bold font-sans">-</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">{lang === 'zh' ? '黑夜时长' : 'Night Hours'}:</span>
-              <span ref={solarNightHoursTextRef} className="text-blue-400 font-bold font-sans">-</span>
-            </div>
-            <div className="border-t border-white/5 pt-1.5 text-center">
-              <span ref={solarStateTextRef} className="font-bold">-</span>
-            </div>
-          </div>
-
-          {/* Control play/pause simulation button */}
-          <button
-            onClick={() => {
-              const nextState = !isRotationSimActive;
-              setIsRotationSimActive(nextState);
-              isRotationSimActiveRef.current = nextState;
-            }}
-            className={`w-full py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition-all duration-300 border ${
-              isRotationSimActive
-                ? 'bg-amber-500/20 border-amber-500/50 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.25)] hover:bg-amber-500/30'
-                : 'bg-slate-900 border-slate-800 hover:border-amber-500/50 text-slate-300 hover:bg-slate-800'
-            }`}
-          >
-            {isRotationSimActive ? (
-              <>
-                <svg className="w-3.5 h-3.5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" />
-                </svg>
-                <span>{lang === 'zh' ? '暂停自转模拟' : 'Pause Rotation Sim'}</span>
-              </>
-            ) : (
-              <>
-                <svg className="w-3.5 h-3.5 text-slate-300" viewBox="0 0 24 24" fill="currentColor">
-                  <polygon points="5 3 19 12 5 21 5 3" />
-                </svg>
-                <span>{lang === 'zh' ? '开始自转模拟' : 'Start Rotation Sim'}</span>
-              </>
-            )}
-          </button>
-        </div>
-      )}
-
 
     </div>
   );

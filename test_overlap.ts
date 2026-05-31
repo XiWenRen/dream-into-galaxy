@@ -1,45 +1,43 @@
-import { OrbitEngine } from './src/engine/OrbitEngine.ts';
-import { getCurrentCycleNewMoon, getExactMoonPhaseTime } from './src/engine/AstrophenomenaEngine.ts';
+import { OrbitEngine } from './src/engine/OrbitEngine';
+import { AstrophenomenaEngine } from './src/engine/AstrophenomenaEngine';
+import { TimeEngine } from './src/engine/TimeEngine';
+import { SOLAR_TERMS } from './src/data/solarTerms';
 import * as THREE from 'three';
 
 const ORBIT_SCALE = 22.0;
-const toThreePos = (p, scale = 1.0) => new THREE.Vector3(p.x * scale, p.z * scale, p.y * scale);
+const toThreePos = (p: { x: number, y: number, z: number }, scale = 1.0) => {
+  return new THREE.Vector3(p.x * scale, p.z * scale, p.y * scale);
+};
 
-const now = Date.now();
-const base1 = getCurrentCycleNewMoon(now);
-const target = getExactMoonPhaseTime(base1, 4); // Full Moon
-const daysSinceJ2000 = (target - 946728000000) / 86400000;
+const currentYear = 2026;
+console.log(`Verifying overlap for all 24 solar terms in year ${currentYear}...`);
 
-// Real Moon
-const earthPosRaw = OrbitEngine.getHeliocentricPosition('earth', daysSinceJ2000);
-const moonRelPosRaw = OrbitEngine.getLunarRelativePosition(daysSinceJ2000);
-const earthPos = toThreePos(earthPosRaw, ORBIT_SCALE);
-const moonRelPos = toThreePos(moonRelPosRaw, ORBIT_SCALE);
+let maxDistance = 0;
 
-// Let's assume strictPhysics = true for simplicity
-const realMoonPos = earthPos.clone().add(moonRelPos);
+SOLAR_TERMS.forEach((term, index) => {
+  // 1. Solve for the solar term's exact timestamp
+  const targetTimestamp = AstrophenomenaEngine.getSolarTermTimestamp(currentYear, term.eclipticLongitude);
+  const days = TimeEngine.getDaysSinceJ2000(targetTimestamp);
 
-// Ghost Moon 4
-const baseTime = getCurrentCycleNewMoon(target);
-const phaseTime = getExactMoonPhaseTime(baseTime, 4);
-const ghostDays = (phaseTime - 946728000000) / 86400000;
-const ghostMoonRelPosRaw = OrbitEngine.getLunarRelativePosition(ghostDays);
-const ghostMoonRelPos = toThreePos(ghostMoonRelPosRaw, 22.0);
-const ghostMoonPos = earthPos.clone().add(ghostMoonRelPos);
+  // 2. Earth position at this timestamp (with offsets)
+  const rawEarthPos = OrbitEngine.getHeliocentricPosition('earth', days, true);
+  const realEarthPos = toThreePos(rawEarthPos, ORBIT_SCALE);
 
-console.log("Real Moon Pos:", realMoonPos);
-console.log("Ghost Moon Pos:", ghostMoonPos);
-console.log("Difference:", realMoonPos.distanceTo(ghostMoonPos));
+  // 3. Proposed Ghost Wrapper position (Keplerian position without offsets)
+  const rawGhostWrapperPos = OrbitEngine.getHeliocentricPosition('earth', days, false);
+  const ghostWrapperPos = toThreePos(rawGhostWrapperPos, ORBIT_SCALE);
 
-// Ghost Moon 0 (New Moon)
-const phaseTime0 = getExactMoonPhaseTime(baseTime, 0);
-const ghostDays0 = (phaseTime0 - 946728000000) / 86400000;
-const ghostMoonRelPosRaw0 = OrbitEngine.getLunarRelativePosition(ghostDays0);
-const ghostMoonRelPos0 = toThreePos(ghostMoonRelPosRaw0, 22.0);
-const ghostMoonPos0 = earthPos.clone().add(ghostMoonRelPos0);
+  // 4. In the render loop, the group is translated by the current calibration offset
+  const earthOffset = OrbitEngine.getCalibrationOffset('earth', days);
+  const threeOffset = toThreePos(earthOffset, ORBIT_SCALE);
+  const finalGhostPos = ghostWrapperPos.clone().add(threeOffset);
 
-console.log("\nEarth Pos:", earthPos);
-console.log("Ghost Moon 0 (New Moon) Pos:", ghostMoonPos0);
-const earthToSun = new THREE.Vector3().subVectors(new THREE.Vector3(0,0,0), earthPos).normalize();
-const earthToGhost0 = new THREE.Vector3().subVectors(ghostMoonPos0, earthPos).normalize();
-console.log("Angle between Earth->Sun and Earth->Ghost0 (should be 0):", earthToSun.angleTo(earthToGhost0) * 180 / Math.PI);
+  const distance = realEarthPos.distanceTo(finalGhostPos);
+  if (distance > maxDistance) {
+    maxDistance = distance;
+  }
+
+  console.log(`Solar Term ${index.toString().padStart(2)} (${term.nameZh}): Distance = ${distance.toExponential(4)}`);
+});
+
+console.log(`\nMax Mismatch Distance: ${maxDistance.toExponential(4)}`);

@@ -73,6 +73,8 @@ interface CommandPanelProps {
   onToggleAxes: (show: boolean) => void;
   showLatLonGrid: boolean;
   onToggleLatLonGrid: (show: boolean) => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 // ─── Icons (inline SVG, Lucide-style) ───────────────────────────────────────
@@ -155,6 +157,49 @@ const IconOrbit = ({ className = 'w-4 h-4' }: { className?: string }) => (
 const IconZap = ({ className = 'w-4 h-4' }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
+
+const IconPlanetLabel = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="10" cy="12" r="5" />
+    <path d="M14 8l6-6" />
+    <path d="M20 4h-4v4" />
+  </svg>
+);
+
+const IconConstellLines = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="5" cy="5" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="19" cy="5" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none" />
+    <path d="M5 5l7 14" />
+    <path d="M19 5l-7 14" />
+  </svg>
+);
+
+const IconConstellNames = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2l2 6h6l-5 4 2 6-5-4-5 4 2-6-5-4h6z" fill="currentColor" fillOpacity="0.2" />
+    <path d="M9 14h6" />
+  </svg>
+);
+
+const IconAxes = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2v20" />
+    <path d="M2 12h20" />
+    <path d="M4 4l16 16" />
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+const IconGridGlobe = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <ellipse cx="12" cy="12" rx="4" ry="10" />
+    <ellipse cx="12" cy="12" rx="10" ry="4" />
+    <path d="M12 2v20" />
   </svg>
 );
 
@@ -258,8 +303,9 @@ export default function CommandPanel({
   onToggleAxes,
   showLatLonGrid,
   onToggleLatLonGrid,
+  isOpen: isOpenProp,
+  onClose,
 }: CommandPanelProps) {
-  const [isCollapsed, setIsCollapsed] = useState(true);
   const [showValidation, setShowValidation] = useState(false);
 
   const isZh = lang === 'zh';
@@ -312,25 +358,42 @@ export default function CommandPanel({
     alert(`[NASA Calibration Protocol]\n${result.log}\n\n${t.calibrationSuccess}`);
   };
 
-  // ─── Collapsed state ───────────────────────────────────────────────────────
-  if (isCollapsed) {
-    return (
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => setIsCollapsed(false)}
-          className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-950/85 border border-slate-800/80 backdrop-blur-lg text-cyan-400 hover:text-cyan-300 hover:border-cyan-500/40 transition-all cursor-pointer shadow-lg"
-          title={isZh ? '展开控制台' : 'Open Command Panel'}
-        >
-          <IconSettings className="w-4 h-4" />
-        </button>
-        <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse" />
-      </div>
-    );
-  }
+  // ─── Toggle Icon Button ────────────────────────────────────────────────────
+  const ToggleIcon = ({
+    active,
+    onClick,
+    icon: Icon,
+    title,
+    disabled,
+  }: {
+    active: boolean;
+    onClick: () => void;
+    icon: React.FC<{ className?: string }>;
+    title: string;
+    disabled?: boolean;
+  }) => (
+    <div className="relative group">
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        title={title}
+        className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-all cursor-pointer ${
+          active
+            ? 'bg-cyan-500/15 border-cyan-500/50 text-cyan-400'
+            : 'bg-white/[0.03] border-white/5 text-slate-500 hover:border-white/20 hover:text-slate-300'
+        } ${disabled ? 'opacity-30 cursor-not-allowed' : ''}`}
+      >
+        <Icon className="w-4 h-4" />
+      </button>
+      {/* Custom tooltip */}
+      <span className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white text-[10px] rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 border border-white/10 shadow-lg">
+        {title}
+      </span>
+    </div>
+  );
 
-  // ─── Expanded state ────────────────────────────────────────────────────────
   return (
-    <div className="bg-slate-950/90 border border-slate-800/80 backdrop-blur-xl rounded-xl p-4 shadow-2xl flex flex-col gap-3.5 w-72 text-white font-sans select-none">
+    <div className="bg-slate-950/90 border border-slate-800/80 backdrop-blur-xl rounded-xl p-4 shadow-2xl flex flex-col gap-3.5 w-full text-white font-sans select-none max-h-[calc(100vh-2rem)] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
       {/* Header: title + theme dots + lang switch + close */}
       <div className="flex items-center justify-between border-b border-slate-800/60 pb-2.5">
         <div className="flex items-center gap-2">
@@ -365,13 +428,6 @@ export default function CommandPanel({
               <div className={`absolute top-[1px] left-[1px] w-[10px] h-[10px] rounded-full transition-transform duration-200 ${isZh ? 'translate-x-3 bg-cyan-400' : 'translate-x-0 bg-slate-400'}`} />
             </div>
             <span className={`text-[10px] font-mono font-bold ${!isZh ? 'text-cyan-400' : 'text-slate-500'}`}>EN</span>
-          </button>
-          <button
-            onClick={() => setIsCollapsed(true)}
-            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
-            title={t.collapse}
-          >
-            <IconX className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -446,97 +502,55 @@ export default function CommandPanel({
       {!landed ? (
         /* Universe mode controls */
         <div className="flex flex-col space-y-2.5">
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={useExponentialSpeed}
-              onChange={(e) => onToggleExponentialSpeed(e.target.checked)}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+          {/* 图标开关工具栏 */}
+          <div className="grid grid-cols-4 gap-1.5">
+            <ToggleIcon
+              active={useExponentialSpeed}
+              onClick={() => onToggleExponentialSpeed(!useExponentialSpeed)}
+              icon={IconZap}
+              title={isZh ? '相机等比加速 (越远越快)' : 'Exponential shuttle (farther = faster)'}
             />
-            <IconZap className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '相机等比加速 (越远越快)' : 'Exponential shuttle (farther = faster)'}</span>
-          </label>
-
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={!!showPlanetLabels}
-              onChange={(e) => onTogglePlanetLabels?.(e.target.checked)}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            <ToggleIcon
+              active={!!showPlanetLabels}
+              onClick={() => onTogglePlanetLabels?.(!showPlanetLabels)}
+              icon={IconPlanetLabel}
+              title={isZh ? '行星名称标签' : 'Planet Name Labels'}
             />
-            <IconEye className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '行星名称标签' : 'Planet Name Labels'}</span>
-          </label>
-
-          {/* 星座连线开关 */}
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={showConstellLines}
-              onChange={(e) => onToggleConstellLines(e.target.checked)}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            <ToggleIcon
+              active={showConstellLines}
+              onClick={() => onToggleConstellLines(!showConstellLines)}
+              icon={IconConstellLines}
+              title={isZh ? '星座连线' : 'Constellations'}
             />
-            <IconEye className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '星座连线' : 'Constellations'}</span>
-          </label>
-
-          {/* 星座名称开关 */}
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={!!showConstellNames}
-              onChange={(e) => onToggleConstellNames?.(e.target.checked)}
+            <ToggleIcon
+              active={!!showConstellNames}
+              onClick={() => onToggleConstellNames?.(!showConstellNames)}
+              icon={IconConstellNames}
+              title={isZh ? '星座名称' : 'Constellation Names'}
               disabled={!showConstellLines}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer disabled:opacity-30"
             />
-            <IconStar className="w-3.5 h-3.5 text-slate-500" />
-            <span className={!showConstellLines ? 'opacity-40' : ''}>{isZh ? '星座名称' : 'Constellation Names'}</span>
-          </label>
-
-          {/* 轨道线展示开关 */}
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={showOrbits}
-              onChange={(e) => onToggleOrbits(e.target.checked)}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            <ToggleIcon
+              active={showOrbits}
+              onClick={() => onToggleOrbits(!showOrbits)}
+              icon={IconOrbit}
+              title={isZh ? '轨道线' : 'Orbits'}
             />
-            <IconOrbit className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '轨道线' : 'Orbits'}</span>
-          </label>
-
-          {/* 坐标轴展示开关 */}
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={showAxes}
-              onChange={(e) => onToggleAxes(e.target.checked)}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            <ToggleIcon
+              active={showAxes}
+              onClick={() => onToggleAxes(!showAxes)}
+              icon={IconAxes}
+              title={isZh ? '坐标轴' : 'Axes'}
             />
-            <IconMaximize className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '坐标轴' : 'Axes'}</span>
-          </label>
-
-          {/* 经纬度网格展示开关 */}
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={showLatLonGrid}
-              onChange={(e) => onToggleLatLonGrid(e.target.checked)}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            <ToggleIcon
+              active={showLatLonGrid}
+              onClick={() => onToggleLatLonGrid(!showLatLonGrid)}
+              icon={IconGridGlobe}
+              title={isZh ? '经纬度网格' : 'Lat/Lon Grid'}
             />
-            <svg className="w-3.5 h-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 2v20" />
-              <path d="M2 12h20" />
-              <path d="M4.93 4.93l14.14 14.14" />
-              <path d="M19.07 4.93L4.93 19.07" />
-            </svg>
-            <span>{isZh ? '经纬度网格' : 'Lat/Lon Grid'}</span>
-          </label>
+          </div>
 
           {!useExponentialSpeed && (
-            <div className="flex flex-col space-y-1 pl-5.5">
+            <div className="flex flex-col space-y-1">
               <span className="text-[9px] text-slate-500 uppercase tracking-wider font-mono">
                 {isZh ? '手动速度预设' : 'Manual Speed Presets'}
               </span>
@@ -560,55 +574,33 @@ export default function CommandPanel({
       ) : (
         /* Starry sky mode controls */
         <div className="space-y-2.5">
-          {/* Telescope toggle */}
-          <button
-            onClick={() => onToggleTelescope(!telescopeActive)}
-            className={`w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border text-[10.5px] font-bold uppercase tracking-wider cursor-pointer transition-all ${
-              telescopeActive
-                ? 'bg-cyan-500/15 border-cyan-500/60 text-cyan-300'
-                : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:border-cyan-500/30 hover:text-cyan-400'
-            }`}
-          >
-            <IconTelescope className="w-3.5 h-3.5" />
-            <span>{isZh ? '望远镜' : 'Telescope'}</span>
-            {telescopeActive && <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee] animate-pulse" />}
-          </button>
-
-          {/* Constellation lines */}
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={showConstellLines}
-              onChange={(e) => onToggleConstellLines(e.target.checked)}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+          {/* 图标开关工具栏 */}
+          <div className="grid grid-cols-4 gap-1.5">
+            <ToggleIcon
+              active={telescopeActive}
+              onClick={() => onToggleTelescope(!telescopeActive)}
+              icon={IconTelescope}
+              title={isZh ? '望远镜' : 'Telescope'}
             />
-            <IconEye className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '星座连线' : 'Constellations'}</span>
-          </label>
-
-          {/* Star names */}
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={showStarNames}
-              onChange={(e) => onToggleStarNames(e.target.checked)}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            <ToggleIcon
+              active={showConstellLines}
+              onClick={() => onToggleConstellLines(!showConstellLines)}
+              icon={IconConstellLines}
+              title={isZh ? '星座连线' : 'Constellations'}
             />
-            <IconStar className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '恒星名称' : 'Star Names'}</span>
-          </label>
-
-          {/* Constellation names */}
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer hover:text-white transition-colors">
-            <input
-              type="checkbox"
-              checked={!!showConstellNames}
-              onChange={(e) => onToggleConstellNames?.(e.target.checked)}
-              className="rounded accent-cyan-500 w-3.5 h-3.5 cursor-pointer"
+            <ToggleIcon
+              active={showStarNames}
+              onClick={() => onToggleStarNames(!showStarNames)}
+              icon={IconStar}
+              title={isZh ? '恒星名称' : 'Star Names'}
             />
-            <IconEye className="w-3.5 h-3.5 text-slate-500" />
-            <span>{isZh ? '星座名称' : 'Constellation Names'}</span>
-          </label>
+            <ToggleIcon
+              active={!!showConstellNames}
+              onClick={() => onToggleConstellNames?.(!showConstellNames)}
+              icon={IconConstellNames}
+              title={isZh ? '星座名称' : 'Constellation Names'}
+            />
+          </div>
 
           {/* Mag limit slider */}
           <div className="space-y-1">
