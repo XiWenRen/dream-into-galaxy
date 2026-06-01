@@ -255,6 +255,15 @@ export interface TranslationDict {
   noonAltitude: string;
   solarDeclination: string;
   referenceLatitude: string;
+
+  // Loading Transition
+  transitionEnteringSpace: string;
+  transitionEnteringGround: string;
+  transitionFactTitle: string;
+  transitionTipTitle: string;
+
+  // Loading Screen Description
+  loadScreenDesc: string;
 }
 
 export const translations: Record<'zh' | 'en', TranslationDict> = {
@@ -500,6 +509,15 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     noonAltitude: "正午太阳高度",
     solarDeclination: "太阳赤纬",
     referenceLatitude: "参考纬度",
+
+    // Loading Transition
+    transitionEnteringSpace: "正在升空，脱离大气层飞向深空...",
+    transitionEnteringGround: "正在降落至 {planet}，同步观测站地平坐标系...",
+    transitionFactTitle: "🚀 宇宙微知识",
+    transitionTipTitle: "💡 探索小秘诀",
+
+    // Loading Screen Description
+    loadScreenDesc: "让我们一起探索银河系",
   },
   en: {
     title: "Cosmic Odyssey",
@@ -741,5 +759,52 @@ export const translations: Record<'zh' | 'en', TranslationDict> = {
     noonAltitude: "Noon Altitude",
     solarDeclination: "Solar Declination",
     referenceLatitude: "Ref. Latitude",
+
+    // Loading Transition
+    transitionEnteringSpace: "Launching to orbit, escaping atmosphere into deep space...",
+    transitionEnteringGround: "Descending to {planet}, synchronizing horizontal dome coordinates...",
+    transitionFactTitle: "🚀 Cosmic Fact",
+    transitionTipTitle: "💡 Exploration Tip",
+
+    // Loading Screen Description
+    loadScreenDesc: "Let's explore the Milky Way galaxy together",
   }
+};
+
+export const transitionFactList: Record<'zh' | 'en', string[]> = {
+  zh: [
+    "为什么金星是太阳系最热的行星？因为它浓厚的大气层中96%是二氧化碳，产生了失控的温室效应，表面温度高达460℃！",
+    "你知道吗？土星的平均密度比水还要小。如果有一个足够大的浴缸，土星甚至可以漂浮在水面上！",
+    "恒星的颜色代表了它的表面温度。偏蓝的恒星（如织女星）表面温度极高，而偏红的恒星（如参宿四）表面温度相对较低。",
+    "光年是距离单位而不是时间单位。一光年是光在真空中一年内传播的距离，约为9.46万亿千米。",
+    "我们在地球上看到月亮永远是同一面，这是因为月球的自转周期和绕地球公转的周期完全相同，被称为“潮汐锁定”。",
+    "天王星在太阳系中很特别，它是“横躺着”绕太阳自转的，自转轴倾角高达97.77度。"
+  ],
+  en: [
+    "Why is Venus the hottest planet in the Solar System? Its dense atmosphere is 96% carbon dioxide, causing a runaway greenhouse effect with surface temperatures reaching 460°C!",
+    "Did you know? Saturn's average density is less than water. If there were a bathtub large enough, Saturn would float on it!",
+    "The color of a star indicates its surface temperature. Bluish stars (like Vega) are extremely hot, while reddish stars (like Betelgeuse) are relatively cool.",
+    "A light-year is a unit of distance, not time. It is the distance light travels in a vacuum in one year, about 9.46 trillion kilometers.",
+    "We always see the same side of the Moon because its rotation period perfectly matches its orbital period around Earth, a phenomenon called 'tidal locking'.",
+    "Uranus is unique in the Solar System as it rotates practically 'on its side' with an extreme axial tilt of 97.77 degrees."
+  ]
+};
+
+export const transitionTipList: Record<'zh' | 'en', string[]> = {
+  zh: [
+    "在【3D 空间视角】下，双击任意行星可以快速聚焦并进入其特写镜头。",
+    "在【模拟地面观星】模式下，可以开启右上角的【望远镜】按钮，滑动滚轮来放大观察月球或行星的表面细节。",
+    "底部的【时间控制盘】支持拖拽！向右拖拽可以加速时间流逝，看看行星公转和四季交替。",
+    "在左侧设置面板中，你可以调整【视星等极限】。数值越大，夜空中能看到的暗星就越多！",
+    "点击星球详情面板的【剖面模式】开关，可以切开星球，观察它的星核、星幔和星壳等内部构造。",
+    "在【模拟地面观星】中，开启【星座连线】和【星座名称】，有助于在夜空中识别北斗七星或猎户座等著名星座。"
+  ],
+  en: [
+    "In the [3D Universe View], double-click any planet to quickly focus and zoom into its close-up view.",
+    "In the [Landed Observatory] mode, toggle the [Telescope] button in the top bar and use your scroll wheel to inspect craters on the Moon or other planets.",
+    "The [Time Bar] at the bottom supports dragging! Drag it right to speed up time and watch planetary orbits and seasonal changes.",
+    "In the left settings panel, adjust the [Magnitude Limit]. A higher limit displays dimmer stars, revealing up to 10,000 stars!",
+    "Click the [Cross-Section Mode] toggle on a planet's detail panel to slice it open and inspect its core, mantle, and crust structure.",
+    "In [Landed Observatory] mode, turn on [Constellation Lines] and [Constellation Names] to help identify famous patterns like Ursa Major or Orion."
+  ]
 };

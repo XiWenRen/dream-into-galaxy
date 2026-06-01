@@ -12,6 +12,8 @@ interface ArcTimeBarProps {
   onChangeTimeState: (state: Partial<TimeState>) => void;
   lang: 'zh' | 'en';
   onJumpDate: (timestamp: number) => void;
+  timezoneOffset: number;
+  onChangeTimezoneOffset: (offset: number) => void;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -171,8 +173,9 @@ export default function ArcTimeBar({
   onChangeTimeState,
   lang,
   onJumpDate,
+  timezoneOffset,
+  onChangeTimezoneOffset,
 }: ArcTimeBarProps) {
-  const [timezoneOffset, setTimezoneOffset] = useState(0); // 小时偏移，默认 UTC
   const [showTzPicker, setShowTzPicker] = useState(false);
   const [isEditingTime, setIsEditingTime] = useState(false);
   const [wasPaused, setWasPaused] = useState(false); // 记录编辑前模拟是否已暂停
@@ -516,7 +519,7 @@ export default function ArcTimeBar({
                 <button
                   key={offset}
                   onClick={() => {
-                    setTimezoneOffset(offset);
+                    onChangeTimezoneOffset(offset);
                     setShowTzPicker(false);
                   }}
                   className={`text-[9px] font-mono px-1 py-1 rounded transition-all cursor-pointer whitespace-nowrap ${

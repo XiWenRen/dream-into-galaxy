@@ -11,6 +11,7 @@ import PlanetInfoPanel from './components/PlanetInfoPanel';
 import CommandPanel from './components/CommandPanel';
 import ArcTimeBar from './components/ArcTimeBar';
 import LoadingScreen from './components/LoadingScreen';
+import TransitionScreen from './components/TransitionScreen';
 import AstroPhenomenaPanel from './components/AstroPhenomenaPanel';
 import PhenomenaGuidePanel from './components/PhenomenaGuidePanel';
 import PhenomenaDemoBar from './components/PhenomenaDemoBar';
@@ -46,9 +47,22 @@ const DEMO_STEP_DURATION: Record<string, number> = {
   'solar-terms': 6,   // 6 sec per term
 };
 
+// 每个月相对应的最佳夜间观测本地时间（小时数，如 20.5 代表 20:30）
+const MOON_PHASE_BEST_VIEW_HOURS = [
+  20.0, // 0: 新月 (朔) - 20:00 (虽然不可见，但展示暗夜星空)
+  19.5, // 1: 峨眉月 - 19:30 (日落后西方低空)
+  20.5, // 2: 上弦月 - 20:30 (前半夜南方高空)
+  22.0, // 3: 盈凸月 - 22:00 (接近子夜南方高空)
+  0.0,  // 4: 满月 (望) - 00:00 (子夜中天，高度角最高)
+  2.0,  // 5: 亏凸月 - 02:00 (后半夜南方高空)
+  4.0,  // 6: 下弦月 - 04:00 (黎明前南方高空)
+  5.0,  // 7: 残月 - 05:00 (日出前东方低空)
+];
+
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialEntry, setIsInitialEntry] = useState(true);
+  const [mountViewer, setMountViewer] = useState(false);
   const [lang, setLang] = useState<'zh' | 'en'>('zh');
   const [selectedPlanetId, setSelectedPlanetId] = useState<string>('sun');
   const [crossSectionActive, setCrossSectionActive] = useState<boolean>(false);
@@ -56,6 +70,14 @@ export default function App() {
   const [showPlanetInfo, setShowPlanetInfo] = useState<boolean>(true);
   // 自定义主题
   const [theme, setTheme] = useState<ThemeType>('space-tech');
+
+  useEffect(() => {
+    // Delay mounting the heavy WebGL engine by 400ms so that LoadingScreen mounts and animates first without freeze
+    const timer = setTimeout(() => {
+      setMountViewer(true);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, []);
 
   // 验证系统状态
   const [panelTab, setPanelTab] = useState<'packing' | 'audit'>('audit');
@@ -74,6 +96,66 @@ export default function App() {
   const [landed, setLanded] = useState<boolean>(false);
   const [latitude, setLatitude] = useState<number>(31.23); // 默认上海/中国中纬度 (31° N)
   const [longitude, setLongitude] = useState<number>(121.47); // 默认 121° E
+
+  // 本地时区偏移（从经度自动计算得到，以小时为单位，默认根据系统当前时区初始化）
+  const [timezoneOffset, setTimezoneOffset] = useState<number>(() => -new Date().getTimezoneOffset() / 60);
+
+  // 当观测点经度改变时，自动同步时区偏移量
+  useEffect(() => {
+    setTimezoneOffset(Math.round(longitude / 15));
+  }, [longitude]);
+
+  // 组件挂载时获取系统当前定位与时区，以匹配操作人本机的物理位置
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLatitude(position.coords.latitude);
+          setLongitude(position.coords.longitude);
+        },
+        (error) => {
+          console.warn("Geolocation access denied or unavailable. Falling back to timezone detection.");
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const browserOffset = -new Date().getTimezoneOffset() / 60;
+          
+          // 常见时区名称到经纬度的映射
+          const tzCoords: Record<string, { lat: number; lon: number }> = {
+            'Asia/Shanghai': { lat: 31.23, lon: 121.47 },
+            'Asia/Chongqing': { lat: 29.56, lon: 106.55 },
+            'Asia/Harbin': { lat: 45.75, lon: 126.63 },
+            'Asia/Urumqi': { lat: 43.82, lon: 87.61 },
+            'Asia/Hong_Kong': { lat: 22.39, lon: 114.10 },
+            'Asia/Taipei': { lat: 25.03, lon: 121.56 },
+            'Europe/London': { lat: 51.51, lon: -0.13 },
+            'America/New_York': { lat: 40.71, lon: -74.01 },
+            'America/Los_Angeles': { lat: 34.05, lon: -118.24 },
+            'Asia/Tokyo': { lat: 35.68, lon: 139.69 },
+            'Asia/Seoul': { lat: 37.56, lon: 126.97 },
+            'Australia/Sydney': { lat: -33.87, lon: 151.21 },
+          };
+          
+          // 常见时区偏移量到经纬度的映射（备选方案）
+          const offsetCoords: Record<number, { lat: number; lon: number }> = {
+            8: { lat: 31.23, lon: 121.47 }, // 北京/上海/香港等
+            9: { lat: 35.68, lon: 139.69 }, // 东京/首尔等
+            10: { lat: -33.87, lon: 151.21 }, // 悉尼
+            0: { lat: 51.51, lon: -0.13 }, // 伦敦
+            1: { lat: 48.86, lon: 2.35 }, // 巴黎/柏林/罗马等
+            "-5": { lat: 40.71, lon: -74.01 }, // 纽约/波士顿等
+            "-8": { lat: 34.05, lon: -118.24 }, // 洛杉矶/旧金山等
+          };
+          
+          if (tz && tzCoords[tz]) {
+            setLatitude(tzCoords[tz].lat);
+            setLongitude(tzCoords[tz].lon);
+          } else if (offsetCoords[browserOffset] !== undefined) {
+            setLatitude(offsetCoords[browserOffset].lat);
+            setLongitude(offsetCoords[browserOffset].lon);
+          }
+        }
+      );
+    }
+  }, []);
 
   // 国定星空星座辅助标记开关
   const [showConstellLines, setShowConstellLines] = useState<boolean>(true);
@@ -150,8 +232,10 @@ export default function App() {
     moon: { u: 0.42, v: 0 }
   });
 
-  // 处理无极缩放 (Stepless Transition Animation Effect)
+  // 处理无极缩放 (Seamless Zoom / Cloud entry effect overlay) 动态面纱
   const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
+  const [transitionDirection, setTransitionDirection] = useState<'toStarry' | 'toUniverse'>('toStarry');
+  const [selectedCelestial, setSelectedCelestial] = useState<any | null>(null);
 
   // 1. 实时的多帧时间递增推进
   useEffect(() => {
@@ -195,7 +279,9 @@ export default function App() {
         if (prev.activePhenomenon === 'moon-phases') {
           setTimeState(timePrev => {
             const base = getCurrentCycleNewMoon(timePrev.currentTimestamp);
-            const target = getExactMoonPhaseTime(base, nextPhase);
+            const targetAstronomic = getExactMoonPhaseTime(base, nextPhase);
+            const bestLocalHour = MOON_PHASE_BEST_VIEW_HOURS[nextPhase];
+            const target = TimeEngine.getTimestampForLocalHour(targetAstronomic, bestLocalHour, timezoneOffset);
             return { ...timePrev, currentTimestamp: target };
           });
         } else if (prev.activePhenomenon === 'solar-terms') {
@@ -207,7 +293,7 @@ export default function App() {
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [demoState.isPlaying, demoState.playbackSpeed, demoState.activePhenomenon]);
+  }, [demoState.isPlaying, demoState.playbackSpeed, demoState.activePhenomenon, timezoneOffset]);
 
   // 2. 实时查询公转轨道的 二十四节气 属性
   const daysSinceJ2000 = TimeEngine.getDaysSinceJ2000(timeState.currentTimestamp);
@@ -217,12 +303,33 @@ export default function App() {
   const helioPos = OrbitEngine.getHeliocentricPosition(selectedPlanetId, daysSinceJ2000);
 
   // 4. 执行无极缩放与登录事件
-  const handleToggleLanding = () => {
+  const triggerViewTransition = useCallback((targetLanded: boolean, targetPlanetId?: string) => {
+    if (isTransitioning) return;
+    
+    if (targetLanded) {
+      setTransitionDirection('toStarry');
+      if (targetPlanetId) {
+        setSelectedPlanetId(targetPlanetId);
+      }
+    } else {
+      setTransitionDirection('toUniverse');
+    }
+    
     setIsTransitioning(true);
+    
+    // 100ms 后 (遮罩已完全覆盖)，立刻开始在后台挂载并渲染目标视角组件
     setTimeout(() => {
-      setLanded(!landed);
+      setLanded(targetLanded);
+    }, 100);
+    
+    // 满 2.5 秒过场动画播放完毕后，淡出遮罩
+    setTimeout(() => {
       setIsTransitioning(false);
-    }, 600); // 配合动画时间
+    }, 2500);
+  }, [isTransitioning]);
+
+  const handleToggleLanding = () => {
+    triggerViewTransition(!landed);
   };
 
   const handleSelectPlanet = (id: string) => {
@@ -317,12 +424,11 @@ export default function App() {
 
   const handleSwitchView = (mode: PhenomenaDemoState['viewMode']) => {
     setDemoState(prev => ({ ...prev, viewMode: mode }));
-    // Dual Lens: switch between Universe (principle) and Starry Sky (observation) viewers
+    // Dual Lens: switch between Universe (principle) and Starry Sky (observation) viewers with transition
     if (mode === 'starry') {
-      setSelectedPlanetId('earth');
-      setLanded(true);
+      triggerViewTransition(true, 'earth');
     } else if (mode === 'universe') {
-      setLanded(false);
+      triggerViewTransition(false);
     }
     // 'split' mode: keep current viewer for now (split view is complex, defer to later)
   };
@@ -340,7 +446,9 @@ export default function App() {
     if (phenomenon === 'moon-phases') {
       // Calculate exact time for the targeted moon phase based on current cycle
       const base = getCurrentCycleNewMoon(timeState.currentTimestamp);
-      const target = getExactMoonPhaseTime(base, phase);
+      const targetAstronomic = getExactMoonPhaseTime(base, phase);
+      const bestLocalHour = MOON_PHASE_BEST_VIEW_HOURS[phase];
+      const target = TimeEngine.getTimestampForLocalHour(targetAstronomic, bestLocalHour, timezoneOffset);
       setTimeState(prev => ({ ...prev, currentTimestamp: target }));
     } else if (phenomenon === 'eclipses') {
       // 日食演示各相位使用真实的NASA日食/月食数据
@@ -394,7 +502,9 @@ export default function App() {
     setDemoState(prev => ({ ...prev, demoPhase: index }));
     // Jump time to the corresponding moon phase
     const base = getCurrentCycleNewMoon(timeState.currentTimestamp);
-    const target = getExactMoonPhaseTime(base, index);
+    const targetAstronomic = getExactMoonPhaseTime(base, index);
+    const bestLocalHour = MOON_PHASE_BEST_VIEW_HOURS[index];
+    const target = TimeEngine.getTimestampForLocalHour(targetAstronomic, bestLocalHour, timezoneOffset);
     setTimeState(prev => ({ ...prev, currentTimestamp: target, isPaused: true })); // 自动暂停，让用户看清楚
   };
 
@@ -449,6 +559,59 @@ export default function App() {
 
   const themeStyle = getThemeClasses();
 
+  const rightDrawerOpen = isDemoActive
+    ? demoState.showGuidePanel
+    : (showPlanetInfo || !!selectedCelestial);
+
+  const renderCelestialDetailCard = () => {
+    if (!selectedCelestial) return null;
+    const isZh = lang === 'zh';
+    return (
+      <div className="flex flex-col space-y-3.5 text-slate-200 select-none">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-indigo-500/20 pb-2">
+          <div className="flex items-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-indigo-400 shadow-[0_0_8px_#818cf8] animate-pulse" />
+            <h3 className="text-sm font-black tracking-wide text-white">
+              {isZh ? selectedCelestial.nameZh : selectedCelestial.nameEn}
+            </h3>
+          </div>
+          <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">
+            {isZh ? selectedCelestial.typeZh : selectedCelestial.typeEn}
+          </span>
+        </div>
+
+        {/* Coords & Mag Quick Readout Grid */}
+        <div className="grid grid-cols-3 gap-1 bg-indigo-950/20 border border-indigo-500/10 rounded-lg p-2 text-center text-[10px] font-mono">
+          <div className="border-r border-indigo-500/10">
+            <div className="text-slate-500 text-[8px] uppercase tracking-wider">{isZh ? '视星等' : 'Mag'}</div>
+            <div className="text-amber-400 font-bold mt-0.5">{selectedCelestial.mag.toFixed(2)}</div>
+          </div>
+          <div className="border-r border-indigo-500/10">
+            <div className="text-slate-500 text-[8px] uppercase tracking-wider">{isZh ? '赤经 RA' : 'R.A.'}</div>
+            <div className="text-indigo-300 font-bold mt-0.5">{selectedCelestial.ra.toFixed(2)}h</div>
+          </div>
+          <div>
+            <div className="text-slate-500 text-[8px] uppercase tracking-wider">{isZh ? '赤纬 DEC' : 'DEC.'}</div>
+            <div className="text-indigo-300 font-bold mt-0.5">{selectedCelestial.dec.toFixed(2)}°</div>
+          </div>
+        </div>
+
+        {/* Core Info Description */}
+        <div className="text-xs text-slate-300 leading-relaxed font-sans bg-white/[0.01] border border-white/5 rounded-lg p-3">
+          <p>{isZh ? selectedCelestial.infoZh : selectedCelestial.infoEn}</p>
+        </div>
+
+        {/* Extra Specifications */}
+        {(selectedCelestial.extraDetailsZh || selectedCelestial.extraDetailsEn) && (
+          <div className="bg-indigo-950/15 border-l-2 border-indigo-500/50 rounded-r-lg p-2.5 text-[11px] leading-relaxed text-indigo-200/90 italic font-sans">
+            {isZh ? selectedCelestial.extraDetailsZh : selectedCelestial.extraDetailsEn}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div
       className={`h-full w-full flex flex-col relative overflow-hidden transition-colors duration-500 cosmic-starfield select-none ${themeStyle.bg}`}
@@ -458,6 +621,7 @@ export default function App() {
       {isLoading && (
         <LoadingScreen
           lang={lang}
+          theme={theme}
           onLoadComplete={() => {
             setIsLoading(false);
             setIsInitialEntry(false);
@@ -469,240 +633,307 @@ export default function App() {
       <div className="absolute inset-0 bg-radial from-transparent to-[#050608]/95 pointer-events-none z-0" />
 
       {/* ═══════════════════════════════════════════════════════════════
-           TOP-LEFT: Settings Button + Left Drawer
+           LEFT INTEGRATED DRAWER (Settings + Astro Phenomena)
          ═══════════════════════════════════════════════════════════════ */}
       <div
-        className={`fixed top-3 left-0 z-[45] transition-all duration-300 overflow-hidden ${
-          settingsOpen ? 'max-w-[120px]' : 'max-w-9'
-        } hover:max-w-[120px]`}
-      >
-        <button
-          onClick={() => {
-            const next = !settingsOpen;
-            setSettingsOpen(next);
-            if (next) setPhenomenaPanelOpen(false);
-          }}
-          className={`flex items-center gap-1.5 h-8 rounded-r-xl px-2 transition-all duration-200 bg-black/60 backdrop-blur-xl border border-white/10 border-l-0 shadow-2xl ${
-            settingsOpen
-              ? 'bg-cyan-500/20 text-cyan-300'
-              : 'text-slate-400 hover:text-white hover:bg-white/10'
-          }`}
-        >
-          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-          <span className={`overflow-hidden transition-all duration-200 text-[11px] font-medium whitespace-nowrap ${settingsOpen ? 'max-w-20' : 'max-w-0'}`}>
-            {lang === 'zh' ? '设置' : 'Settings'}
-          </span>
-        </button>
-      </div>
-      <div className={`fixed top-14 left-3 z-50 w-72 max-h-[calc(100vh-80px)] transition-all duration-300 ${settingsOpen ? 'translate-x-0 opacity-100 pointer-events-auto' : '-translate-x-full opacity-0 pointer-events-none'}`}>
-        <CommandPanel
-          lang={lang}
-          onChangeLang={setLang}
-          landed={landed}
-          theme={theme}
-          onChangeTheme={setTheme}
-          showConstellLines={showConstellLines}
-          onToggleConstellLines={(show) => {
-            setShowConstellLines(show);
-            if (!show) setShowConstellNames(false);
-          }}
-          showStarNames={showStarNames}
-          onToggleStarNames={setShowStarNames}
-          showConstellNames={showConstellNames}
-          onToggleConstellNames={setShowConstellNames}
-          magLimit={magLimit}
-          onChangeMagLimit={setMagLimit}
-          telescopeActive={telescopeActive}
-          onToggleTelescope={setTelescopeActive}
-          selectedPlanetId={selectedPlanetId}
-          onSelectPlanet={handleSelectPlanet}
-          onFocusPlanet={handleFocusPlanet}
-          showPlanetLabels={showPlanetLabels}
-          onTogglePlanetLabels={setShowPlanetLabels}
-          onJumpDate={(ts) => setTimeState(prev => ({ ...prev, currentTimestamp: ts }))}
-          helioX={helioPos.x}
-          helioY={helioPos.y}
-          helioZ={helioPos.z}
-          latitude={latitude}
-          longitude={longitude}
-          onChangeLatitude={setLatitude}
-          onChangeLongitude={setLongitude}
-          validationPairKey={validationPairKey}
-          onChangeValidationPairKey={setValidationPairKey}
-          panelTab={panelTab}
-          onChangePanelTab={setPanelTab}
-          packingActive={packingActive}
-          onTogglePackingActive={setPackingActive}
-          packingProgressDone={packingProgressDone}
-          packingMode={packingMode}
-          onChangePackingMode={setPackingMode}
-          strictPhysics={strictPhysics}
-          onToggleStrictPhysics={setStrictPhysics}
-          exposure={exposure}
-          onChangeExposure={setExposure}
-          showOrbits={showOrbits}
-          onToggleOrbits={setShowOrbits}
-          useExponentialSpeed={useExponentialSpeed}
-          onToggleExponentialSpeed={setUseExponentialSpeed}
-          customSpeedPreset={customSpeedPreset}
-          onChangeCustomSpeedPreset={setCustomSpeedPreset}
-          showAxes={showAxes}
-          onToggleAxes={setShowAxes}
-          showLatLonGrid={showLatLonGrid}
-          onToggleLatLonGrid={setShowLatLonGrid}
-          isOpen={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-        />
-      </div>
-
-      {/* ═══════════════════════════════════════════════════════════════
-           TOP-LEFT (below settings): Astro Phenomena Button + Fused Panel
-         ═══════════════════════════════════════════════════════════════ */}
-      <div
-        className={`fixed top-14 left-0 z-[45] w-72 transition-all duration-300 bg-black/60 backdrop-blur-xl border border-white/10 rounded-r-xl overflow-hidden ${
-          phenomenaPanelOpen ? 'max-h-[calc(100vh-80px)] opacity-100' : 'max-w-9 opacity-100 hover:max-w-[120px]'
+        className={`fixed top-0 left-0 z-50 w-80 h-screen transition-transform duration-300 transform bg-slate-950/85 backdrop-blur-xl border border-white/10 border-l-0 rounded-r-2xl shadow-2xl flex flex-col ${
+          (settingsOpen || phenomenaPanelOpen) ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <button
-          onClick={() => {
-            const next = !phenomenaPanelOpen;
-            setPhenomenaPanelOpen(next);
-            if (next) setSettingsOpen(false);
-          }}
-          className={`flex items-center gap-1.5 h-8 px-2 transition-all duration-200 w-full ${
-            phenomenaPanelOpen
-              ? 'bg-cyan-500/20 text-cyan-300 border-b border-white/10'
-              : 'text-slate-400 hover:text-white hover:bg-white/10'
-          }`}
-        >
-          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" />
-          </svg>
-          <span className={`overflow-hidden transition-all duration-200 text-[11px] font-medium whitespace-nowrap ${phenomenaPanelOpen ? 'max-w-20' : 'max-w-0'}`}>
-            {lang === 'zh' ? '天文' : 'Astro'}
-          </span>
-        </button>
-        <div className={`transition-all duration-300 ${phenomenaPanelOpen ? 'opacity-100 max-h-[calc(100vh-120px)]' : 'opacity-0 max-h-0 overflow-hidden'}`}>
-          <AstroPhenomenaPanel
-            lang={lang}
-            theme={theme}
-            isOpen={phenomenaPanelOpen}
-            onToggle={() => setPhenomenaPanelOpen(prev => !prev)}
-            onSelectPhenomenon={handleSelectPhenomenon}
-            activePhenomenon={demoState.activePhenomenon}
-          />
+        {/* Floating integrated tab switcher buttons on the right edge of Left Drawer */}
+        <div className={`absolute left-full top-4 flex flex-col gap-2 pointer-events-auto transition-all duration-300 ${!(settingsOpen || phenomenaPanelOpen) ? '-translate-x-[34px] opacity-70 hover:translate-x-0 hover:opacity-100' : 'translate-x-0 opacity-100'}`}>
+          <button
+            onClick={() => {
+              const next = !settingsOpen;
+              setSettingsOpen(next);
+              if (next) setPhenomenaPanelOpen(false);
+            }}
+            className={`flex items-center w-16 h-10 rounded-r-xl border border-l-0 border-white/10 shadow-2xl backdrop-blur-xl transition-all duration-200 cursor-pointer ${
+              settingsOpen || phenomenaPanelOpen ? 'justify-center' : 'justify-end pr-[11px]'
+            } ${
+              settingsOpen
+                ? 'bg-cyan-500/20 text-cyan-300'
+                : 'bg-black/60 text-slate-400 hover:text-white hover:bg-white/10'
+            }`}
+            title={lang === 'zh' ? '系统设置' : 'System Settings'}
+          >
+            {settingsOpen ? (
+              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+              </svg>
+            ) : (
+              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            )}
+          </button>
+          <button
+            onClick={() => {
+              const next = !phenomenaPanelOpen;
+              setPhenomenaPanelOpen(next);
+              if (next) setSettingsOpen(false);
+            }}
+            className={`flex items-center w-16 h-10 rounded-r-xl border border-l-0 border-white/10 shadow-2xl backdrop-blur-xl transition-all duration-200 cursor-pointer ${
+              settingsOpen || phenomenaPanelOpen ? 'justify-center' : 'justify-end pr-[11px]'
+            } ${
+              phenomenaPanelOpen
+                ? 'bg-cyan-500/20 text-cyan-300'
+                : 'bg-black/60 text-slate-400 hover:text-white hover:bg-white/10'
+            }`}
+            title={lang === 'zh' ? '天文现象' : 'Astro Phenomena'}
+          >
+            {phenomenaPanelOpen ? (
+              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+              </svg>
+            ) : (
+              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" />
+              </svg>
+            )}
+          </button>
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-hidden relative flex flex-col h-full">
+          {settingsOpen && (
+            <div className="flex-1 h-full min-h-0">
+              <CommandPanel
+                lang={lang}
+                onChangeLang={setLang}
+                landed={landed}
+                theme={theme}
+                onChangeTheme={setTheme}
+                showConstellLines={showConstellLines}
+                onToggleConstellLines={(show) => {
+                  setShowConstellLines(show);
+                  if (!show) setShowConstellNames(false);
+                }}
+                showStarNames={showStarNames}
+                onToggleStarNames={setShowStarNames}
+                showConstellNames={showConstellNames}
+                onToggleConstellNames={setShowConstellNames}
+                magLimit={magLimit}
+                onChangeMagLimit={setMagLimit}
+                telescopeActive={telescopeActive}
+                onToggleTelescope={setTelescopeActive}
+                selectedPlanetId={selectedPlanetId}
+                onSelectPlanet={handleSelectPlanet}
+                onFocusPlanet={handleFocusPlanet}
+                showPlanetLabels={showPlanetLabels}
+                onTogglePlanetLabels={setShowPlanetLabels}
+                onJumpDate={(ts) => setTimeState(prev => ({ ...prev, currentTimestamp: ts }))}
+                helioX={helioPos.x}
+                helioY={helioPos.y}
+                helioZ={helioPos.z}
+                latitude={latitude}
+                longitude={longitude}
+                onChangeLatitude={setLatitude}
+                onChangeLongitude={setLongitude}
+                validationPairKey={validationPairKey}
+                onChangeValidationPairKey={setValidationPairKey}
+                panelTab={panelTab}
+                onChangePanelTab={setPanelTab}
+                packingActive={packingActive}
+                onTogglePackingActive={setPackingActive}
+                packingProgressDone={packingProgressDone}
+                packingMode={packingMode}
+                onChangePackingMode={setPackingMode}
+                strictPhysics={strictPhysics}
+                onToggleStrictPhysics={setStrictPhysics}
+                exposure={exposure}
+                onChangeExposure={setExposure}
+                showOrbits={showOrbits}
+                onToggleOrbits={setShowOrbits}
+                useExponentialSpeed={useExponentialSpeed}
+                onToggleExponentialSpeed={setUseExponentialSpeed}
+                customSpeedPreset={customSpeedPreset}
+                onChangeCustomSpeedPreset={setCustomSpeedPreset}
+                showAxes={showAxes}
+                onToggleAxes={setShowAxes}
+                showLatLonGrid={showLatLonGrid}
+                onToggleLatLonGrid={setShowLatLonGrid}
+                isOpen={settingsOpen}
+              />
+            </div>
+          )}
+          {phenomenaPanelOpen && (
+            <div className="flex-1 h-full min-h-0 flex flex-col pt-4">
+              <div className="flex items-center gap-2 border-b border-slate-800/60 pb-2.5 px-4 mb-2 shrink-0">
+                <svg className="w-4 h-4 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" />
+                </svg>
+                <span className="text-[11px] font-bold font-mono text-cyan-400 uppercase tracking-widest">
+                  {lang === 'zh' ? '天文现象演示' : 'ASTRONOMICAL PHENOMENA'}
+                </span>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <AstroPhenomenaPanel
+                  lang={lang}
+                  theme={theme}
+                  isOpen={phenomenaPanelOpen}
+                  onToggle={() => setPhenomenaPanelOpen(prev => !prev)}
+                  onSelectPhenomenon={handleSelectPhenomenon}
+                  activePhenomenon={demoState.activePhenomenon}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════
-           TOP-RIGHT: Planet Info / Guide Button + Right Drawer
+           RIGHT INTEGRATED DRAWER (Planet Info / Guide / Celestial Card)
          ═══════════════════════════════════════════════════════════════ */}
       <div
-        className={`fixed top-3 right-0 z-[45] transition-all duration-300 overflow-hidden flex justify-end ${
-          (isDemoActive ? demoState.showGuidePanel : showPlanetInfo) ? 'max-w-[120px]' : 'max-w-9'
-        } hover:max-w-[120px]`}
+        className={`fixed top-0 right-0 z-50 w-80 h-screen transition-transform duration-300 transform bg-slate-950/85 backdrop-blur-xl border border-white/10 border-r-0 rounded-l-2xl shadow-2xl flex flex-col ${
+          rightDrawerOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
       >
-        <button
-          onClick={() => {
-            if (isDemoActive) {
-              setDemoState(prev => ({ ...prev, showGuidePanel: !prev.showGuidePanel }));
-            } else {
-              setShowPlanetInfo(v => !v);
-            }
-          }}
-          className={`flex items-center gap-1.5 h-8 rounded-l-xl px-2 transition-all duration-200 bg-black/60 backdrop-blur-xl border border-white/10 border-r-0 shadow-2xl ${
-            (isDemoActive ? demoState.showGuidePanel : showPlanetInfo)
-              ? 'bg-cyan-500/20 text-cyan-300'
-              : 'text-slate-400 hover:text-white hover:bg-white/10'
-          }`}
-        >
+        {/* Floating integrated buttons on the left edge of Right Drawer */}
+        <div className={`absolute right-full top-4 flex flex-col gap-2 pointer-events-auto transition-all duration-300 ${!rightDrawerOpen ? 'translate-x-[34px] opacity-70 hover:translate-x-0 hover:opacity-100' : 'translate-x-0 opacity-100'}`}>
           {isDemoActive ? (
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-            </svg>
+            <button
+              onClick={() => {
+                setDemoState(prev => ({ ...prev, showGuidePanel: !prev.showGuidePanel }));
+              }}
+              className={`flex items-center w-16 h-10 rounded-l-xl border border-r-0 border-white/10 shadow-2xl backdrop-blur-xl transition-all duration-200 cursor-pointer ${
+                rightDrawerOpen ? 'justify-center' : 'justify-start pl-[11px]'
+              } ${
+                demoState.showGuidePanel
+                  ? 'bg-cyan-500/20 text-cyan-300'
+                  : 'bg-black/60 text-slate-400 hover:text-white hover:bg-white/10'
+              }`}
+              title={lang === 'zh' ? '演示指南' : 'Demo Guide'}
+            >
+              {demoState.showGuidePanel ? (
+                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              ) : (
+                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                </svg>
+              )}
+            </button>
           ) : (
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-              <path d="M2 12h20" />
-            </svg>
-          )}
-          <span className={`overflow-hidden transition-all duration-200 text-[11px] font-medium whitespace-nowrap ${(isDemoActive ? demoState.showGuidePanel : showPlanetInfo) ? 'max-w-20' : 'max-w-0'}`}>
-            {isDemoActive ? (lang === 'zh' ? '指南' : 'Guide') : (lang === 'zh' ? '星体' : 'Planet')}
-          </span>
-        </button>
-      </div>
-      <div className={`fixed top-14 right-3 z-50 w-72 max-h-[calc(100vh-80px)] transition-all duration-300 ${(isDemoActive ? demoState.showGuidePanel : showPlanetInfo) ? 'translate-x-0 opacity-100 pointer-events-auto' : 'translate-x-full opacity-0 pointer-events-none'}`}>
-        {isDemoActive ? (
-          <PhenomenaGuidePanel
-            lang={lang}
-            theme={theme}
-            demoState={demoState}
-            onNextStep={handleNextStep}
-            onPrevStep={handlePrevStep}
-            onSwitchView={handleSwitchView}
-            onExitDemo={handleExitDemo}
-            onHidePanel={() => setDemoState(prev => ({ ...prev, showGuidePanel: false }))}
-            onTogglePlay={handleTogglePlay}
-            onChangeSpeed={handleChangeSpeed}
-            onSelectPhase={handleSelectPhase}
-            selectedMoonPhaseIndex={selectedMoonPhaseIndex}
-            onClearMoonPhaseSelection={() => setSelectedMoonPhaseIndex(null)}
-            selectedPlanetId={selectedPlanetId}
-            onSelectPlanet={setSelectedPlanetId}
-            eclipseEventTs={eclipseEventTs}
-            eclipseEventType={eclipseEventType}
-            eclipseProgress={eclipseProgress}
-            eclipseWindow={eclipseWindow}
-            onSelectEclipseEvent={(ts, type) => {
-              setEclipseEventTs(ts);
-              setEclipseEventType(type);
-              if (type) {
-                const win = AstrophenomenaEngine.getEclipseWindow(ts, type);
-                setEclipseWindow(win);
-                setTimeState(prev => ({ ...prev, currentTimestamp: win.start }));
-              } else {
-                setEclipseWindow(null);
-                setTimeState(prev => ({ ...prev, currentTimestamp: ts - 3 * 3600000 }));
-              }
-            }}
-            onChangeEclipseProgress={(progress) => {
-              if (eclipseEventTs) {
-                if (eclipseWindow) {
-                  const ts = eclipseWindow.start + progress * (eclipseWindow.end - eclipseWindow.start);
-                  setTimeState(prev => ({ ...prev, currentTimestamp: ts }));
+            <button
+              onClick={() => {
+                if (rightDrawerOpen) {
+                  // 如果是打开的，点击它应该完全收起（包括关闭星体详情和清除选中的星体）
+                  setShowPlanetInfo(false);
+                  setSelectedCelestial(null);
                 } else {
-                  const offsetMs = (progress - 0.5) * 6 * 3600000;
-                  setTimeState(prev => ({ ...prev, currentTimestamp: eclipseEventTs + offsetMs }));
+                  setShowPlanetInfo(true);
                 }
-              }
-            }}
-          />
-        ) : (
-          <PlanetInfoPanel
-            planetId={selectedPlanetId}
-            crossSectionActive={crossSectionActive}
-            onToggleCrossSection={(active) => {
-              setCrossSectionActive(active);
-              if (active) setCloudsVisible(false);
-            }}
-            cloudsVisible={cloudsVisible}
-            onToggleClouds={() => setCloudsVisible(v => !v)}
-            lang={lang}
-            onClose={() => setShowPlanetInfo(false)}
-            landed={landed}
-            onToggleLanding={handleToggleLanding}
-            isLandable={LANDABLE_PLANETS.includes(selectedPlanetId)}
-            textureOffset={textureOffsets[selectedPlanetId] ?? { u: 0, v: 0 }}
-            onChangeTextureOffset={(offset) => setTextureOffsets(prev => ({ ...prev, [selectedPlanetId]: offset }))}
-            activeLayer={activeLayer}
-            onLayerHover={setActiveLayer}
-          />
-        )}
+              }}
+              className={`flex items-center w-16 h-10 rounded-l-xl border border-r-0 border-white/10 shadow-2xl backdrop-blur-xl transition-all duration-200 cursor-pointer ${
+                rightDrawerOpen ? 'justify-center' : 'justify-start pl-[11px]'
+              } ${
+                rightDrawerOpen
+                  ? 'bg-cyan-500/20 text-cyan-300'
+                  : 'bg-black/60 text-slate-400 hover:text-white hover:bg-white/10'
+              }`}
+              title={lang === 'zh' ? '星体详情' : 'Planet Details'}
+            >
+              {rightDrawerOpen ? (
+                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              ) : (
+                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+                  <path d="M2 12h20" />
+                </svg>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 flex flex-col h-full overflow-hidden p-4">
+          {isDemoActive ? (
+            <div className="flex-1 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
+              <PhenomenaGuidePanel
+                lang={lang}
+                theme={theme}
+                demoState={demoState}
+                onNextStep={handleNextStep}
+                onPrevStep={handlePrevStep}
+                onSwitchView={handleSwitchView}
+                onExitDemo={handleExitDemo}
+                onHidePanel={() => setDemoState(prev => ({ ...prev, showGuidePanel: false }))}
+                onTogglePlay={handleTogglePlay}
+                onChangeSpeed={handleChangeSpeed}
+                onSelectPhase={handleSelectPhase}
+                selectedMoonPhaseIndex={selectedMoonPhaseIndex}
+                onClearMoonPhaseSelection={() => setSelectedMoonPhaseIndex(null)}
+                selectedPlanetId={selectedPlanetId}
+                onSelectPlanet={setSelectedPlanetId}
+                eclipseEventTs={eclipseEventTs}
+                eclipseEventType={eclipseEventType}
+                eclipseProgress={eclipseProgress}
+                eclipseWindow={eclipseWindow}
+                onSelectEclipseEvent={(ts, type) => {
+                  setEclipseEventTs(ts);
+                  setEclipseEventType(type);
+                  if (type) {
+                    const win = AstrophenomenaEngine.getEclipseWindow(ts, type);
+                    setEclipseWindow(win);
+                    setTimeState(prev => ({ ...prev, currentTimestamp: win.start }));
+                  } else {
+                    setEclipseWindow(null);
+                    setTimeState(prev => ({ ...prev, currentTimestamp: ts - 3 * 3600000 }));
+                  }
+                }}
+                onChangeEclipseProgress={(progress) => {
+                  if (eclipseEventTs) {
+                    if (eclipseWindow) {
+                      const ts = eclipseWindow.start + progress * (eclipseWindow.end - eclipseWindow.start);
+                      setTimeState(prev => ({ ...prev, currentTimestamp: ts }));
+                    } else {
+                      const offsetMs = (progress - 0.5) * 6 * 3600000;
+                      setTimeState(prev => ({ ...prev, currentTimestamp: eclipseEventTs + offsetMs }));
+                    }
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col h-full min-h-0 divide-y divide-white/10 overflow-hidden">
+              {showPlanetInfo && (
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pb-4">
+                  <PlanetInfoPanel
+                    planetId={selectedPlanetId}
+                    crossSectionActive={crossSectionActive}
+                    onToggleCrossSection={(active) => {
+                      setCrossSectionActive(active);
+                      if (active) setCloudsVisible(false);
+                    }}
+                    cloudsVisible={cloudsVisible}
+                    onToggleClouds={() => setCloudsVisible(v => !v)}
+                    lang={lang}
+                    landed={landed}
+                    onToggleLanding={handleToggleLanding}
+                    isLandable={LANDABLE_PLANETS.includes(selectedPlanetId)}
+                    textureOffset={textureOffsets[selectedPlanetId] ?? { u: 0, v: 0 }}
+                    onChangeTextureOffset={(offset) => setTextureOffsets(prev => ({ ...prev, [selectedPlanetId]: offset }))}
+                    activeLayer={activeLayer}
+                    onLayerHover={setActiveLayer}
+                  />
+                </div>
+              )}
+              {selectedCelestial && (
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pt-4">
+                  {renderCelestialDetailCard()}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════
@@ -712,33 +943,18 @@ export default function App() {
 
         {/* 无极缩放 (Seamless Zoom / Cloud entry effect overlay) 动态面纱 */}
         {isTransitioning && (
-          <div className="absolute inset-0 bg-[#050608] flex flex-col items-center justify-center z-50 animate-pulse duration-500 p-6 text-center select-none">
-            <div className="w-16 h-16 border-t-2 border-r-2 border-cyan-500 rounded-full animate-spin mb-4" />
-            <span className="text-lg font-bold font-mono tracking-widest text-cyan-400">
-              {landed ? 'LAUNCHING INTO DEEP SPACE...' : 'ENTERING PLANETARY ATMOSPHERE...'}
-            </span>
-            <p className="text-xs text-slate-500 mt-2 font-mono">
-              Calibrating coordinates to horizontal dome space frame
-            </p>
-          </div>
+          <TransitionScreen
+            direction={transitionDirection}
+            lang={lang}
+            theme={theme}
+            planetId={selectedPlanetId}
+          />
         )}
 
         {/* 主要操盘画布：占满100%父容器空间 */}
         <div className="w-full h-full absolute inset-0 z-0" id="simulator-viewport-housing">
-          {landed ? (
-            <>
-              {/* 右上角退出星空模式按钮 */}
-              <button
-                onClick={() => setLanded(false)}
-                className="absolute top-5 right-5 z-30 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer border border-red-500/40 bg-red-950/30 text-red-400 hover:bg-red-950/45 tracking-wider uppercase transition-all duration-300 hover:scale-105 active:scale-95"
-                id="btn-exit-starry-sky"
-                title={lang === 'zh' ? '退出星空模式' : 'Exit Starry Sky'}
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-                </svg>
-                <span>{lang === 'zh' ? '退出观测' : 'EXIT OBSERVER'}</span>
-              </button>
+          {mountViewer && (
+            landed ? (
               <StarrySkyViewer
                 currentTimestamp={timeState.currentTimestamp}
                 latitude={latitude}
@@ -755,40 +971,45 @@ export default function App() {
                 onChangeTextureOffset={(id, offset) => setTextureOffsets(prev => ({ ...prev, [id]: offset }))}
                 exposure={exposure}
                 demoState={demoState}
+                onExitLanding={() => triggerViewTransition(false)}
+                selectedCelestial={selectedCelestial}
+                setSelectedCelestial={setSelectedCelestial}
+                onChangeLatitude={setLatitude}
+                onChangeLongitude={setLongitude}
               />
-            </>
-          ) : (
-            <UniverseViewer
-              startEntryAnimation={!isInitialEntry}
-              currentTimestamp={timeState.currentTimestamp}
-              selectedPlanetId={selectedPlanetId}
-              onSelectPlanet={handleSelectPlanet}
-              onFocusPlanet={handleFocusPlanet}
-              crossSectionActive={crossSectionActive}
-              cloudsVisible={cloudsVisible}
-              lang={lang}
-              showConstellLines={showConstellLines}
-              showConstellNames={showConstellNames}
-              showPlanetLabels={showPlanetLabels}
-              magLimit={magLimit}
-              strictPhysics={strictPhysics}
-              setStrictPhysics={setStrictPhysics}
-              textureOffsets={textureOffsets}
-              activeLayer={activeLayer}
-              onLayerHover={setActiveLayer}
-              exposure={exposure}
-              showOrbits={showOrbits}
-              showAxes={showAxes}
-              showLatLonGrid={showLatLonGrid}
-              demoState={demoState}
-              selectedSolarTermIndex={selectedSolarTermIndex}
-              onSelectSolarTerm={handleSelectSolarTerm}
-              selectedMoonPhaseIndex={selectedMoonPhaseIndex}
-              onSelectMoonPhase={handleSelectMoonPhase}
-              eclipseEventType={eclipseEventType}
-              eclipseEventTs={eclipseEventTs}
-              focusTrigger={focusTrigger}
-            />
+            ) : (
+              <UniverseViewer
+                startEntryAnimation={!isInitialEntry}
+                currentTimestamp={timeState.currentTimestamp}
+                selectedPlanetId={selectedPlanetId}
+                onSelectPlanet={handleSelectPlanet}
+                onFocusPlanet={handleFocusPlanet}
+                crossSectionActive={crossSectionActive}
+                cloudsVisible={cloudsVisible}
+                lang={lang}
+                showConstellLines={showConstellLines}
+                showConstellNames={showConstellNames}
+                showPlanetLabels={showPlanetLabels}
+                magLimit={magLimit}
+                strictPhysics={strictPhysics}
+                setStrictPhysics={setStrictPhysics}
+                textureOffsets={textureOffsets}
+                activeLayer={activeLayer}
+                onLayerHover={setActiveLayer}
+                exposure={exposure}
+                showOrbits={showOrbits}
+                showAxes={showAxes}
+                showLatLonGrid={showLatLonGrid}
+                demoState={demoState}
+                selectedSolarTermIndex={selectedSolarTermIndex}
+                onSelectSolarTerm={handleSelectSolarTerm}
+                selectedMoonPhaseIndex={selectedMoonPhaseIndex}
+                onSelectMoonPhase={handleSelectMoonPhase}
+                eclipseEventType={eclipseEventType}
+                eclipseEventTs={eclipseEventTs}
+                focusTrigger={focusTrigger}
+              />
+            )
           )}
         </div>
 
@@ -803,6 +1024,8 @@ export default function App() {
             onChangeTimeState={(part) => setTimeState(prev => ({ ...prev, ...part }))}
             lang={lang}
             onJumpDate={(ts) => setTimeState(prev => ({ ...prev, currentTimestamp: ts }))}
+            timezoneOffset={timezoneOffset}
+            onChangeTimezoneOffset={setTimezoneOffset}
           />
         </div>
 

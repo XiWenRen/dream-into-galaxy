@@ -499,7 +499,7 @@ export default function PlanetInfoPanel({
 
   return (
     <div
-      className="bg-black/85 border border-white/10 backdrop-blur-md rounded-2xl p-5 shadow-2xl flex flex-col space-y-4 max-h-[80vh] overflow-y-auto select-none transition-all duration-300 scrollbar"
+      className="flex flex-col space-y-4 w-full h-full text-slate-200 select-none overflow-y-auto scrollbar"
       id="planet-biography-panel"
     >
       {/* 头部：星体面板与关闭、剖切控件、登录按钮 */}
@@ -536,16 +536,19 @@ export default function PlanetInfoPanel({
               }`}
               id="btn-login-land-planet"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                {landed ? (
-                  <>
-                    <path d="M12 19V5" /><path d="m5 12 7-7 7 7" /><path d="M19 12H5" />
-                  </>
-                ) : (
-                  <>
-                    <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" /><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" /><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" /><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
-                  </>
-                )}
+              <svg 
+                className={`w-4 h-4 transition-transform duration-300 ${landed ? '-rotate-90' : 'rotate-90'}`} 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+              >
+                <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+                <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+                <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+                <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
               </svg>
             </button>
           )}
@@ -582,20 +585,6 @@ export default function PlanetInfoPanel({
               id="btn-slice-toggle"
             >
               <span className="text-sm">{crossSectionActive ? '🛡️' : '🔬'}</span>
-            </button>
-          )}
-
-          {/* 右侧关闭面板按钮 */}
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all cursor-pointer border border-transparent hover:border-white/10"
-              title={isZh ? '关闭介绍面板' : 'Close biography panel'}
-              id="planet-info-panel-close-btn"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
             </button>
           )}
         </div>

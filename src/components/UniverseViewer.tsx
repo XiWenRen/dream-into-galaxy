@@ -6378,9 +6378,8 @@ export default function UniverseViewer({
         })}
       </div>
 
-      {/* 底部缩放尺与教学模式开关 */}
-      <div className="absolute bottom-5 left-6 flex items-center space-x-3 z-30">
-        {/* 教学模式开关 */}
+      {/* 教学模式开关 */}
+      <div className="absolute bottom-5 left-6 z-30">
         <div
           className="pointer-events-auto bg-slate-950/80 border border-slate-800/80 backdrop-blur-md px-2 py-1.5 rounded-lg flex items-center space-x-2 text-[10px] font-mono select-none cursor-pointer hover:border-cyan-500/50 transition-colors"
           onClick={() => setTeachingMode(!teachingMode)}
@@ -6398,8 +6397,10 @@ export default function UniverseViewer({
             {lang === 'zh' ? '真实' : 'REAL'}
           </span>
         </div>
+      </div>
 
-        {/* 底部缩放尺读数 */}
+      {/* 底部缩放尺读数 */}
+      <div className="absolute bottom-5 right-6 z-30">
         <div
           className="pointer-events-none bg-slate-950/80 border border-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-lg flex items-center space-x-2 text-[10px] font-mono select-none"
           id="universe-zoom-metric"

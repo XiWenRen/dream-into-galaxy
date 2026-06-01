@@ -258,8 +258,7 @@ export default function PhenomenaGuidePanel({
   ];
 
   return (
-    <div className="w-full max-h-[calc(100vh-120px)] bg-black/75 border border-white/10 rounded-2xl shadow-2xl z-20 backdrop-blur-md flex flex-col"
-    >
+    <div className="w-full h-full flex flex-col">
       {/* Header */}
       <div className="px-4 pt-4 pb-2 border-b border-white/5">
         <div className="flex items-center justify-between">
@@ -305,16 +304,6 @@ export default function PhenomenaGuidePanel({
               onClick={onExitDemo}
               className="p-1.5 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
               title={t.demoExit}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-              </svg>
-            </button>
-            {/* Hide panel */}
-            <button
-              onClick={onHidePanel}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-              title={isZh ? '隐藏面板' : 'Hide Panel'}
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M18 6 6 18" /><path d="m6 6 12 12" />

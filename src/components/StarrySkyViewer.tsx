@@ -98,6 +98,24 @@ const PLANETS: PlanetInfo[] = [
   }
 ];
 
+const CITIES = [
+  { nameZh: '🇨🇳 北京', nameEn: 'Beijing', lat: 39.90, lon: 116.41 },
+  { nameZh: '🇨🇳 上海', nameEn: 'Shanghai', lat: 31.23, lon: 121.47 },
+  { nameZh: '🇨🇳 深圳', nameEn: 'Shenzhen', lat: 22.54, lon: 114.06 },
+  { nameZh: '🇨🇳 成都', nameEn: 'Chengdu', lat: 30.57, lon: 104.07 },
+  { nameZh: '🇨🇳 西安', nameEn: 'Xi\'an', lat: 34.34, lon: 108.94 },
+  { nameZh: '🇺🇸 纽约', nameEn: 'New York', lat: 40.71, lon: -74.01 },
+  { nameZh: '🇬🇧 伦敦', nameEn: 'London', lat: 51.51, lon: -0.13 },
+  { nameZh: '🇫🇷 巴黎', nameEn: 'Paris', lat: 48.86, lon: 2.35 },
+  { nameZh: '🇯🇵 东京', nameEn: 'Tokyo', lat: 35.68, lon: 139.69 },
+  { nameZh: '🇰🇷 首尔', nameEn: 'Seoul', lat: 37.56, lon: 126.97 },
+  { nameZh: '🇸🇬 新加坡', nameEn: 'Singapore', lat: 1.35, lon: 103.82 },
+  { nameZh: '🇦🇺 悉尼', nameEn: 'Sydney', lat: -33.87, lon: 151.21 },
+  { nameZh: '🇷🇺 莫斯科', nameEn: 'Moscow', lat: 55.76, lon: 37.62 },
+  { nameZh: '🇮🇳 孟买', nameEn: 'Mumbai', lat: 19.08, lon: 72.88 },
+  { nameZh: '🇧🇷 圣保罗', nameEn: 'São Paulo', lat: -23.55, lon: -46.63 },
+];
+
 // Helper to extract star info with fallbacks for those without explicit descriptions
 const getStarInfo = (star: DetailedStar, lang: 'zh' | 'en') => {
   const isZh = lang === 'zh';
@@ -565,6 +583,24 @@ interface StarrySkyViewerProps {
   onChangeTextureOffset?: (planetId: string, offset: { u: number; v: number }) => void;
   exposure?: number;
   demoState?: PhenomenaDemoState;
+  onExitLanding?: () => void;
+  selectedCelestial?: {
+    id: string;
+    nameZh: string;
+    nameEn: string;
+    typeZh: string;
+    typeEn: string;
+    mag: number;
+    ra: number;
+    dec: number;
+    infoZh: string;
+    infoEn: string;
+    extraDetailsZh: string;
+    extraDetailsEn: string;
+  } | null;
+  setSelectedCelestial?: (celestial: any) => void;
+  onChangeLatitude?: (latitude: number) => void;
+  onChangeLongitude?: (longitude: number) => void;
 }
 
 export default function StarrySkyViewer({
@@ -582,7 +618,12 @@ export default function StarrySkyViewer({
   textureOffsets = {},
   onChangeTextureOffset,
   exposure = 1.5,
-  demoState
+  demoState,
+  onExitLanding,
+  selectedCelestial,
+  setSelectedCelestial,
+  onChangeLatitude,
+  onChangeLongitude,
 }: StarrySkyViewerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -655,6 +696,27 @@ export default function StarrySkyViewer({
     return ObserverEngine.getLocalSiderealTime(ctx, currentTimestampRef.current);
   };
 
+  // 辅助函数：根据当前经纬度匹配并显示最接近的城市名
+  const getCurrentCityName = () => {
+    let minDistance = Infinity;
+    let closestCity = CITIES[0];
+    for (const city of CITIES) {
+      const dLat = city.lat - latitude;
+      const dLon = city.lon - longitude;
+      const dist = dLat * dLat + dLon * dLon;
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestCity = city;
+      }
+    }
+    if (minDistance < 25.0) {
+      const name = lang === 'zh' ? closestCity.nameZh : closestCity.nameEn;
+      // 去除国旗 emoji，只保留纯文本城市名
+      return name.replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]/g, '').trim();
+    }
+    return lang === 'zh' ? '自定义位置' : 'Custom Location';
+  };
+
   const textureOffsetsRef = useRef(textureOffsets);
   const satelliteSpritesRef = useRef<Record<string, THREE.Sprite>>({});
 
@@ -671,6 +733,22 @@ export default function StarrySkyViewer({
 
   // 选中圆圈动画闪烁key（每次点击就重置动画）
   const [selectionRingKey, setSelectionRingKey] = useState(0);
+
+  // 城市快速切换菜单显示状态及Ref
+  const [showCityMenu, setShowCityMenu] = useState(false);
+  const cityMenuRef = useRef<HTMLDivElement>(null);
+
+  // 点击外部时收起城市快速切换菜单
+  useEffect(() => {
+    if (!showCityMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (cityMenuRef.current && !cityMenuRef.current.contains(e.target as Node)) {
+        setShowCityMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showCityMenu]);
 
   useEffect(() => {
     latitudeRef.current = latitude;
@@ -891,20 +969,6 @@ export default function StarrySkyViewer({
 
   const [hoveredPos, setHoveredPos] = useState<{ x: number; y: number } | null>(null);
 
-  const [selectedCelestial, setSelectedCelestial] = useState<{
-    id: string;
-    nameZh: string;
-    nameEn: string;
-    typeZh: string;
-    typeEn: string;
-    mag: number;
-    ra: number;
-    dec: number;
-    infoZh: string;
-    infoEn: string;
-    extraDetailsZh: string;
-    extraDetailsEn: string;
-  } | null>(null);
 
   const daysSinceJ2000Ref = useRef<number>(0);
   const moonPhaseInfoRef = useRef<any>(null);
@@ -1792,6 +1856,10 @@ export default function StarrySkyViewer({
             extraDetailsEn: 'Its apparent magnitude represents the actual absolute brightness as observed from standard sea level. By altering time speed, observe its diurnal rotation relative to our Cardinal Horizon ring.'
           });
         }
+      } else {
+        selectedObjectRef.current = null;
+        setSelectedScreenPos(null);
+        setSelectedCelestial?.(null);
       }
     };
 
@@ -2696,10 +2764,9 @@ export default function StarrySkyViewer({
           title={isZh ? '切换望远镜模式' : 'Toggle Telescope Mode'}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m10.065 12.493-6.93 6.93a2.23 2.23 0 1 1-3.152-3.154l6.929-6.93" />
-            <path d="m15.236 11.247 3.105-3.104a1 1 0 0 0 0-1.414l-1.414-1.414a1 1 0 0 0-1.414 0l-3.104 3.105" />
-            <path d="m17.5 11.5 2.3-2.3a2.41 2.41 0 0 0 0-3.4l-1.6-1.6a2.41 2.41 0 0 0-3.4 0l-2.3 2.3" />
-            <path d="M2.49 21.51a2.2 2.2 0 0 1-1.95-1.95" />
+            <path d="M8 22a4 4 0 0 1-4-4V6a2 2 0 0 1 4 0v12a2 2 0 0 0 4 0V6a2 2 0 0 1 4 0v12a4 4 0 0 1-4 4" />
+            <path d="M12 8h-4" />
+            <path d="M12 12h-4" />
           </svg>
           {telescopeActive && (
             <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee] animate-pulse" />
@@ -2708,31 +2775,71 @@ export default function StarrySkyViewer({
 
         <span className="text-slate-600">|</span>
 
-        {/* 罗盘内容（保持不变） */}
-        <span className={`font-bold transition-colors ${Math.abs(compassHeading) < 15 || Math.abs(compassHeading - 360) < 15 ? 'text-emerald-400' : 'text-slate-400'}`}>N</span>
-        <span className="text-slate-500">|</span>
-        <span className="text-cyan-300 font-bold text-sm min-w-[3ch] text-center">{compassHeading.toFixed(0)}°</span>
-        <span className="text-slate-500 text-[10px]">{
+        {/* 罗盘内容（方位精简，仅保留数值与方向说明） */}
+        <span className="text-slate-300 font-normal text-sm min-w-[3ch] text-center">{compassHeading.toFixed(0)}°</span>
+        <span className="text-cyan-400 font-bold text-[10px] ml-1.5">{
           (() => {
             const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
             const idx = Math.round(compassHeading / 22.5) % 16;
             return dirs[idx];
           })()
         }</span>
-        <span className="text-slate-500">|</span>
-        <span className={`font-bold transition-colors ${Math.abs(compassHeading - 90) < 15 ? 'text-emerald-400' : 'text-slate-400'}`}>E</span>
-        <span className="text-slate-500">|</span>
-        <span className={`font-bold transition-colors ${Math.abs(compassHeading - 180) < 15 ? 'text-emerald-400' : 'text-slate-400'}`}>S</span>
-        <span className="text-slate-500">|</span>
-        <span className={`font-bold transition-colors ${Math.abs(compassHeading - 270) < 15 ? 'text-emerald-400' : 'text-slate-400'}`}>W</span>
 
         <span className="text-slate-600">|</span>
 
         {/* 精简观星信息 */}
         {skyData && (
           <div className="flex items-center space-x-1 text-[10px] whitespace-nowrap">
-            <span className="text-slate-400">
-              {getObserverBodyName(observerBodyId, lang)}
+            <span className="text-slate-400 flex items-center space-x-1">
+              <span>{getObserverBodyName(observerBodyId, lang)}</span>
+              {observerBodyId === 'earth' && (
+                <div className="relative inline-flex items-center space-x-1" ref={cityMenuRef}>
+                  <button
+                    onClick={() => setShowCityMenu(!showCityMenu)}
+                    className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-400 transition-colors pointer-events-auto flex items-center justify-center cursor-pointer"
+                    title={isZh ? '快速切换城市' : 'Quick City Switch'}
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z"/>
+                      <circle cx="12" cy="10" r="3"/>
+                    </svg>
+                  </button>
+                  <span 
+                    onClick={() => setShowCityMenu(!showCityMenu)}
+                    className="text-[10px] text-slate-400 hover:text-cyan-400 cursor-pointer select-none"
+                    title={isZh ? '快速切换城市' : 'Quick City Switch'}
+                  >
+                    ({getCurrentCityName()})
+                  </span>
+                  {showCityMenu && (
+                    <div className="absolute top-full left-0 mt-1.5 z-[100] bg-slate-950/95 backdrop-blur-xl border border-slate-800 rounded-xl p-2.5 shadow-2xl min-w-[240px] pointer-events-auto grid grid-cols-2 gap-1.5 max-h-[300px] overflow-y-auto scrollbar-thin">
+                      <div className="col-span-2 text-[9px] text-slate-500 font-bold uppercase tracking-wider px-1 pb-1 border-b border-slate-800 mb-1">
+                        {isZh ? '选择城市' : 'Select City'}
+                      </div>
+                      {CITIES.map((c) => (
+                        <button
+                          key={c.nameEn}
+                          onClick={() => {
+                            onChangeLatitude?.(c.lat);
+                            onChangeLongitude?.(c.lon);
+                            setShowCityMenu(false);
+                          }}
+                          className={`text-[10px] font-sans px-1.5 py-1 rounded transition-all text-left truncate flex items-center justify-between cursor-pointer ${
+                            Math.abs(latitude - c.lat) < 0.1 && Math.abs(longitude - c.lon) < 0.1
+                              ? 'bg-cyan-500/20 text-cyan-400 font-bold border border-cyan-500/30'
+                              : 'bg-slate-900/40 text-slate-300 hover:bg-slate-800 hover:text-cyan-300 border border-transparent'
+                          }`}
+                        >
+                          <span>{isZh ? c.nameZh : c.nameEn}</span>
+                          <span className="text-[8px] opacity-50 font-mono">
+                            {c.lat > 0 ? `${c.lat.toFixed(0)}N` : `${Math.abs(c.lat).toFixed(0)}S`}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </span>
             <span className="text-slate-600">|</span>
             <span className={skyData.sunAlt > 0 ? "text-amber-400" : "text-slate-500"}>☀️{skyData.sunAlt.toFixed(0)}°</span>
@@ -2744,10 +2851,12 @@ export default function StarrySkyViewer({
                 </span>
               </>
             )}
-            <span className="text-slate-600">|</span>
-            <span className="text-indigo-300">🌒{translations[lang][skyData.moonPhaseName as keyof typeof translations['zh']]}</span>
-            <span className="text-slate-600">|</span>
-            <span className="text-indigo-300/80">LST{skyData.lst.toFixed(1)}h</span>
+            {observerBodyId === 'earth' && (
+              <>
+                <span className="text-slate-600">|</span>
+                <span className="text-indigo-300">🌒{translations[lang][skyData.moonPhaseName as keyof typeof translations['zh']]}</span>
+              </>
+            )}
             {demoState?.activePhenomenon === 'solar-terms' && observerBodyId === 'earth' && (
               <>
                 <span className="text-slate-600">|</span>
@@ -2763,6 +2872,33 @@ export default function StarrySkyViewer({
               </>
             )}
           </div>
+        )}
+
+        {/* 退出观测按钮 — 放置在最右侧并使用火箭向上飞图标 */}
+        {onExitLanding && (
+          <>
+            <span className="text-slate-600">|</span>
+            <button
+              onClick={onExitLanding}
+              className="pointer-events-auto flex items-center justify-center w-7 h-7 rounded-full border border-red-500/40 bg-red-950/30 text-red-400 hover:bg-red-950/45 hover:border-red-500/60 active:scale-95 transition-all duration-200 cursor-pointer"
+              title={isZh ? '退出观测模式' : 'Exit Observer Mode'}
+            >
+              <svg 
+                className="w-4 h-4 -rotate-90" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+              >
+                <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+                <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+                <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+                <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+              </svg>
+            </button>
+          </>
         )}
       </div>
 
@@ -2803,149 +2939,9 @@ export default function StarrySkyViewer({
         </div>
       )}
 
-      {/* 选定星体详细物理与神话传说卡片 */}
-      {selectedCelestial && (
-        <div
-          className="absolute top-16 right-5 w-80 max-h-[80vh] overflow-y-auto bg-slate-950/95 border border-indigo-500/30 backdrop-blur-md rounded-xl p-4 text-slate-200 z-[35] flex flex-col space-y-3.5 shadow-[0_12px_40px_rgba(0,0,0,0.85)] font-sans animate-in slide-in-from-right-6 duration-300"
-          id="starry-sky-celestial-detail-card"
-        >
-          {/* 顶栏 */}
-          <div className="flex justify-between items-start border-b border-indigo-500/20 pb-2.5">
-            <div>
-              <span className="text-[9.5px] uppercase tracking-wider text-indigo-400 font-mono font-bold">
-                {isZh ? selectedCelestial.typeZh : selectedCelestial.typeEn}
-              </span>
-              <h2 className="text-sm font-black text-slate-100 tracking-tight mt-0.5">
-                {isZh ? selectedCelestial.nameZh : selectedCelestial.nameEn}
-              </h2>
-            </div>
-            <button 
-              onClick={() => setSelectedCelestial(null)}
-              className="p-1 cursor-pointer rounded-lg hover:bg-slate-900 border border-transparent hover:border-slate-800 text-slate-400 hover:text-slate-200 transition-all text-[11px] font-bold leading-none select-none"
-              title={isZh ? '关闭' : 'Close'}
-            >
-              ✕
-            </button>
-          </div>
+      {/* 选定星体详细卡片已移至 App.tsx 右侧抽屉内垂直堆叠展示 */}
 
-          {/* 物理特性参数网格 */}
-          <div className="grid grid-cols-3 gap-2 bg-slate-900/50 p-2.5 rounded-lg border border-slate-800">
-            <div className="text-center">
-              <span className="text-[8.5px] text-slate-500 uppercase font-mono font-medium block">
-                {isZh ? '视星等' : 'Magnitude'}
-              </span>
-              <span className="text-xs font-mono font-bold text-amber-300 mt-0.5 block">
-                {selectedCelestial.mag.toFixed(2)}
-              </span>
-            </div>
-            <div className="text-center border-x border-slate-800">
-              <span className="text-[8.5px] text-slate-500 uppercase font-mono font-medium block">
-                {isZh ? '赤经 RA' : 'R. Ascension'}
-              </span>
-              <span className="text-xs font-mono font-bold text-cyan-300 mt-0.5 block">
-                {selectedCelestial.ra.toFixed(2)}h
-              </span>
-            </div>
-            <div className="text-center">
-              <span className="text-[8.5px] text-slate-500 uppercase font-mono font-medium block">
-                {isZh ? '赤纬 Dec' : 'Declination'}
-              </span>
-              <span className="text-xs font-mono font-bold text-purple-300 mt-0.5 block">
-                {selectedCelestial.dec >= 0 ? '+' : ''}{selectedCelestial.dec.toFixed(2)}°
-              </span>
-            </div>
-          </div>
 
-          {/* 主体描述 */}
-          <div className="space-y-3">
-            <div>
-              <h3 className="text-[10px] font-bold text-indigo-400 tracking-wider uppercase flex items-center gap-1 font-mono">
-                <span>✦</span>
-                <span>{isZh ? '天体传记与宇宙物理特性' : 'Celestial Biography & Physics'}</span>
-              </h3>
-              <p className="text-xs text-slate-300 leading-relaxed font-sans mt-1.5 bg-indigo-950/25 p-3 rounded-lg border border-indigo-950/30 text-justify">
-                {isZh ? selectedCelestial.infoZh : selectedCelestial.infoEn}
-              </p>
-            </div>
-
-            <div className="pt-1">
-              <h3 className="text-[10px] font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1 font-mono">
-                <span>👁️</span>
-                <span>{isZh ? '观星探秘与仿真机制' : 'Observations & Sim Details'}</span>
-              </h3>
-              <p className="text-[11px] text-slate-400 leading-normal font-sans mt-1.5 text-justify">
-                {isZh ? selectedCelestial.extraDetailsZh : selectedCelestial.extraDetailsEn}
-              </p>
-            </div>
-          </div>
-
-          {/* 贴图 UV 偏移校准（仅对月球/地球主导天体显示） */}
-          {(selectedCelestial.id === 'moon' || selectedCelestial.id === 'earth') && onChangeTextureOffset && (
-            <div className="border-t border-slate-800 pt-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-[10px] font-bold text-white/40 uppercase tracking-widest font-mono">
-                  🎨 {isZh ? '贴图偏移校准' : 'Texture Offset'}
-                </h3>
-                <span className="text-[9px] text-cyan-500/60 font-mono">UV OFFSET</span>
-              </div>
-
-              <div className="space-y-2.5">
-                {/* U offset slider — 仅校准经度方向 */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[10px] font-mono">
-                    <span className="text-white/50">U (longitude)</span>
-                    <span className="text-cyan-400">{(textureOffsets[selectedCelestial.id]?.u ?? 0).toFixed(2)}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={-0.5}
-                    max={0.5}
-                    step={0.01}
-                    value={textureOffsets[selectedCelestial.id]?.u ?? 0}
-                    onChange={(e) => {
-                      onChangeTextureOffset(selectedCelestial.id, { u: parseFloat(e.target.value), v: 0 });
-                    }}
-                    className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400"
-                  />
-                </div>
-              </div>
-
-              <button
-                onClick={async () => {
-                  const off = textureOffsets[selectedCelestial.id] ?? { u: 0, v: 0 };
-                  const payload = JSON.stringify({ planetId: selectedCelestial.id, u: off.u });
-                  try {
-                    await navigator.clipboard.writeText(payload);
-                    alert(isZh ? `已复制: ${payload}` : `Copied: ${payload}`);
-                  } catch {
-                    alert(isZh ? '复制失败，请手动复制' : 'Copy failed, please copy manually');
-                  }
-                }}
-                className="w-full flex items-center justify-center space-x-1.5 py-2 rounded-lg text-[11px] font-semibold cursor-pointer border border-cyan-500/30 bg-cyan-950/20 text-cyan-400 hover:bg-cyan-950/40 hover:border-cyan-500/50 active:scale-95 transition-all"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-                <span>{isZh ? '复制结果' : 'Copy Result'}</span>
-              </button>
-            </div>
-          )}
-
-          {/* 装饰底框 */}
-          <div className="border-t border-slate-900 pt-2.5 flex items-center justify-between text-[8px] text-slate-500 font-mono select-none">
-            <span>EPOCH J2000 REFERENCE</span>
-            <span className="text-indigo-400 font-semibold uppercase">STELLAR FRAMEWORK v3.5</span>
-          </div>
-        </div>
-      )}
-
-      {/* 底部贴士 */}
-      <div className="absolute bottom-5 left-1/2 transform -translate-x-1/2 pointer-events-none bg-slate-950/70 border border-slate-800/60 backdrop-blur-md px-4 py-1.5 rounded-full text-[10px] text-slate-400 text-center select-none z-10 shadow-md">
-        {isZh
-          ? '💡 拖拽360度环顾天空；滚轮缩放视角；右上角🔭切换望远镜模式；悬停磁吸关注星体并单击选择'
-          : '💡 Drag to pan 360° sky. Scroll to zoom FOV. 🔭 Telescope toggle top-right. Hover to snap, click to select stars.'}
-      </div>
 
       {/* 望远镜覆盖层 — 独立模块 */}
       <TelescopeOverlay

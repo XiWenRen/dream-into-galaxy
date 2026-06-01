@@ -45,4 +45,25 @@ export class TimeEngine {
     if (lst < 0) lst += 24;
     return lst; // 返回小时数 (0 ~ 24)
   }
+
+  /**
+   * 将一个UTC时间戳，转换为指定时区下同一天特定小时的UTC时间戳
+   * @param dateTimestamp UTC时间戳 (毫秒)
+   * @param localHour 指定的本地小时数 (如 20.5 代表晚上 20:30)
+   * @param timezoneOffset 时区偏移小时数 (如 8 代表 UTC+8)
+   */
+  static getTimestampForLocalHour(dateTimestamp: number, localHour: number, timezoneOffset: number): number {
+    const localMs = dateTimestamp + timezoneOffset * 3600 * 1000;
+    const localDate = new Date(localMs);
+    
+    const year = localDate.getUTCFullYear();
+    const month = localDate.getUTCMonth();
+    const date = localDate.getUTCDate();
+    
+    const hour = Math.floor(localHour);
+    const minutes = Math.round((localHour - hour) * 60);
+    
+    const targetLocalMs = Date.UTC(year, month, date, hour, minutes, 0, 0);
+    return targetLocalMs - timezoneOffset * 3600 * 1000;
+  }
 }
