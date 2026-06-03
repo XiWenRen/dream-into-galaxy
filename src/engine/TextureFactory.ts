@@ -6,6 +6,21 @@
 import * as THREE from 'three';
 
 // ============================================================================
+// Global texture cache to avoid regenerating procedural textures
+// ============================================================================
+
+const globalTextureCache = new Map<string, THREE.Texture>();
+
+function getCachedTexture(key: string, generator: () => THREE.Texture): THREE.Texture {
+  if (globalTextureCache.has(key)) {
+    return globalTextureCache.get(key)!;
+  }
+  const tex = generator();
+  globalTextureCache.set(key, tex);
+  return tex;
+}
+
+// ============================================================================
 // StarrySkyViewer procedural textures
 // ============================================================================
 
@@ -295,13 +310,14 @@ export function createHorizonGlowTexture(): THREE.Texture {
 
 /** 生成程序化丰富高精度(HD)贴图，防止加载外部文件跨域或不存在的问题 (升级为 HD 超清 2048x1024 纹理画板) */
 export function createProceduralTexture(id: string): THREE.Texture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 2048;
-  canvas.height = 1024;
-  const ctx = canvas.getContext('2d')!;
-  ctx.scale(2, 2); // 自动对齐坐标实现高分辨率平滑渲染 (4K超清级清晰度)
+  return getCachedTexture(`procedural_${id}`, () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2048;
+    canvas.height = 1024;
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(2, 2); // 自动对齐坐标实现高分辨率平滑渲染 (4K超清级清晰度)
 
-  if (id === 'sun') {
+    if (id === 'sun') {
     // 太阳：暗红色背景配超高亮度金黄色热流
     const grad = ctx.createLinearGradient(0, 0, 0, 512);
     grad.addColorStop(0, '#ff1a00');
@@ -749,12 +765,387 @@ export function createProceduralTexture(id: string): THREE.Texture {
     ctx.arc(480, 200, 140, 0, Math.PI * 2);
     ctx.arc(820, 310, 160, 0, Math.PI * 2);
     ctx.fill();
+  } else if (id === 'io') {
+    // 木卫一 Io：硫磺火山地表，黄色基调带深色火山口与橙色熔岩流
+    ctx.fillStyle = '#d4a72c';
+    ctx.fillRect(0, 0, 1024, 512);
+    // 火山口与熔岩区域
+    for (let i = 0; i < 30; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 35 + 8;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, '#5a1a05');
+      grad.addColorStop(0.5, '#8b4513');
+      grad.addColorStop(1, 'rgba(212, 167, 44, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 硫磺沉积物亮斑
+    for (let i = 0; i < 60; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 12 + 2;
+      ctx.fillStyle = Math.random() > 0.5 ? '#fde047' : '#fbbf24';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (id === 'europa') {
+    // 木卫二 Europa：冰白色表面，深蓝色冰裂纹
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(0, 0, 1024, 512);
+    // 冰裂纹系统
+    ctx.strokeStyle = '#1e3a5f';
+    ctx.lineWidth = 2.5;
+    for (let i = 0; i < 18; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      let cx = x, cy = y;
+      for (let s = 0; s < 8; s++) {
+        cx += (Math.random() - 0.5) * 200;
+        cy += (Math.random() - 0.5) * 100;
+        ctx.lineTo(cx, cy);
+      }
+      ctx.stroke();
+    }
+    // 次级淡蓝裂纹
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 35; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      let cx = x, cy = y;
+      for (let s = 0; s < 6; s++) {
+        cx += (Math.random() - 0.5) * 150;
+        cy += (Math.random() - 0.5) * 80;
+        ctx.lineTo(cx, cy);
+      }
+      ctx.stroke();
+    }
+    // 冰面微纹理
+    for (let i = 0; i < 200; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 3 + 0.5;
+      ctx.fillStyle = 'rgba(100, 130, 170, 0.2)';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (id === 'ganymede') {
+    // 木卫三 Ganymede：灰色冰岩混合，暗色沟槽区与亮色斑块
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(0, 0, 1024, 512);
+    // 暗色沟槽区域
+    for (let i = 0; i < 12; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 80 + 30;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, '#475569');
+      grad.addColorStop(1, 'rgba(148, 163, 184, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 亮色斑块
+    for (let i = 0; i < 25; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 25 + 5;
+      ctx.fillStyle = '#cbd5e1';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 撞击坑
+    for (let i = 0; i < 40; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 6 + 1.5;
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  } else if (id === 'callisto') {
+    // 木卫四 Callisto：深灰色古老撞击坑密布
+    ctx.fillStyle = '#6b7280';
+    ctx.fillRect(0, 0, 1024, 512);
+    // 大型多环撞击坑
+    for (let i = 0; i < 8; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 55 + 20;
+      ctx.strokeStyle = '#9ca3af';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      // 内环
+      ctx.strokeStyle = '#4b5563';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.65, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // 密集小撞击坑
+    for (let i = 0; i < 250; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 7 + 1;
+      ctx.fillStyle = '#4b5563';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#9ca3af';
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // 亮斑区域
+    for (let i = 0; i < 15; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 40 + 15;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, 'rgba(209, 213, 219, 0.35)');
+      grad.addColorStop(1, 'rgba(107, 114, 128, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (id === 'titan') {
+    // 土卫六 Titan：橙黄色雾霾大气，朦胧地表
+    ctx.fillStyle = '#d97706';
+    ctx.fillRect(0, 0, 1024, 512);
+    // 暗色沙丘/湖泊区域
+    for (let i = 0; i < 8; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const rx = Math.random() * 100 + 40;
+      const ry = Math.random() * 50 + 20;
+      ctx.fillStyle = 'rgba(120, 53, 15, 0.4)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 沙丘条纹
+    ctx.strokeStyle = 'rgba(180, 83, 9, 0.35)';
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 30; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      ctx.beginPath();
+      ctx.moveTo(x - 60, y);
+      ctx.lineTo(x + 60, y + (Math.random() - 0.5) * 20);
+      ctx.stroke();
+    }
+    // 大气朦胧覆盖
+    for (let i = 0; i < 40; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 50 + 20;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, 'rgba(251, 191, 36, 0.15)');
+      grad.addColorStop(1, 'rgba(217, 119, 6, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (id === 'phobos' || id === 'deimos') {
+    // 火卫一/二：暗灰色不规则小行星状
+    ctx.fillStyle = '#57534e';
+    ctx.fillRect(0, 0, 1024, 512);
+    // 撞击坑
+    for (let i = 0; i < 180; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 10 + 2;
+      ctx.fillStyle = 'rgba(60, 50, 45, 0.5)';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    //  grooves (条纹)
+    ctx.strokeStyle = 'rgba(40, 30, 25, 0.25)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 12; i++) {
+      const y = 50 + i * 40;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      for (let x = 0; x < 1024; x += 80) {
+        ctx.lineTo(x, y + Math.sin(x * 0.02) * 10);
+      }
+      ctx.stroke();
+    }
+  } else if (id === 'rhea' || id === 'enceladus' || id === 'tethys') {
+    // 冰卫星：亮白色冰面
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(0, 0, 1024, 512);
+    // 冰裂缝
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 15; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      let cx = x, cy = y;
+      for (let s = 0; s < 6; s++) {
+        cx += (Math.random() - 0.5) * 150;
+        cy += (Math.random() - 0.5) * 80;
+        ctx.lineTo(cx, cy);
+      }
+      ctx.stroke();
+    }
+    // 亮斑
+    for (let i = 0; i < 50; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 8 + 1;
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 暗色撞击坑
+    for (let i = 0; i < 60; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 5 + 1;
+      ctx.fillStyle = '#cbd5e1';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (id === 'titania' || id === 'oberon' || id === 'ariel') {
+    // 天卫：浅灰色冰面，裂缝与沟槽
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(0, 0, 1024, 512);
+    // 沟槽系统
+    for (let i = 0; i < 10; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 70 + 20;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+      grad.addColorStop(0, '#64748b');
+      grad.addColorStop(1, 'rgba(203, 213, 225, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 裂缝
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 1.8;
+    for (let i = 0; i < 20; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      let cx = x, cy = y;
+      for (let s = 0; s < 7; s++) {
+        cx += (Math.random() - 0.5) * 180;
+        cy += (Math.random() - 0.5) * 90;
+        ctx.lineTo(cx, cy);
+      }
+      ctx.stroke();
+    }
+    // 撞击坑
+    for (let i = 0; i < 80; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 6 + 1;
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  } else if (id === 'triton') {
+    // 海卫一 Triton：粉白色冰火山活动地表
+    ctx.fillStyle = '#e2d5d8';
+    ctx.fillRect(0, 0, 1024, 512);
+    // 冰火山喷发痕迹 (暗色羽流沉积)
+    for (let i = 0; i < 12; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const rx = Math.random() * 80 + 30;
+      const ry = Math.random() * 40 + 15;
+      ctx.fillStyle = 'rgba(100, 80, 85, 0.3)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 亮白色冰斑
+    for (let i = 0; i < 40; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 15 + 3;
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 裂纹
+    ctx.strokeStyle = '#a1a1aa';
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < 15; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      let cx = x, cy = y;
+      for (let s = 0; s < 5; s++) {
+        cx += (Math.random() - 0.5) * 120;
+        cy += (Math.random() - 0.5) * 60;
+        ctx.lineTo(cx, cy);
+      }
+      ctx.stroke();
+    }
+  } else if (id === 'proteus') {
+    // 海卫八 Proteus：暗灰色不规则
+    ctx.fillStyle = '#52525b';
+    ctx.fillRect(0, 0, 1024, 512);
+    for (let i = 0; i < 100; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 8 + 2;
+      ctx.fillStyle = 'rgba(30, 30, 35, 0.45)';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // 亮斑
+    for (let i = 0; i < 30; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 512;
+      const r = Math.random() * 5 + 1;
+      ctx.fillStyle = '#71717a';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   return texture;
+  });
 }
 
 /** 生成 1D 线性纹理用于各行星的解析式星环 */
@@ -1023,4 +1414,31 @@ export function createLensFlareSparkleTexture(size = 64): THREE.Texture {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+/** High-frequency seamless noise texture for detail bump map */
+export function createNoiseTexture(): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  const imgData = ctx.createImageData(256, 256);
+  const data = imgData.data;
+
+  // Generate simple high-frequency random noise
+  for (let i = 0; i < 256 * 256; i++) {
+    const val = Math.floor(Math.random() * 255);
+    const idx = i * 4;
+    data[idx] = val;     // R
+    data[idx + 1] = val; // G
+    data[idx + 2] = val; // B
+    data[idx + 3] = 255; // A
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  return texture;
 }

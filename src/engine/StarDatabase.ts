@@ -19,6 +19,8 @@ export interface DetailedStar {
   infoEn?: string;    // 英文介绍
   expandedZh?: string;// 详细中文介绍
   expandedEn?: string;// 详细英文介绍
+  pmRa?: number;      // 自行 RA (mas/年)
+  pmDec?: number;     // 自行 Dec (mas/年)
 }
 
 export const BRIGHT_STARS: DetailedStar[] = [
@@ -30,6 +32,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 2.0,
     color: 0xfff9e6,
     dist: 433,
+    pmRa: 50, pmDec: -15,
     nameZh: "勾陈一 (北极星)",
     nameEn: "Polaris",
     constellZh: "小熊座",
@@ -47,6 +50,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 0.45,
     color: 0xff7e44,
     dist: 640,
+    pmRa: 27, pmDec: 11,
     nameZh: "参宿四",
     nameEn: "Betelgeuse",
     constellZh: "猎户座",
@@ -166,6 +170,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: -1.46,
     color: 0xffffff,
     dist: 8.6,
+    pmRa: -546, pmDec: -1223,
     nameZh: "天狼星",
     nameEn: "Sirius",
     constellZh: "大犬座",
@@ -183,6 +188,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 0.03,
     color: 0xd2eaff,
     dist: 25.3,
+    pmRa: 201, pmDec: 287,
     nameZh: "织女星",
     nameEn: "Vega",
     constellZh: "天琴座",
@@ -200,6 +206,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 0.76,
     color: 0xfbfbff,
     dist: 16.7,
+    pmRa: 536, pmDec: 385,
     nameZh: "河鼓二 (牛郎星)",
     nameEn: "Altair",
     constellZh: "天鹰座",
@@ -234,6 +241,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: -0.05,
     color: 0xffb595,
     dist: 36.7,
+    pmRa: -1093, pmDec: -1999,
     nameZh: "大角星",
     nameEn: "Arcturus",
     constellZh: "牧夫座",
@@ -251,6 +259,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 0.08,
     color: 0xfff3cc,
     dist: 42.8,
+    pmRa: 75, pmDec: -427,
     nameZh: "五车二",
     nameEn: "Capella",
     constellZh: "御夫座",
@@ -268,6 +277,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 0.38,
     color: 0xfffaed,
     dist: 11.4,
+    pmRa: -714, pmDec: -1036,
     nameZh: "南河三",
     nameEn: "Procyon",
     constellZh: "小犬座",
@@ -285,6 +295,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 0.85,
     color: 0xffa87d,
     dist: 65,
+    pmRa: 63, pmDec: -189,
     nameZh: "毕宿五",
     nameEn: "Aldebaran",
     constellZh: "金牛座",
@@ -302,6 +313,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 1.06,
     color: 0xff6622,
     dist: 550,
+    pmRa: -12, pmDec: -23,
     nameZh: "心宿二",
     nameEn: "Antares",
     constellZh: "天蝎座",
@@ -320,6 +332,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 1.79,
     color: 0xffa87d,
     dist: 123,
+    pmRa: -136, pmDec: -36,
     nameZh: "天枢 (北斗一)",
     nameEn: "Dubhe",
     constellZh: "大熊座",
@@ -337,6 +350,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 2.34,
     color: 0xd6e8ff,
     dist: 79,
+    pmRa: -65, pmDec: 22,
     nameZh: "天璇 (北斗二)",
     nameEn: "Merak",
     constellZh: "大熊座",
@@ -526,6 +540,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 1.35,
     color: 0xd2eaff,
     dist: 79,
+    pmRa: -249, pmDec: 5,
     nameZh: "轩辕十四",
     nameEn: "Regulus",
     constellZh: "狮子座",
@@ -543,6 +558,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 2.14,
     color: 0xd6e8ff,
     dist: 36,
+    pmRa: -143, pmDec: -12,
     nameZh: "五帝座一",
     nameEn: "Denebola",
     constellZh: "狮子座",
@@ -748,6 +764,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 1.58,
     color: 0xd6e8ff,
     dist: 51,
+    pmRa: -206, pmDec: -148,
     nameZh: "北河二",
     nameEn: "Castor",
     constellZh: "双子座",
@@ -765,6 +782,7 @@ export const BRIGHT_STARS: DetailedStar[] = [
     mag: 1.14,
     color: 0xffd5a1,
     dist: 34,
+    pmRa: -626, pmDec: -45,
     nameZh: "北河三",
     nameEn: "Pollux",
     constellZh: "双子座",
@@ -832,41 +850,13 @@ export const BRIGHT_STAR_COUNT = BRIGHT_STARS.length;
 export const STAR_LIST: DetailedStar[] = BRIGHT_STARS;
 
 export const CONSTELLATIONS: { id: string; nameZh: string; nameEn: string; seq: [number, number][] }[] = [
-  {
-    id: "orion",
-    nameZh: "猎户座",
-    nameEn: "Orion",
-    seq: [ [1, 3], [3, 6], [6, 2], [2, 7], [7, 5], [5, 1], [4, 5], [6, 4] ]
-  },
-  {
-    id: "big_dipper",
-    nameZh: "大熊座 (北斗七星)",
-    nameEn: "Ursa Major (Big Dipper)",
-    seq: [ [18, 17], [17, 20], [20, 19], [19, 18], [20, 21], [21, 22], [22, 23] ]
-  },
+  // Bright-star asterisms that are NOT IAU formal constellations.
+  // The 88 formal constellations are fully covered by EXTRA_CONSTELLATIONS.
   {
     id: "summer_triangle",
     nameZh: "夏季大三角",
     nameEn: "Summer Triangle",
     seq: [ [9, 10], [10, 11], [11, 9] ]
-  },
-  {
-    id: "cassiopeia",
-    nameZh: "仙后座",
-    nameEn: "Cassiopeia",
-    seq: [ [24, 25], [25, 26], [26, 27], [27, 28] ]
-  },
-  {
-    id: "leo",
-    nameZh: "狮子座",
-    nameEn: "Leo",
-    seq: [ [29, 31], [31, 34], [34, 35], [29, 33], [33, 32], [32, 30], [32, 31] ]
-  },
-  {
-    id: "scorpius",
-    nameZh: "天蝎座",
-    nameEn: "Scorpius",
-    seq: [ [41, 16], [16, 39], [39, 40], [40, 38], [38, 36], [36, 37] ]
   },
   {
     id: "winter_triangle",
@@ -875,22 +865,16 @@ export const CONSTELLATIONS: { id: string; nameZh: string; nameEn: string; seq: 
     seq: [ [8, 14], [14, 1], [1, 8] ]
   },
   {
-    id: "pointers",
-    nameZh: "指极星",
-    nameEn: "Pointer Stars",
-    seq: [ [17, 18], [18, 0] ]
-  },
-  {
-    id: "gemini",
-    nameZh: "双子座",
-    nameEn: "Gemini",
-    seq: [ [42, 43], [43, 45], [45, 42] ]
-  },
-  {
     id: "spring_triangle",
     nameZh: "春季大三角",
     nameEn: "Spring Triangle",
     seq: [ [12, 44], [44, 30], [30, 12] ]
+  },
+  {
+    id: "pointers",
+    nameZh: "指极星",
+    nameEn: "Pointer Stars",
+    seq: [ [17, 18], [18, 0] ]
   },
   {
     id: "taurus_eye",

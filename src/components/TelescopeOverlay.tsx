@@ -482,6 +482,10 @@ export default function TelescopeOverlay({
   const activePresetIdx = findActivePresetIndex(currentFov);
   const activePreset = activePresetIdx >= 0 ? TELESCOPE_PRESETS[activePresetIdx] : null;
 
+  // 寻星镜安全排布在主镜左侧 140px 处，彻底消除交叠与遮挡，垂直偏置 0.4*radius
+  const fx = w / 2 - radius - 140;
+  const fy = h / 2 - radius * 0.4;
+
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div
@@ -494,37 +498,79 @@ export default function TelescopeOverlay({
         overflow: 'hidden',
       }}
     >
-      {/* ── Layer 1: Dark outer mask with circular hole ── */}
-      <div
+      {/* ── Layer 1: Dark outer mask with two circular holes (SVG mask to prevent blocking WebGL under the finder scope) ── */}
+      <svg
         style={{
           position: 'absolute',
           inset: 0,
-          background: 'rgba(0,0,0,0.97)',
-          maskImage: `radial-gradient(circle ${radius}px at center, transparent 0%, black 100%)`,
-          WebkitMaskImage: `radial-gradient(circle ${radius}px at center, transparent 0%, black 100%)`,
+          width: '100%',
+          height: '100%',
           pointerEvents: 'none',
+          zIndex: 1,
         }}
-      />
+      >
+        <defs>
+          <mask id="telescope-bg-mask">
+            {/* Opaque white covers the whole screen */}
+            <rect width="100%" height="100%" fill="#ffffff" />
+            {/* Black circle cuts out the main eyepiece center */}
+            <circle cx={w / 2} cy={h / 2} r={radius} fill="#000000" />
+            {/* Black circle cuts out the finder scope */}
+            <circle cx={fx} cy={fy} r={90} fill="#000000" />
+          </mask>
+        </defs>
+        <rect
+          width="100%"
+          height="100%"
+          fill="rgba(2, 6, 23, 0.97)"
+          mask="url(#telescope-bg-mask)"
+        />
+      </svg>
 
-      {/* ── Layer 2: Radial gradient for soft aperture edge ── */}
+      {/* ── Eyepiece Vignette and Effects Container (only size of eyepiece, preventing leakage to other screen areas) ── */}
       <div
         style={{
           position: 'absolute',
-          inset: 0,
-          background: `radial-gradient(circle ${radius}px at center, transparent 88%, rgba(0,0,0,0.97) 100%)`,
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: diameter,
+          height: diameter,
+          borderRadius: '50%',
+          overflow: 'hidden',
           pointerEvents: 'none',
+          zIndex: 2,
         }}
-      />
+      >
+        {/* Layer 2: Radial gradient for soft aperture edge */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: `radial-gradient(circle, transparent 88%, rgba(2, 6, 23, 0.97) 100%)`,
+          }}
+        />
 
-      {/* ── Layer 3: Inner vignette (darkening toward circle edge) ── */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background: `radial-gradient(circle ${radius * 0.98}px at center, transparent 60%, rgba(0,0,0,0.70) 100%)`,
-          pointerEvents: 'none',
-        }}
-      />
+        {/* Layer 3: Inner vignette (darkening toward circle edge) */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: `radial-gradient(circle, transparent 85%, rgba(0,0,0,0.85) 100%)`,
+          }}
+        />
+
+        {/* Layer 5: Scan-line effect (only inside eyepiece area) */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.06) 3px, rgba(0,0,0,0.06) 4px)',
+            backgroundSize: '100% 100%',
+          }}
+        />
+      </div>
 
       {/* ── Layer 4: Subtle cyan glow ring around eyepiece border ── */}
       <div
@@ -539,19 +585,7 @@ export default function TelescopeOverlay({
           boxShadow:
             '0 0 0 2px rgba(6,182,212,0.18), 0 0 30px rgba(6,182,212,0.40), inset 0 0 18px rgba(6,182,212,0.10)',
           pointerEvents: 'none',
-        }}
-      />
-
-      {/* ── Layer 5: Scan-line effect (only inside eyepiece area via mask) ── */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background:
-            'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.06) 3px, rgba(0,0,0,0.06) 4px)',
-          maskImage: `radial-gradient(circle ${radius}px at center, black 0%, transparent 100%)`,
-          WebkitMaskImage: `radial-gradient(circle ${radius}px at center, black 0%, transparent 100%)`,
-          pointerEvents: 'none',
+          zIndex: 3,
         }}
       />
 
@@ -690,6 +724,217 @@ export default function TelescopeOverlay({
         </span>
       </div>
 
+      {/* ── Finder Scope Mounting Bracket (寻星镜与主镜筒连接固定支架) ── */}
+      <svg
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 34,
+        }}
+      >
+        <defs>
+          <linearGradient id="bracket-metallic" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#475569" />
+            <stop offset="40%" stopColor="#64748b" />
+            <stop offset="70%" stopColor="#334155" />
+            <stop offset="100%" stopColor="#1e293b" />
+          </linearGradient>
+          <filter id="bracket-drop-shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="-3" dy="5" stdDeviation="5" floodColor="#000000" floodOpacity="0.75" />
+          </filter>
+        </defs>
+
+        {/* 支架底座 - 主目镜外沿连接盘 */}
+        <path
+          d={`M ${w/2 - radius * 0.76} ${h/2 - radius * 0.65} 
+             A ${radius} ${radius} 0 0 0 ${w/2 - radius * 0.65} ${h/2 - radius * 0.76}`}
+          fill="none"
+          stroke="url(#bracket-metallic)"
+          strokeWidth="10"
+          strokeLinecap="round"
+          filter="url(#bracket-drop-shadow)"
+        />
+
+        {/* 支架双支撑连杆 */}
+        <path
+          d={`M ${fx + 20} ${fy + 40} L ${w/2 - radius * 0.74} ${h/2 - radius * 0.69}
+             M ${fx + 40} ${fy + 20} L ${w/2 - radius * 0.69} ${h/2 - radius * 0.74}`}
+          fill="none"
+          stroke="url(#bracket-metallic)"
+          strokeWidth="10"
+          strokeLinecap="round"
+          filter="url(#bracket-drop-shadow)"
+        />
+
+        {/* 支撑连杆的内凹镂空加强筋 */}
+        <path
+          d={`M ${fx + 22} ${fy + 38} L ${w/2 - radius * 0.73} ${h/2 - radius * 0.68}
+             M ${fx + 38} ${fy + 22} L ${w/2 - radius * 0.68} ${h/2 - radius * 0.73}`}
+          fill="none"
+          stroke="#0f172a"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+
+        {/* 支架顶端 - 环抱寻星镜的固定箍套 */}
+        <circle
+          cx={fx}
+          cy={fy}
+          r="95"
+          fill="none"
+          stroke="url(#bracket-metallic)"
+          strokeWidth="8"
+          filter="url(#bracket-drop-shadow)"
+        />
+        
+        {/* 固定箍套调节定位防滑螺丝 */}
+        <circle cx={fx + 66} cy={fy - 66} r="6" fill="#94a3b8" stroke="#1e293b" strokeWidth="2" />
+        <circle cx={fx + 66} cy={fy - 66} r="2" fill="#475569" />
+        
+        <circle cx={fx - 66} cy={fy + 66} r="6" fill="#94a3b8" stroke="#1e293b" strokeWidth="2" />
+        <circle cx={fx - 66} cy={fy + 66} r="2" fill="#475569" />
+      </svg>
+
+      {/* ── Finder Scope (寻星镜) 3D 实体壳体与镜片效果 ── */}
+      <div
+        style={{
+          position: 'absolute',
+          left: `${fx - 98}px`,
+          top: `${fy - 98}px`,
+          width: '196px',
+          height: '196px',
+          borderRadius: '50%',
+          // 亚光不锈钢镜壳，使用中空径向渐变以露出底部 WebGL 画面，边缘保留拉丝金属体感
+          background: 'radial-gradient(circle, transparent 93px, #1e293b 93px, #475569 95px, #334155 97px, #0f172a 98px)',
+          boxShadow: `
+            0 16px 36px rgba(0, 0, 0, 0.75),
+            inset 0 3px 5px rgba(255, 255, 255, 0.25),
+            inset 0 -5px 10px rgba(0, 0, 0, 0.85)
+          `,
+          border: '1px solid #1e293b',
+          zIndex: 35,
+          pointerEvents: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {/* 内层黄铜镜圈 (Brass Bezel Ring)，营造机械仪器复古精致感 */}
+        <div
+          style={{
+            width: '186px',
+            height: '186px',
+            borderRadius: '50%',
+            // 中空黄铜镜圈以露出底部 WebGL 画面，边缘保留黄铜色泽
+            background: 'radial-gradient(circle, transparent 90px, #78350f 90px, #b45309 91px, #d97706 92px, #b45309 93px)',
+            boxShadow: `
+              0 2px 4px rgba(0,0,0,0.5),
+              inset 0 2px 3px rgba(255, 255, 255, 0.35),
+              inset 0 -2px 3px rgba(0, 0, 0, 0.6)
+            `,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {/* 消光镜腔与出瞳挡圈 (Aperture / Dark Vignette)，融合边缘并遮蔽 WebGL 的直角 */}
+          <div
+            style={{
+              width: '180px',
+              height: '180px',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, transparent 84px, #020617 88px)',
+              boxShadow: 'inset 0 0 16px rgba(0, 0, 0, 0.98)',
+              position: 'relative',
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {/* 寻星镜发光红色准星刻度盘 (Illuminated Red Reticle) */}
+            <svg
+              width="180"
+              height="180"
+              viewBox="0 0 180 180"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                zIndex: 3,
+              }}
+            >
+              <defs>
+                {/* 模拟夜视准星在极暗环境下的红色发光辉光滤镜 */}
+                <filter id="reticle-glow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur in="SourceGraphic" stdDeviation="1.0" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+
+              {/* 垂直与水平准星细丝 */}
+              <line x1="90" y1="0" x2="90" y2="180" stroke="rgba(248, 113, 113, 0.75)" strokeWidth="1" filter="url(#reticle-glow)" />
+              <line x1="0" y1="90" x2="180" y2="90" stroke="rgba(248, 113, 113, 0.75)" strokeWidth="1" filter="url(#reticle-glow)" />
+              
+              {/* 环心刻度圈 */}
+              <circle cx="90" cy="90" r="12" fill="none" stroke="rgba(248, 113, 113, 0.7)" strokeWidth="0.8" filter="url(#reticle-glow)" />
+              <circle cx="90" cy="90" r="32" fill="none" stroke="rgba(248, 113, 113, 0.45)" strokeWidth="0.8" strokeDasharray="3 4" filter="url(#reticle-glow)" />
+              <circle cx="90" cy="90" r="56" fill="none" stroke="rgba(248, 113, 113, 0.3)" strokeWidth="0.8" strokeDasharray="2 6" filter="url(#reticle-glow)" />
+            </svg>
+
+            {/* 镜片高透明玻璃冷反光 (Glass Highlight Layer) */}
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.04) 40%, transparent 60%)',
+                zIndex: 4,
+                pointerEvents: 'none',
+              }}
+            />
+
+            {/* 光学镜片氟化镁(MgF2)防反射蓝紫色镀膜反光 (Coating Reflection) */}
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'radial-gradient(circle at 35% 35%, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.06) 45%, transparent 80%)',
+                zIndex: 4,
+                pointerEvents: 'none',
+              }}
+            />
+
+            {/* 战术信息风格标签 */}
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '12px',
+                width: '100%',
+                textAlign: 'center',
+                fontSize: '8px',
+                fontWeight: 600,
+                color: 'rgba(248, 113, 113, 0.85)',
+                fontFamily: 'monospace',
+                letterSpacing: '0.08em',
+                textShadow: '0 1px 3px rgba(0,0,0,0.95)',
+                zIndex: 5,
+              }}
+            >
+              {lang === 'zh' ? '寻星镜 (15° 视场)' : 'FINDER (15° FOV)'}
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }
+

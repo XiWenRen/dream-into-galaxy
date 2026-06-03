@@ -3,16 +3,9 @@ import { translations, transitionFactList, transitionTipList } from '../i18n';
 
 interface LoadingScreenProps {
   onLoadComplete?: () => void;
+  onLaunch?: () => void;
   lang: 'zh' | 'en';
   theme: 'space-tech' | 'cosmic-dark' | 'neon-hologram' | 'solar-gold';
-}
-
-interface WarpStar {
-  x: number;
-  y: number;
-  z: number;
-  px: number;
-  py: number;
 }
 
 const BACKGROUND_IMAGES = [
@@ -23,7 +16,7 @@ const BACKGROUND_IMAGES = [
   'https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?q=80&w=2000'  // Dark Cosmic Dust
 ];
 
-export default function LoadingScreen({ onLoadComplete, lang, theme }: LoadingScreenProps) {
+export default function LoadingScreen({ onLoadComplete, onLaunch, lang, theme }: LoadingScreenProps) {
   const [progress, setProgress] = useState(0);
   const [showStartBtn, setShowStartBtn] = useState(false);
   
@@ -36,11 +29,36 @@ export default function LoadingScreen({ onLoadComplete, lang, theme }: LoadingSc
   const [isLaunching, setIsLaunching] = useState(false);
   const launchStartTimeRef = useRef<number | null>(null);
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const onCompleteRef = useRef(onLoadComplete);
   onCompleteRef.current = onLoadComplete;
 
+  const onLaunchRef = useRef(onLaunch);
+  onLaunchRef.current = onLaunch;
+
   const t = translations[lang];
+
+  // Generate 80 CSS stars for compositor-accelerated space warp
+  const stars = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < 80; i++) {
+      const angle = Math.random() * 360;
+      const delay = Math.random() * 2.5;
+      const duration = 1.0 + Math.random() * 1.5;
+      const travelDist = 40 + Math.random() * 40; // 40vmax to 80vmax
+      const travelScale = 3 + Math.random() * 5;
+      arr.push({
+        id: i,
+        style: {
+          '--angle': `${angle}deg`,
+          '--delay': `${-delay}s`,
+          '--duration': `${duration}s`,
+          '--travel-dist': `${travelDist}vmax`,
+          '--travel-scale': travelScale,
+        } as React.CSSProperties,
+      });
+    }
+    return arr;
+  }, []);
 
   // Theme configuration for accents
   const themeConfig = useMemo(() => {
@@ -142,107 +160,16 @@ export default function LoadingScreen({ onLoadComplete, lang, theme }: LoadingSc
     return () => clearInterval(timer);
   }, []);
 
-  // Canvas starfield space warp loop
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
 
-    let animId = 0;
-    const numStars = 150;
-    const stars: WarpStar[] = [];
-
-    const resizeCanvas = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-
-    // Initialize stars
-    for (let i = 0; i < numStars; i++) {
-      stars.push({
-        x: Math.random() * 2000 - 1000,
-        y: Math.random() * 2000 - 1000,
-        z: Math.random() * 2000,
-        px: 0,
-        py: 0
-      });
-    }
-
-    const drawWarp = () => {
-      // Clear completely to let the background nebula remain fully visible
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2;
-
-      // Slower speed factor initially. Accelerates exponentially during launch
-      let speedFactor = 1.2;
-      let trailLength = 100;
-
-      if (isLaunching && launchStartTimeRef.current !== null) {
-        const elapsed = (Date.now() - launchStartTimeRef.current) / 1000;
-        const t = Math.min(2.5, elapsed);
-        speedFactor = 1.2 + Math.pow(t / 2.5, 3) * 35; // Accelerate up to 36
-        trailLength = 100 + Math.pow(t / 2.5, 2) * 400; // Extend trails up to 500
-      }
-
-      stars.forEach((star) => {
-        // Move star closer
-        star.z -= speedFactor;
-
-        // Recycle star if off screen or reached observer
-        if (star.z <= 0) {
-          star.z = 2000;
-          star.x = Math.random() * 2000 - 1000;
-          star.y = Math.random() * 2000 - 1000;
-        }
-
-        // Projected current position
-        const px = (star.x / star.z) * cx + cx;
-        const py = (star.y / star.z) * cy + cy;
-
-        // Projected trail start position
-        const zPrev = star.z + trailLength;
-        const prevX = (star.x / zPrev) * cx + cx;
-        const prevY = (star.y / zPrev) * cy + cy;
-
-        // Recycle early if projected coordinates go off-screen
-        if (px < -100 || px > canvas.width + 100 || py < -100 || py > canvas.height + 100) {
-          star.z = 2000;
-          star.x = Math.random() * 2000 - 1000;
-          star.y = Math.random() * 2000 - 1000;
-          return;
-        }
-
-        // Draw star trail line
-        const alpha = Math.min(1, 1 - star.z / 2000) * 0.7; // max opacity 0.7
-        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-        ctx.lineWidth = Math.min(1.5, (1 - star.z / 2000) * 1.5);
-        ctx.beginPath();
-        ctx.moveTo(prevX, prevY);
-        ctx.lineTo(px, py);
-        ctx.stroke();
-      });
-
-      animId = requestAnimationFrame(drawWarp);
-    };
-
-    animId = requestAnimationFrame(drawWarp);
-
-    return () => {
-      cancelAnimationFrame(animId);
-      window.removeEventListener('resize', resizeCanvas);
-    };
-  }, [isLaunching]);
 
   // Handle spacecraft button click
   const handleLaunch = () => {
     if (isLaunching) return;
     setIsLaunching(true);
     launchStartTimeRef.current = Date.now();
+
+    // Start background camera entry animation immediately on click
+    onLaunchRef.current?.();
 
     // Smooth forward tilt transition over 2500ms
     setTimeout(() => {
@@ -296,6 +223,36 @@ export default function LoadingScreen({ onLoadComplete, lang, theme }: LoadingSc
         .nebula-pulse {
           animation: nebulaPulse 6s ease-in-out infinite alternate;
         }
+
+        /* Compositor accelerated Space Warp stars */
+        @keyframes cssStarWarp {
+          0% {
+            transform: rotate(var(--angle)) translateY(0px) scaleY(0.1);
+            opacity: 0;
+          }
+          15% {
+            opacity: 0.8;
+          }
+          85% {
+            opacity: 0.8;
+          }
+          100% {
+            transform: rotate(var(--angle)) translateY(calc(-1 * var(--travel-dist))) scaleY(var(--travel-scale));
+            opacity: 0;
+          }
+        }
+        .css-warp-star {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 2px;
+          height: 24px;
+          background: linear-gradient(to bottom, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.4) 50%, transparent 100%);
+          transform-origin: center center;
+          animation: cssStarWarp var(--duration) linear infinite;
+          animation-delay: var(--delay);
+          pointer-events: none;
+        }
       `}</style>
 
       {/* Dark molecular cloud background image layer with outer zoom wrapper */}
@@ -317,8 +274,19 @@ export default function LoadingScreen({ onLoadComplete, lang, theme }: LoadingSc
         <div className="absolute inset-0 bg-gradient-to-b from-[#020205]/80 via-transparent to-[#020205]/80" />
       </div>
 
-      {/* Space Warp HTML5 Canvas */}
-      <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none" />
+      {/* Space Warp CSS Particles */}
+      <div 
+        className="absolute inset-0 z-0 overflow-hidden pointer-events-none"
+        style={{
+          transform: isLaunching ? 'scale(3) translateZ(200px)' : 'scale(1)',
+          opacity: isLaunching ? 0 : 1,
+          transition: isLaunching ? 'transform 2.5s cubic-bezier(0.1, 0.8, 0.3, 1), opacity 2.5s ease-in-out' : 'transform 1s ease-out, opacity 1s ease-out',
+        }}
+      >
+        {stars.map((star) => (
+          <div key={star.id} className="css-warp-star" style={star.style} />
+        ))}
+      </div>
 
       {/* Ambient background glow */}
       <div 
@@ -425,8 +393,9 @@ export default function LoadingScreen({ onLoadComplete, lang, theme }: LoadingSc
                 : 'hover:scale-105 transition-all duration-300'
             }`}
             style={{
-              transform: isLaunching ? 'translateY(-60px) translateZ(-300px) scale(0.15)' : 'none',
+              transform: isLaunching ? 'perspective(1000px) rotateX(80deg) translateY(-600px) scale(0.02)' : 'none',
               opacity: isLaunching ? 0 : 1,
+              transition: isLaunching ? 'transform 2500ms cubic-bezier(0.6, 0, 0.8, 0.2), opacity 2200ms ease-in' : undefined,
             }}
           >
             {/* Spacecraft outline SVG */}
@@ -450,7 +419,7 @@ export default function LoadingScreen({ onLoadComplete, lang, theme }: LoadingSc
 
             {/* Pulsing thruster fire (Only shows during launching) */}
             {isLaunching && (
-              <div className="w-3 h-8 bg-gradient-to-b from-yellow-300 via-orange-500 to-red-600 rounded-b-full ignition-flame mt-1 shadow-[0_0_15px_#f97316]" />
+              <div className="w-4 h-12 bg-gradient-to-b from-yellow-300 via-orange-500 to-red-600 rounded-b-full ignition-flame mt-1 shadow-[0_0_25px_#f97316]" />
             )}
 
             {/* Text label underneath (Only shows if NOT launching) */}

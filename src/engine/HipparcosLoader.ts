@@ -14,6 +14,8 @@ export interface HipparcosStar {
   mag: number;         // V magnitude
   bv: number;          // B-V color index
   dist: number | null; // distance in light-years (from parallax, null if unknown)
+  pmRa?: number;       // proper motion in RA (mas/year)
+  pmDec?: number;      // proper motion in Dec (mas/year)
 }
 
 /** B-V color index → approximate RGB (based on blackbody + stellar classification) */
@@ -73,13 +75,15 @@ export async function loadHipparcosCatalog(): Promise<HipparcosStar[]> {
       if (!res.ok) throw new Error(`Failed to load Hipparcos catalog: ${res.status}`);
       return res.json();
     })
-    .then((raw: [number, number, number, number?, number?][]) => {
+    .then((raw: [number, number, number, number?, number?, number?, number?][]) => {
       cachedStars = raw.map(row => ({
         ra: row[0],
         dec: row[1],
         mag: row[2],
         bv: row[3] ?? 0.6,
         dist: row[4] ?? null, // null if parallax missing
+        pmRa: row[5],
+        pmDec: row[6],
       }));
       const withDist = cachedStars.filter(s => s.dist > 0).length;
       console.log(`[HipparcosLoader] Loaded ${cachedStars.length} stars (${withDist} with distance)`);

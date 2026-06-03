@@ -17,6 +17,41 @@ export class TimeEngine {
   }
 
   /**
+   * ΔT = TT - UTC (seconds).
+   * Simplified formula from Meeus for 2000–2100.
+   */
+  static getDeltaT(timestamp: number): number {
+    const year = new Date(timestamp).getUTCFullYear();
+    // Meeus simplified: ΔT ≈ 64.3 + 0.5 * (year - 2000) seconds
+    return 64.3 + 0.5 * (year - 2000);
+  }
+
+  /** Terrestrial Time (TT) from UTC timestamp (ms) */
+  static getTT(timestamp: number): number {
+    return timestamp + this.getDeltaT(timestamp) * 1000;
+  }
+
+  /** Barycentric Dynamical Time (TDB) ≈ TT for browser-level precision */
+  static getTDB(timestamp: number): number {
+    return this.getTT(timestamp);
+  }
+
+  /** UT1 ≈ UTC (ms). Without EOP data we use UTC as best approximation. */
+  static getUT1(timestamp: number): number {
+    return timestamp;
+  }
+
+  /** TDB days since J2000.0 */
+  static getDaysSinceJ2000TDB(timestamp: number): number {
+    return (this.getTDB(timestamp) - J2000_TIMESTAMP) / 86400000;
+  }
+
+  /** UT1 days since J2000.0 */
+  static getDaysSinceJ2000UT1(timestamp: number): number {
+    return (this.getUT1(timestamp) - J2000_TIMESTAMP) / 86400000;
+  }
+
+  /**
    * 将当前秒数/倍速转换，获取递增后的新时间戳
    * @param currentTimestamp 当前模拟的时间戳 (ms)
    * @param speedMultiplier 倍速因子 (1 代表真实流速，86400代表一秒过去一天)
@@ -33,12 +68,13 @@ export class TimeEngine {
    * @param longitude 观测者经度 (度)
    */
   static getLocalSiderealTime(timestamp: number, longitude: number): number {
-    const d = this.getDaysSinceJ2000(timestamp);
+    // GMST 基于 UT1 计算（地球自转使用 UT1 时标）
+    const d = this.getDaysSinceJ2000UT1(timestamp);
     // 零子午线处的格林尼治平均恒星时 (GMST) 近似公式 (以小时为单位)
     // GMST = 18.697374558 + 24.06570982441908 * d
     let gmst = (18.697374558 + 24.06570982441908 * d) % 24;
     if (gmst < 0) gmst += 24;
-    
+
     // 换算成本地恒星时 (LST)
     let lst = gmst + longitude / 15;
     lst = lst % 24;

@@ -18,9 +18,9 @@ import { EXTRA_STARS, EXTRA_CONSTELLATIONS } from '../engine/ExtraStarsDatabase'
 import {
   createProceduralMoonTexture,
   createSaturnRingTexture,
+  createNoiseTexture,
   createSolarCoronaTexture,
   createBrightStarGlowTexture,
-  createCircleTexture,
   createConstellationLabelTexture,
   createConstellationLabelSprite,
   createLensFlareBlobTexture,
@@ -155,8 +155,17 @@ const getHorizontalCoordinates = (ra: number, dec: number, lst: number, lat: num
 
   // Altitude
   const sinAlt = Math.sin(latRad) * Math.sin(decRad) + Math.cos(latRad) * Math.cos(decRad) * Math.cos(haRad);
-  const altRad = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
-  const altDeg = (altRad * 180.0) / Math.PI;
+  let altRad = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
+  let altDeg = (altRad * 180.0) / Math.PI;
+
+  // Atmospheric refraction (Earth only): simplified Saemundsson formula
+  // R in arcminutes, h in degrees. Only applied for low altitudes.
+  if ((!bodyId || bodyId === 'earth') && altDeg < 15.0 && altDeg > -5.0) {
+    const h = Math.max(altDeg, 0.0); // clamp to 0 for numerical stability near horizon
+    const R = 1.02 / Math.tan((h + 10.3 / (h + 5.11)) * Math.PI / 180.0);
+    altDeg = altDeg + R / 60.0;
+    altRad = (altDeg * Math.PI) / 180.0;
+  }
 
   // Azimuth
   const y = -Math.sin(haRad) * Math.cos(decRad);
@@ -179,6 +188,59 @@ const get3DPositionOnDome = (az: number, alt: number, radius: number): THREE.Vec
   const z = -radius * Math.cos(altRad) * Math.cos(azRad);
 
   return new THREE.Vector3(x, y, z);
+};
+
+/**
+ * Compute atmospheric extinction factor for a star at given altitude.
+ * Uses Kasten-Young airmass formula with a typical extinction coefficient k=0.2.
+ * Returns a flux multiplier (1.0 = no extinction, 0.0 = fully extinguished).
+ * Only applied for Earth observers.
+ */
+const getAtmosphericExtinction = (altDeg: number, observerBodyId?: string): number => {
+  if (observerBodyId && observerBodyId !== 'earth') return 1.0;
+  if (altDeg >= 90) return Math.pow(10, -0.4 * 0.2); // airmass=1 at zenith
+  const altRad = (Math.max(altDeg, 0) * Math.PI) / 180.0;
+  const sinAlt = Math.sin(altRad);
+  // Kasten-Young airmass formula
+  const airmass = 1.0 / (sinAlt + 0.025 * Math.exp(-11.0 * sinAlt));
+  const k = 0.2; // typical visual extinction coefficient for clear sky
+  const deltaMag = k * airmass;
+  return Math.pow(10, -0.4 * deltaMag);
+};
+
+/**
+ * Build the IAU 2006 precession matrix P = Rz(-z) * Ry(theta) * Rz(-zeta)
+ * as a flat 3x3 array for WebGL uniform consumption.
+ */
+const buildPrecessionMatrix = (yearsSinceJ2000: number): Float32Array => {
+  const D2R = Math.PI / 180.0;
+  const T = yearsSinceJ2000 / 100.0;
+  const zetaArcsec = 2306.083227 * T + 0.2988500 * T * T + 0.01802827 * T * T * T;
+  const zArcsec    = 2306.077181 * T + 1.0927348 * T * T + 0.01826837 * T * T * T;
+  const thetaArcsec = 2004.191903 * T - 0.4294934 * T * T - 0.04182264 * T * T * T;
+  const zeta = zetaArcsec * D2R / 3600.0;
+  const z    = zArcsec    * D2R / 3600.0;
+  const theta = thetaArcsec * D2R / 3600.0;
+
+  const cz = Math.cos(zeta);
+  const sz = Math.sin(zeta);
+  const cZ = Math.cos(z);
+  const sZ = Math.sin(z);
+  const ct = Math.cos(theta);
+  const st = Math.sin(theta);
+
+  // P = Rz(-z) * Ry(theta) * Rz(-zeta)
+  const m = new Float32Array(9);
+  m[0] = cZ * ct * cz - sZ * sz;
+  m[1] = -cZ * ct * sz - sZ * cz;
+  m[2] = cZ * st;
+  m[3] = sZ * ct * cz + cZ * sz;
+  m[4] = -sZ * ct * sz + cZ * cz;
+  m[5] = sZ * st;
+  m[6] = -st * cz;
+  m[7] = st * sz;
+  m[8] = ct;
+  return m;
 };
 
 /**
@@ -568,6 +630,7 @@ function loadRealTexture(
 }
 
 interface StarrySkyViewerProps {
+  renderer?: THREE.WebGLRenderer;
   currentTimestamp: number;
   latitude: number;
   longitude: number;
@@ -604,6 +667,7 @@ interface StarrySkyViewerProps {
 }
 
 export default function StarrySkyViewer({
+  renderer: externalRenderer,
   currentTimestamp,
   latitude,
   longitude,
@@ -678,6 +742,14 @@ export default function StarrySkyViewer({
   // 三维FOV缩放控制 (3° ~ 65°)
   const fovRef = useRef(65);
   const preTelescopeFovRef = useRef(65);
+  const [currentFov, setCurrentFov] = useState(65);
+  const detailedPlanetsRef = useRef<Record<string, THREE.Mesh>>({});
+  const finderCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const telescopeActiveRef = useRef(telescopeActive);
+
+  useEffect(() => {
+    telescopeActiveRef.current = telescopeActive;
+  }, [telescopeActive]);
 
   // 本地 FOV 设置函数（替代全局 window 污染）
   const setFov = (fov: number) => {
@@ -685,10 +757,13 @@ export default function StarrySkyViewer({
     cameraRef.current.fov = fov;
     cameraRef.current.updateProjectionMatrix();
     fovRef.current = fov;
+    setCurrentFov(fov);
   };
 
   const textureCacheRef = useRef<Record<string, THREE.Texture>>({});
   const observerBodyIdRef = useRef(observerBodyId);
+  const bodyMatrixCacheRef = useRef<THREE.Matrix3 | null>(null);
+  const lastObserverBodyIdRef = useRef<string>(observerBodyId);
 
   // 辅助函数：基于当前观测者参考系计算本地恒星时（支持任意天体）
   const getObserverLST = () => {
@@ -880,7 +955,7 @@ export default function StarrySkyViewer({
 
       const sats = ObserverEngine.getSatellitesInSky(
         { bodyId: observerBodyId, latitude, longitude },
-        TimeEngine.getDaysSinceJ2000(currentTimestampRef.current)
+        TimeEngine.getDaysSinceJ2000TDB(currentTimestampRef.current)
       );
       const brightStarTex = createBrightStarGlowTexture();
       const satSprites: Record<string, THREE.Sprite> = {};
@@ -976,6 +1051,10 @@ export default function StarrySkyViewer({
   const sunDecRef = useRef<number>(0);
   const moonRaRef = useRef<number>(0);
   const moonDecRef = useRef<number>(0);
+  // 月食检测频率限制相关 ref
+  const eclipseCheckCounterRef = useRef<number>(0);
+  const lastEclipseCheckDaysRef = useRef<number>(0);
+  const lastEclipsesRef = useRef<{ solarEclipse: boolean; lunarEclipse: boolean }>({ solarEclipse: false, lunarEclipse: false });
 
   const [skyData, setSkyData] = useState<{
     lst: number;
@@ -1021,18 +1100,21 @@ export default function StarrySkyViewer({
     cameraRef.current = camera;
 
     // 2. 初始化 WebGL 渲染
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+    const isExternalRenderer = !!externalRenderer;
+    const renderer = isExternalRenderer ? externalRenderer : new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = exposure;
-    
-    renderer.domElement.style.position = 'absolute';
-    renderer.domElement.style.top = '0';
-    renderer.domElement.style.left = '0';
-    renderer.domElement.style.width = '100%';
-    renderer.domElement.style.height = '100%';
-    renderer.domElement.style.display = 'block';
+
+    if (!isExternalRenderer) {
+      renderer.domElement.style.position = 'absolute';
+      renderer.domElement.style.top = '0';
+      renderer.domElement.style.left = '0';
+      renderer.domElement.style.width = '100%';
+      renderer.domElement.style.height = '100%';
+      renderer.domElement.style.display = 'block';
+    }
 
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
@@ -1054,12 +1136,11 @@ export default function StarrySkyViewer({
       const cam = cameraRef.current;
       const mag = 65 / cam.fov;
       const zoomFactor = e.deltaY > 0 ? 1 / 1.1 : 1.1;
-      // Limit zoom range: FOV between 5° (zoomed in) and 65° (zoomed out / normal)
-      const newMag = Math.max(1, Math.min(13, mag * zoomFactor));
+      // 望远镜激活时放开倍率限制到 216.7x，否则限制在 13x
+      const maxMag = telescopeActiveRef.current ? 216.7 : 13;
+      const newMag = Math.max(1, Math.min(maxMag, mag * zoomFactor));
       const newFov = 65 / newMag;
-      cam.fov = newFov;
-      cam.updateProjectionMatrix();
-      fovRef.current = newFov;
+      setFov(newFov);
     };
     renderer.domElement.addEventListener('wheel', handleWheel, { passive: false });
 
@@ -1208,41 +1289,166 @@ export default function StarrySkyViewer({
           ra: s.ra,
           dec: s.dec,
           mag: s.mag,
-          color: new THREE.Color(rgb.r, rgb.g, rgb.b).getHex()
+          color: new THREE.Color(rgb.r, rgb.g, rgb.b).getHex(),
+          pmRa: s.pmRa,
+          pmDec: s.pmDec,
         };
       });
 
       const bgCount = hipparcosRef.current.length;
       const bgPositions = new Float32Array(bgCount * 3);
       const bgColors = new Float32Array(bgCount * 3);
+      const bgStarData = new Float32Array(bgCount * 3); // x=ra(h), y=dec(deg), z=mag
+      const bgPm = new Float32Array(bgCount * 2);      // x=pmRa, y=pmDec
 
-      // 初始化在地面以下隐藏
       for (let i = 0; i < bgCount; i++) {
+        const s = hipparcosRef.current[i];
         bgPositions[i * 3] = 0;
         bgPositions[i * 3 + 1] = -9999;
         bgPositions[i * 3 + 2] = 0;
 
-        const color = new THREE.Color(hipparcosRef.current[i].color);
+        const color = new THREE.Color(s.color);
         bgColors[i * 3] = color.r;
         bgColors[i * 3 + 1] = color.g;
         bgColors[i * 3 + 2] = color.b;
+
+        bgStarData[i * 3] = s.ra;
+        bgStarData[i * 3 + 1] = s.dec;
+        bgStarData[i * 3 + 2] = s.mag;
+        bgPm[i * 2] = s.pmRa ?? 0;
+        bgPm[i * 2 + 1] = s.pmDec ?? 0;
       }
 
       const bgGeometry = new THREE.BufferGeometry();
       bgGeometry.setAttribute('position', new THREE.BufferAttribute(bgPositions, 3));
       bgGeometry.setAttribute('color', new THREE.BufferAttribute(bgColors, 3));
+      bgGeometry.setAttribute('aStarData', new THREE.BufferAttribute(bgStarData, 3));
+      bgGeometry.setAttribute('aPm', new THREE.BufferAttribute(bgPm, 2));
 
-      const bgPointsTex = createCircleTexture();
-      const bgMaterial = new THREE.PointsMaterial({
-        size: 1.5,
-        map: bgPointsTex,
-        vertexColors: true,
+      const bgMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+          uPrecessionMatrix: { value: new THREE.Matrix3() },
+          uBodyMatrix: { value: new THREE.Matrix3() },
+          uYears: { value: 0.0 },
+          uLST: { value: 0.0 },
+          uLat: { value: 0.0 },
+          uIsEarth: { value: 1.0 },
+          uSkyBrightness: { value: 0.0 },
+          uMagLimit: { value: 6.5 },
+          uDomeRadius: { value: 150.0 },
+          uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+        },
+        vertexShader: /* glsl */ `
+          attribute vec3 aStarData; // x=ra(h), y=dec(deg), z=mag
+          attribute vec2 aPm;      // x=pmRa, y=pmDec (mas/yr)
+          attribute vec3 color;
+          uniform mat3 uPrecessionMatrix;
+          uniform mat3 uBodyMatrix;
+          uniform float uYears;
+          uniform float uLST;
+          uniform float uLat;
+          uniform float uIsEarth;
+          uniform float uSkyBrightness;
+          uniform float uMagLimit;
+          uniform float uDomeRadius;
+          uniform float uPixelRatio;
+          varying vec3 vColor;
+          varying float vAlpha;
+
+          void main() {
+            float ra = aStarData.x;
+            float dec = aStarData.y;
+            float mag = aStarData.z;
+
+            // Proper motion (mas/yr → degrees)
+            float pmFactor = uYears / (3600.0 * 1000.0);
+            float decRad0 = dec * 3.14159265359 / 180.0;
+            float cosDec = cos(decRad0);
+            ra += aPm.x * pmFactor / max(abs(cosDec), 0.01);
+            dec += aPm.y * pmFactor;
+
+            float raRad = ra * 3.14159265359 / 12.0;
+            float decRad = dec * 3.14159265359 / 180.0;
+            vec3 v = vec3(cos(decRad) * cos(raRad), cos(decRad) * sin(raRad), sin(decRad));
+
+            // Precession
+            v = uPrecessionMatrix * v;
+            // Body equatorial rotation (identity for Earth)
+            v = uBodyMatrix * v;
+
+            // Local Sidereal Time → Hour Angle
+            float lstRad = uLST * 3.14159265359 / 12.0;
+            float latRad = uLat * 3.14159265359 / 180.0;
+            float cL = cos(lstRad);
+            float sL = sin(lstRad);
+            float cLat = cos(latRad);
+            float sLat = sin(latRad);
+
+            float rotX = cL * v.x + sL * v.y;
+            float rotY = -sL * v.x + cL * v.y;
+
+            float zh = sLat * v.z + cLat * rotX; // sin(alt)
+            float xh = cLat * v.z - sLat * rotX; // cos(alt)*cos(az)
+            float yh = rotY;                     // cos(alt)*sin(az)
+
+            float altRad = asin(clamp(zh, -1.0, 1.0));
+            float altDeg = altRad * 180.0 / 3.14159265359;
+
+            // Hide below horizon or above mag limit
+            if (altDeg <= 0.0 || mag > uMagLimit) {
+              gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+              gl_PointSize = 0.0;
+              vColor = vec3(0.0);
+              vAlpha = 0.0;
+              return;
+            }
+
+            // Dome position: x=East, y=Up, z=-North
+            vec3 domePos = vec3(uDomeRadius * yh, uDomeRadius * zh, -uDomeRadius * xh);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(domePos, 1.0);
+
+            // Magnitude brightness factor
+            float magFactor = max(0.06, min(1.0, pow(2.512, -(mag - 1.0)) * 2.5));
+            gl_PointSize = 1.5 * magFactor * uPixelRatio;
+
+            // Atmospheric extinction (Earth only)
+            float extinction = 1.0;
+            if (uIsEarth > 0.5) {
+              float sinAlt = max(sin(altRad), 0.0);
+              float airmass = 1.0 / (sinAlt + 0.025 * exp(-11.0 * sinAlt));
+              float deltaMag = 0.2 * airmass;
+              extinction = pow(10.0, -0.4 * deltaMag);
+            }
+
+            // Sky brightness visibility
+            float sinAlt = max(sin(altRad), 0.0);
+            float zenithFactor = pow(sinAlt, 0.8);
+            float visibility = max(0.0, 1.0 - uSkyBrightness * (1.8 - 0.8 * zenithFactor));
+
+            float factor = extinction * visibility;
+            vColor = color * factor;
+            vAlpha = 1.0;
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          varying vec3 vColor;
+          varying float vAlpha;
+          void main() {
+            float d = distance(gl_PointCoord, vec2(0.5));
+            if (d > 0.5) discard;
+            float strength = 1.0 - d * 2.0;
+            strength = pow(strength, 2.0);
+            gl_FragColor = vec4(vColor, strength * vAlpha);
+          }
+        `,
         transparent: true,
         blending: THREE.AdditiveBlending,
-        depthWrite: false
+        depthWrite: false,
+        vertexColors: false, // we use our own color attribute
       });
 
       const bgPoints = new THREE.Points(bgGeometry, bgMaterial);
+      bgPoints.frustumCulled = false; // positions computed entirely in vertex shader
       starsGroup.add(bgPoints);
       backgroundPointsRef.current = bgPoints;
     });
@@ -1481,12 +1687,70 @@ export default function StarrySkyViewer({
     });
     lensFlareSpritesRef.current = flareSprites;
 
+    // 寻星镜相机初始化
+    const finderCamera = new THREE.PerspectiveCamera(15, 1, 0.1, 1000);
+    finderCamera.position.set(0, 0, 0.1);
+    finderCameraRef.current = finderCamera;
+
+    // 预创精细行星球体 Mesh (金星, 火星, 木星, 土星)
+    const detailedPlanets: Record<string, THREE.Mesh> = {};
+    const detailNoiseTex = createNoiseTexture();
+    detailNoiseTex.repeat.set(128, 64);
+
+    const targetPlanetIds = ['venus', 'mars', 'jupiter', 'saturn'];
+    targetPlanetIds.forEach(pid => {
+      const geom = new THREE.SphereGeometry(7.2, 32, 32);
+      const mat = new THREE.MeshStandardMaterial({
+        roughness: 0.85,
+        metalness: 0.05,
+        bumpMap: detailNoiseTex,
+        bumpScale: 0.04,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.visible = false;
+      mesh.userData = {
+        id: pid,
+        type: 'planet-detailed',
+      };
+      scene.add(mesh);
+      detailedPlanets[pid] = mesh;
+
+      const url = DOMINANT_BODY_TEXTURES[pid];
+      if (url) {
+        loadRealTexture(url, textureCacheRef, (tex) => {
+          mat.map = tex;
+          mat.needsUpdate = true;
+        });
+      }
+
+      // 土星光环加到子物体并带上约23度的倾斜角
+      if (pid === 'saturn') {
+        const ringGeom = new THREE.RingGeometry(8.8, 16.5, 64);
+        const ringTex = createSaturnRingTexture();
+        const ringMat = new THREE.MeshBasicMaterial({
+          map: ringTex,
+          transparent: true,
+          opacity: 0.85,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const ringMesh = new THREE.Mesh(ringGeom, ringMat);
+        ringMesh.rotation.x = Math.PI / 2 - 0.4;
+        mesh.add(ringMesh);
+      }
+    });
+    detailedPlanetsRef.current = detailedPlanets;
+
     const moonGeom = new THREE.SphereGeometry(7.2, 32, 32);
     const moonTexture = createProceduralMoonTexture();
+    const moonNoiseTex = createNoiseTexture();
+    moonNoiseTex.repeat.set(128, 64);
     const moonMat = new THREE.MeshStandardMaterial({ 
       map: moonTexture,
       roughness: 0.9,
-      metalness: 0.05
+      metalness: 0.05,
+      bumpMap: moonNoiseTex,
+      bumpScale: 0.03,
     });
     const moonSky = new THREE.Mesh(moonGeom, moonMat);
     scene.add(moonSky);
@@ -1545,6 +1809,7 @@ export default function StarrySkyViewer({
         ...starSpritesRef.current.filter(s => s.visible),
         ...extraStarSpritesRef.current.filter(s => s.visible),
         ...(Object.values(planetSpritesRef.current) as THREE.Sprite[]).filter(s => s.visible),
+        ...(Object.values(detailedPlanetsRef.current) as THREE.Mesh[]).filter(m => m.visible),
         ...(sunSkyRef.current?.visible ? [sunSkyRef.current] : []),
         ...(moonSkyRef.current?.visible ? [moonSkyRef.current] : []),
       ] as Array<THREE.Sprite | THREE.Mesh>;
@@ -1569,6 +1834,12 @@ export default function StarrySkyViewer({
           snapY = rawY + (sy - rawY) * strength;
         }
       }
+
+      // 如果最邻近目标是3D详细行星模型，重定向回2D精灵，确保状态和坐标能一致处理
+      if (closestTarget && closestTarget.userData.type === 'planet-detailed') {
+        const sp = planetSpritesRef.current[closestTarget.userData.id];
+        if (sp) closestTarget = sp;
+      }
       snapTargetRef.current = closestTarget;
 
       // 更新Hover位置（使用snap后的坐标显示Tooltip）
@@ -1592,12 +1863,22 @@ export default function StarrySkyViewer({
       (Object.values(planetSpritesRef.current) as THREE.Sprite[]).forEach(sprite => {
         if (sprite.visible) targets.push(sprite);
       });
+      (Object.values(detailedPlanetsRef.current) as THREE.Mesh[]).forEach(mesh => {
+        if (mesh && mesh.visible) targets.push(mesh);
+      });
       if (sunSkyRef.current && sunSkyRef.current.visible) targets.push(sunSkyRef.current);
       if (moonSkyRef.current && moonSkyRef.current.visible) targets.push(moonSkyRef.current);
 
       const intersects = raycaster.intersectObjects(targets);
       if (intersects.length > 0) {
-        const hit = intersects[0].object;
+        let hit = intersects[0].object;
+        if (hit.parent && hit.parent.userData.type === 'planet-detailed') {
+          hit = hit.parent;
+        }
+        if (hit.userData.type === 'planet-detailed') {
+          const sp = planetSpritesRef.current[hit.userData.id];
+          if (sp) hit = sp;
+        }
         container.style.cursor = closestTarget ? 'crosshair' : 'pointer';
 
         if (hit === sunSkyRef.current) {
@@ -1694,7 +1975,7 @@ export default function StarrySkyViewer({
     const sunCoordsRefCurrentAlt = () => {
       if (!sunSkyRef.current) return '0.0';
       const lst = getObserverLST();
-      const days = TimeEngine.getDaysSinceJ2000(currentTimestampRef.current);
+      const days = TimeEngine.getDaysSinceJ2000TDB(currentTimestampRef.current);
       const lambdaSun = AstrophenomenaEngine.getSolarLongitude(days);
       const sunLongRad = (lambdaSun * Math.PI) / 180.0;
       const oblRad = (23.439 * Math.PI) / 180.0;
@@ -1741,12 +2022,22 @@ export default function StarrySkyViewer({
       (Object.values(planetSpritesRef.current) as THREE.Sprite[]).forEach(sprite => {
         if (sprite.visible) targets.push(sprite);
       });
+      (Object.values(detailedPlanetsRef.current) as THREE.Mesh[]).forEach(mesh => {
+        if (mesh && mesh.visible) targets.push(mesh);
+      });
       if (sunSkyRef.current && sunSkyRef.current.visible) targets.push(sunSkyRef.current);
       if (moonSkyRef.current && moonSkyRef.current.visible) targets.push(moonSkyRef.current);
 
       const intersects = raycaster.intersectObjects(targets);
       if (intersects.length > 0) {
-        const hit = intersects[0].object;
+        let hit = intersects[0].object;
+        if (hit.parent && hit.parent.userData.type === 'planet-detailed') {
+          hit = hit.parent;
+        }
+        if (hit.userData.type === 'planet-detailed') {
+          const sp = planetSpritesRef.current[hit.userData.id];
+          if (sp) hit = sp;
+        }
 
         // 记录选中天体并设置屏幕坐标
         selectedObjectRef.current = hit;
@@ -1894,7 +2185,10 @@ export default function StarrySkyViewer({
           container.removeChild(renderer.domElement);
         }
       }
-      renderer.dispose();
+      // 只有内部创建的 renderer 才 dispose，外部共享的 renderer 由 App 生命周期管理
+      if (!isExternalRenderer) {
+        renderer.dispose();
+      }
     };
   }, []);
 
@@ -1906,7 +2200,8 @@ export default function StarrySkyViewer({
 
     const ctx = { bodyId: observerBodyId, latitude, longitude };
     const lst = ObserverEngine.getLocalSiderealTime(ctx, currentTimestamp);
-    const days = TimeEngine.getDaysSinceJ2000(currentTimestamp);
+    const days = TimeEngine.getDaysSinceJ2000TDB(currentTimestamp);
+    const yearsSinceJ2000 = days / 365.25;
 
     // A. 太阳投影位置（多参考系）
     const { ra: sunRa, dec: sunDec } = ObserverEngine.getSolarRADec(ctx, days);
@@ -1936,10 +2231,10 @@ export default function StarrySkyViewer({
         sunMat.opacity = sunOpacity;
         sunMat.transparent = sunOpacity < 1.0;
         if (sunCoronaSpriteRef.current) {
-          const hRatio = Math.max(0.45, Math.min(1.0, (sunCoords.alt + 5) / 40.0));
-          // 日出日落时日冕也受云层遮挡影响
-          const coronaOpacity = hRatio * sunOpacity;
+          // 望远镜放大时关闭日冕以防过曝遮挡太阳圆盘表面
+          const coronaOpacity = telescopeActiveRef.current ? 0.0 : (Math.max(0.45, Math.min(1.0, (sunCoords.alt + 5) / 40.0)) * sunOpacity);
           sunCoronaSpriteRef.current.material.opacity = coronaOpacity;
+          sunCoronaSpriteRef.current.visible = !telescopeActiveRef.current;
           sunCoronaSpriteRef.current.scale.set(68.0, 68.0, 1.0);
           // 日出日落时日冕偏暖
           const twilightFactor = Math.max(0.0, 1.0 - Math.abs(sunCoords.alt - 5.0) / 15.0);
@@ -1974,7 +2269,18 @@ export default function StarrySkyViewer({
         const celestialNorth = new THREE.Vector3(0, Math.sin(latRad), Math.cos(latRad));
         setTidallyLockedOrientation(moonSkyRef.current, cameraRef.current?.position ?? new THREE.Vector3(0, 0, 0.1), celestialNorth);
         if (planetRingRef.current) planetRingRef.current.visible = false;
-        const eclipses = AstrophenomenaEngine.detectEclipse(days);
+        // 月食检测频率限制：每 30 帧或模拟时间每推进 0.01 天才执行一次
+        const eclipseCheckFrameInterval = 30;
+        const eclipseCheckDayThreshold = 0.01;
+        const shouldCheckEclipse =
+          (eclipseCheckCounterRef.current % eclipseCheckFrameInterval === 0) ||
+          (Math.abs(days - lastEclipseCheckDaysRef.current) > eclipseCheckDayThreshold);
+        const eclipses = shouldCheckEclipse ? AstrophenomenaEngine.detectEclipse(days) : lastEclipsesRef.current;
+        if (shouldCheckEclipse) {
+          lastEclipseCheckDaysRef.current = days;
+          lastEclipsesRef.current = eclipses;
+        }
+        eclipseCheckCounterRef.current++;
         const moonMat = moonSkyRef.current.material as THREE.MeshStandardMaterial;
         if (eclipses.solarEclipse) {
           moonMat.color.setHex(0x111111);
@@ -2070,7 +2376,9 @@ export default function StarrySkyViewer({
     starSpritesRef.current.forEach(sprite => {
       const ra = sprite.userData.ra;
       const dec = sprite.userData.dec;
-      const starCoords = getHorizontalCoordinates(ra, dec, lst, latitude, observerBodyId);
+      const starData = sprite.userData.starData as DetailedStar | undefined;
+      const prec = ObserverEngine.applyPrecession(ra, dec, yearsSinceJ2000, starData?.pmRa, starData?.pmDec);
+      const starCoords = getHorizontalCoordinates(prec.ra, prec.dec, lst, latitude, observerBodyId);
 
       let baseOpacity = 0;
       let visible = false;
@@ -2079,10 +2387,7 @@ export default function StarrySkyViewer({
         visible = true;
         const altRad = starCoords.alt * Math.PI / 180.0;
         const sinAlt = Math.sin(altRad);
-        let extinction = 1.0;
-        if (starCoords.alt < 12) {
-          extinction = sinAlt / Math.sin(12.0 * Math.PI / 180.0);
-        }
+        const extinction = getAtmosphericExtinction(starCoords.alt, observerBodyId);
         // 天空亮度梯度：地平线附近比天顶亮，低高度角星星被更强遮挡
         const zenithFactor = Math.pow(sinAlt, 0.8);
         const visibility = Math.max(0.0, 1.0 - skyBrightness * (1.8 - 0.8 * zenithFactor));
@@ -2102,7 +2407,9 @@ export default function StarrySkyViewer({
     extraStarSpritesRef.current.forEach(sprite => {
       const ra = sprite.userData.ra;
       const dec = sprite.userData.dec;
-      const starCoords = getHorizontalCoordinates(ra, dec, lst, latitude, observerBodyId);
+      const starData = sprite.userData.starData as DetailedStar | undefined;
+      const prec = ObserverEngine.applyPrecession(ra, dec, yearsSinceJ2000, starData?.pmRa, starData?.pmDec);
+      const starCoords = getHorizontalCoordinates(prec.ra, prec.dec, lst, latitude, observerBodyId);
 
       let baseOpacity = 0;
       let visible = false;
@@ -2111,10 +2418,7 @@ export default function StarrySkyViewer({
         visible = true;
         const altRad = starCoords.alt * Math.PI / 180.0;
         const sinAlt = Math.sin(altRad);
-        let extinction = 1.0;
-        if (starCoords.alt < 12) {
-          extinction = sinAlt / Math.sin(12.0 * Math.PI / 180.0);
-        }
+        const extinction = getAtmosphericExtinction(starCoords.alt, observerBodyId);
         // 天空亮度梯度：地平线附近比天顶亮，低高度角星星被更强遮挡
         const zenithFactor = Math.pow(sinAlt, 0.8);
         const visibility = Math.max(0.0, 1.0 - skyBrightness * (1.8 - 0.8 * zenithFactor));
@@ -2159,6 +2463,7 @@ export default function StarrySkyViewer({
         sprite.userData.ra = info.ra;
         sprite.userData.dec = info.dec;
         sprite.userData.distAU = info.distAU;
+        sprite.userData.angularDiameter = info.angularDiameter;
         sprite.userData.baseOpacity = baseOpacity;
         sprite.visible = visible && baseOpacity > 0.02;
       }
@@ -2190,8 +2495,10 @@ export default function StarrySkyViewer({
             const starB = STAR_LIST[pair[1]];
             if (starA && starB) {
               if (starA.mag <= magLimit && starB.mag <= magLimit) {
-                const hA = getHorizontalCoordinates(starA.ra, starA.dec, lst, latitude, observerBodyId);
-                const hB = getHorizontalCoordinates(starB.ra, starB.dec, lst, latitude, observerBodyId);
+                const pA = ObserverEngine.applyPrecession(starA.ra, starA.dec, yearsSinceJ2000, starA.pmRa, starA.pmDec);
+                const pB = ObserverEngine.applyPrecession(starB.ra, starB.dec, yearsSinceJ2000, starB.pmRa, starB.pmDec);
+                const hA = getHorizontalCoordinates(pA.ra, pA.dec, lst, latitude, observerBodyId);
+                const hB = getHorizontalCoordinates(pB.ra, pB.dec, lst, latitude, observerBodyId);
 
                 if (hA.alt > 0 && hB.alt > 0) {
                   const posA = get3DPositionOnDome(hA.az, hA.alt, 283);
@@ -2210,8 +2517,10 @@ export default function StarrySkyViewer({
             const starB = ALL_STARS_MAP.get(pair[1]);
             if (starA && starB) {
               if (starA.mag <= magLimit && starB.mag <= magLimit) {
-                const hA = getHorizontalCoordinates(starA.ra, starA.dec, lst, latitude, observerBodyId);
-                const hB = getHorizontalCoordinates(starB.ra, starB.dec, lst, latitude, observerBodyId);
+                const pA = ObserverEngine.applyPrecession(starA.ra, starA.dec, yearsSinceJ2000, starA.pmRa, starA.pmDec);
+                const pB = ObserverEngine.applyPrecession(starB.ra, starB.dec, yearsSinceJ2000, starB.pmRa, starB.pmDec);
+                const hA = getHorizontalCoordinates(pA.ra, pA.dec, lst, latitude, observerBodyId);
+                const hB = getHorizontalCoordinates(pB.ra, pB.dec, lst, latitude, observerBodyId);
 
                 if (hA.alt > 0 && hB.alt > 0) {
                   const posA = get3DPositionOnDome(hA.az, hA.alt, 283);
@@ -2264,7 +2573,8 @@ export default function StarrySkyViewer({
         uniqueStarIndices.forEach(starIdx => {
           const star = STAR_LIST[starIdx];
           if (!star || star.mag > magLimit) return;
-          const h = getHorizontalCoordinates(star.ra, star.dec, lst, latitude, observerBodyId);
+          const prec = ObserverEngine.applyPrecession(star.ra, star.dec, yearsSinceJ2000, star.pmRa, star.pmDec);
+          const h = getHorizontalCoordinates(prec.ra, prec.dec, lst, latitude, observerBodyId);
           if (h.alt > 0) {
             sumAz += h.az;
             sumAlt += h.alt;
@@ -2300,7 +2610,8 @@ export default function StarrySkyViewer({
         uniqueStarIds.forEach(starId => {
           const star = ALL_STARS_MAP.get(starId);
           if (!star || star.mag > magLimit) return;
-          const h = getHorizontalCoordinates(star.ra, star.dec, lst, latitude, observerBodyId);
+          const prec = ObserverEngine.applyPrecession(star.ra, star.dec, yearsSinceJ2000, star.pmRa, star.pmDec);
+          const h = getHorizontalCoordinates(prec.ra, prec.dec, lst, latitude, observerBodyId);
           if (h.alt > 0) {
             sumAz += h.az;
             sumAlt += h.alt;
@@ -2404,9 +2715,20 @@ export default function StarrySkyViewer({
       if (rendererRef.current && sceneRef.current && cameraRef.current && controlsRef.current) {
         controlsRef.current.update();
 
-        // FOV 联动灵敏度：视野越窄，拖拽灵敏度越低
+        // 交互方向反转与 FOV 联动灵敏度
         if (controlsRef.current) {
-          controlsRef.current.rotateSpeed = -0.4 * (fovRef.current / 65.0);
+          const baseSpeed = telescopeActiveRef.current ? 0.4 : -0.4;
+          controlsRef.current.rotateSpeed = baseSpeed * (fovRef.current / 65.0);
+        }
+
+        // 大气视宁度微抖动（高倍目镜下 Seeing Jitter 仿真）
+        if (telescopeActiveRef.current && fovRef.current <= 5.0 && cameraRef.current) {
+          const time = performance.now() * 0.012;
+          const noiseX = Math.sin(time * 1.7) * Math.cos(time * 0.9) + Math.sin(time * 3.1) * 0.2;
+          const noiseY = Math.cos(time * 1.5) * Math.sin(time * 1.1) + Math.cos(time * 2.7) * 0.2;
+          const jitterMag = (3.5 / 3600.0) * (Math.PI / 180.0);
+          cameraRef.current.rotateX(noiseY * jitterMag);
+          cameraRef.current.rotateY(noiseX * jitterMag);
         }
 
         // 实时计算方位角航向 (Azimuth heading)
@@ -2436,6 +2758,8 @@ export default function StarrySkyViewer({
         // 1a. 天空霞光穹顶着色器 uniforms 实时更新
         if (horizonGlowSpriteRef.current && sunSkyRef.current) {
           const sunAlt = sunAltRef.current;
+          // 望远镜放大观测时，设置虚拟太阳高度为-30 degree，自动令着色器隐藏白昼蓝天和耀斑热点，呈现墨黑太空背景
+          const sunAltVal = telescopeActiveRef.current ? -30.0 : sunAlt;
           const sunWorldPos = new THREE.Vector3();
           sunSkyRef.current.getWorldPosition(sunWorldPos);
 
@@ -2443,26 +2767,26 @@ export default function StarrySkyViewer({
           // 太阳方向归一化
           const sunDir = sunWorldPos.clone().normalize();
           mat.uniforms.sunDir.value.copy(sunDir);
-          mat.uniforms.sunAlt.value = sunAlt;
+          mat.uniforms.sunAlt.value = sunAltVal;
           mat.uniforms.uTime.value = performance.now() * 0.001;
 
           // 根据太阳高度动态调整颜色参数
-          if (sunAlt > 10.0) {
+          if (sunAltVal > 10.0) {
             // 正午：天顶偏蓝，地平线偏白
             mat.uniforms.topColor.value.setRGB(0.35, 0.55, 0.95);
             mat.uniforms.horizonColor.value.setRGB(0.7, 0.8, 0.95);
-          } else if (sunAlt > -5.0) {
+          } else if (sunAltVal > -5.0) {
             // 日出日落过渡：天顶蓝紫，地平线暖橙
-            const t = (sunAlt + 5.0) / 15.0;
+            const t = (sunAltVal + 5.0) / 15.0;
             mat.uniforms.topColor.value.setRGB(0.25 + t * 0.1, 0.35 + t * 0.2, 0.7 + t * 0.25);
             mat.uniforms.horizonColor.value.setRGB(0.9, 0.45 + t * 0.35, 0.2 + t * 0.5);
-          } else if (sunAlt > -18.0) {
+          } else if (sunAltVal > -18.0) {
             // 深昏影：余光逐渐消退
-            const t = Math.max(0.0, (sunAlt + 18.0) / 13.0);
+            const t = Math.max(0.0, (sunAltVal + 18.0) / 13.0);
             mat.uniforms.topColor.value.setRGB(0.02 * t, 0.025 * t, 0.05 * t);
             mat.uniforms.horizonColor.value.setRGB(0.03 * t, 0.025 * t, 0.04 * t);
           } else {
-            // 完全夜晚：纯黑背景
+            // 完全夜晚/望远镜模式：纯黑背景，以便清晰观测日面轮廓
             mat.uniforms.topColor.value.setRGB(0.0, 0.0, 0.0);
             mat.uniforms.horizonColor.value.setRGB(0.0, 0.0, 0.0);
           }
@@ -2491,8 +2815,8 @@ export default function StarrySkyViewer({
 
           lensFlareSpritesRef.current.forEach((flare) => {
             const sprite = flare.sprite;
-            // 太阳不可见、亮度太低、或日出日落时（太阳低角度被云层遮挡）不显示光晕
-            if (!sunVisible || sunBrightness <= 0.02 || isSunLow) {
+            // 太阳不可见、亮度太低、或日出日落时（太阳低角度被云层遮挡）不显示光晕，望远镜模式下也关闭光晕以防强光遮挡
+            if (!sunVisible || sunBrightness <= 0.02 || isSunLow || telescopeActiveRef.current) {
               sprite.visible = false;
               return;
             }
@@ -2566,76 +2890,84 @@ export default function StarrySkyViewer({
           }
         });
 
-        // 3. 行星位置与透明度更新（无闪烁/抖动）
+        // 3. 行星位置与透明度更新（与高倍望远镜 3D 渲染切换）
+        const latRad = (latitudeRef.current * Math.PI) / 180.0;
+        const celestialNorth = new THREE.Vector3(0, Math.sin(latRad), Math.cos(latRad));
+        const shouldShowDetailed = telescopeActiveRef.current && fovRef.current <= 6.5;
+
         (Object.values(planetSpritesRef.current) as THREE.Sprite[]).forEach((sprite) => {
-          if (sprite.visible) {
+          const pid = sprite.userData.id;
+          const detailedMesh = detailedPlanetsRef.current[pid];
+          
+          if (sprite.visible || (detailedMesh && detailedMesh.visible)) {
             const az = sprite.userData.az;
             const alt = sprite.userData.alt;
             const radius = sprite.userData.radius;
             const baseOpacity = sprite.userData.baseOpacity ?? 1.0;
-            const pos = get3DPositionOnDome(az, alt, radius);
-            sprite.position.copy(pos);
-            sprite.material.opacity = baseOpacity;
+            
+            if (shouldShowDetailed && detailedMesh && alt > 0) {
+              detailedMesh.visible = true;
+              const pos = get3DPositionOnDome(az, alt, 270); // 在距离 270（与月球一样）位置渲染 3D Mesh
+              detailedMesh.position.copy(pos);
+              sprite.position.copy(pos); // 同步更新 2D sprite 的坐标，以便选中圈位置能正确对齐
+              
+              // 按照真实角大小 getAngularScale 进行三维缩放
+              const angScale = getAngularScale(sprite.userData.angularDiameter ?? 0.5);
+              detailedMesh.scale.setScalar(angScale);
+              
+              // 对齐北极，防止自转轴倾角错位
+              setTidallyLockedOrientation(detailedMesh, cameraRef.current?.position ?? new THREE.Vector3(0, 0, 0.1), celestialNorth);
+              
+              // 隐藏原本的2D亮点 Sprite
+              sprite.visible = false;
+            } else {
+              if (detailedMesh) detailedMesh.visible = false;
+              const pos = get3DPositionOnDome(az, alt, radius);
+              sprite.position.copy(pos);
+              sprite.material.opacity = baseOpacity;
+              // 恢复 Sprite 的显示状态
+              sprite.visible = baseOpacity > 0.02 && alt > 0;
+            }
+          } else {
+            if (detailedMesh) detailedMesh.visible = false;
           }
         });
 
-        // 4. 背景暗星批量粒子渲染循环（无闪烁/抖动）
+        // 4. 背景暗星 GPU Shader 驱动（每帧仅更新 uniforms，零 CPU 遍历）
         if (backgroundPointsRef.current) {
-          const bgPoints = backgroundPointsRef.current;
-          const positions = bgPoints.geometry.attributes.position.array as Float32Array;
-          const colors = bgPoints.geometry.attributes.color.array as Float32Array;
+          const mat = backgroundPointsRef.current.material as THREE.ShaderMaterial;
+          const bgYears = TimeEngine.getDaysSinceJ2000TDB(currentTimestampRef.current) / 365.25;
 
-          const bgStarsData = hipparcosRef.current;
-          const lst = getObserverLST();
-          const lat = latitudeRef.current;
-          const skyBr = skyBrightnessRef.current;
+          // Precession matrix (IAU 2006) — computed once per frame in JS
+          const precM = buildPrecessionMatrix(bgYears);
+          mat.uniforms.uPrecessionMatrix.value.set(
+            precM[0], precM[3], precM[6],
+            precM[1], precM[4], precM[7],
+            precM[2], precM[5], precM[8]
+          );
 
-          for (let i = 0; i < bgStarsData.length; i++) {
-            const star = bgStarsData[i];
-            const coords = getHorizontalCoordinates(star.ra, star.dec, lst, lat, observerBodyIdRef.current);
-            const alt = coords.alt;
-            const az = coords.az;
-            const idx = i * 3;
-
-            if (alt <= 0 || star.mag > magLimitRef.current) {
-              positions[idx] = 0;
-              positions[idx + 1] = -999999;
-              positions[idx + 2] = 0;
-
-              colors[idx] = 0;
-              colors[idx + 1] = 0;
-              colors[idx + 2] = 0;
+          // Body equatorial matrix — cached until observerBodyId changes
+          if (observerBodyIdRef.current !== lastObserverBodyIdRef.current || !bodyMatrixCacheRef.current) {
+            lastObserverBodyIdRef.current = observerBodyIdRef.current;
+            const bm = ObserverEngine.getBodyEquatorialMatrix(observerBodyIdRef.current);
+            if (bm) {
+              bodyMatrixCacheRef.current = new THREE.Matrix3(
+                bm.m00, bm.m01, bm.m02,
+                bm.m10, bm.m11, bm.m12,
+                bm.m20, bm.m21, bm.m22
+              );
             } else {
-              const pos = get3DPositionOnDome(az, alt, 150);
-              positions[idx] = pos.x;
-              positions[idx + 1] = pos.y;
-              positions[idx + 2] = pos.z;
-
-              const altRad = alt * Math.PI / 180.0;
-              const sinAlt = Math.sin(altRad);
-
-              let extinction = 1.0;
-              if (alt < 12) {
-                extinction = sinAlt / Math.sin(12.0 * Math.PI / 180.0);
-              }
-
-              // 天空亮度梯度：地平线附近比天顶亮，低高度角星星被更强遮挡
-              // 天顶方向的等效天空亮度更低，所以高高度角星星在黄昏时更早出现
-              const zenithFactor = Math.pow(sinAlt, 0.8);
-              const visibility = Math.max(0.0, 1.0 - skyBr * (1.8 - 0.8 * zenithFactor));
-
-              const baseColor = new THREE.Color(star.color);
-              const factor = extinction * visibility;
-
-              colors[idx] = baseColor.r * factor;
-              colors[idx + 1] = baseColor.g * factor;
-              colors[idx + 2] = baseColor.b * factor;
+              bodyMatrixCacheRef.current = new THREE.Matrix3().identity();
             }
           }
-          bgPoints.geometry.attributes.position.needsUpdate = true;
-          if (bgStarsData.length > 0) {
-            bgPoints.geometry.attributes.color.needsUpdate = true;
-          }
+          mat.uniforms.uBodyMatrix.value.copy(bodyMatrixCacheRef.current);
+
+          mat.uniforms.uYears.value = bgYears;
+          mat.uniforms.uLST.value = getObserverLST();
+          mat.uniforms.uLat.value = latitudeRef.current;
+          mat.uniforms.uIsEarth.value = observerBodyIdRef.current === 'earth' ? 1.0 : 0.0;
+          mat.uniforms.uSkyBrightness.value = skyBrightnessRef.current;
+          mat.uniforms.uMagLimit.value = magLimitRef.current;
         }
 
         // 5. 潮汐锁定：月球/地球主导天体始终面向观察者，roll 稳定指向北天极
@@ -2667,7 +2999,62 @@ export default function StarrySkyViewer({
           sunPathArcRef.current.visible = mat.opacity > 0.005;
         }
 
+        const width = rendererRef.current.domElement.clientWidth || 800;
+        const height = rendererRef.current.domElement.clientHeight || 600;
+
+        // 1. 先进行全屏主视野渲染（主目镜）
+        rendererRef.current.setScissorTest(false);
+        rendererRef.current.setViewport(0, 0, width, height);
         rendererRef.current.render(sceneRef.current, cameraRef.current);
+
+        // 2. 如果开启了望远镜模式，且寻星镜相机存在，在左上角进行双通道画中画渲染
+        if (telescopeActiveRef.current && finderCameraRef.current) {
+          const finderSize = 180;
+          const radius = Math.min(width, height) * 0.38;
+          const fx = width / 2 - radius - 140;
+          const fy = height / 2 - radius * 0.4;
+
+          // WebGL Viewport 坐标系中，(0,0) 为左下角
+          const vx = fx - 90;
+          const vy = height - (fy + 90);
+
+          rendererRef.current.setViewport(vx, vy, finderSize, finderSize);
+          rendererRef.current.setScissor(vx, vy, finderSize, finderSize);
+          rendererRef.current.setScissorTest(true);
+
+          // 同步主相机的朝向与位置，但使用固定的 15度 广角视场角
+          finderCameraRef.current.position.copy(cameraRef.current.position);
+          finderCameraRef.current.quaternion.copy(cameraRef.current.quaternion);
+          finderCameraRef.current.fov = 15;
+          finderCameraRef.current.aspect = 1;
+          finderCameraRef.current.updateProjectionMatrix();
+
+          // 在广角寻星镜中，微小行星应呈现为普通星点（Sprite）而非高倍3D Mesh
+          const activeMeshList: THREE.Mesh[] = [];
+          const activeSpriteList: THREE.Sprite[] = [];
+          const shouldShowDetailed = telescopeActiveRef.current && fovRef.current <= 6.5;
+
+          if (shouldShowDetailed) {
+            Object.keys(detailedPlanetsRef.current).forEach(pid => {
+              const m = detailedPlanetsRef.current[pid];
+              const sp = planetSpritesRef.current[pid];
+              if (m && m.visible) {
+                activeMeshList.push(m);
+                m.visible = false;
+                if (sp && !sp.visible) {
+                  activeSpriteList.push(sp);
+                  sp.visible = true;
+                }
+              }
+            });
+          }
+
+          rendererRef.current.render(sceneRef.current, finderCameraRef.current);
+
+          // 恢复主目镜渲染状态
+          activeMeshList.forEach(m => m.visible = true);
+          activeSpriteList.forEach(sp => sp.visible = false);
+        }
 
         // 实时更新选中天体的屏幕坐标，确保圈圈跟随天球旋转
         if (selectedObjectRef.current && cameraRef.current && rendererRef.current) {
@@ -2946,7 +3333,7 @@ export default function StarrySkyViewer({
       {/* 望远镜覆盖层 — 独立模块 */}
       <TelescopeOverlay
         active={telescopeActive}
-        currentFov={fovRef.current}
+        currentFov={currentFov}
         onFovChange={setFov}
         onClose={() => onTelescopeChange?.(false)}
         lang={lang}

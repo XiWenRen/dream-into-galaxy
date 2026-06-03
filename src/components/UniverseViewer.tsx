@@ -32,6 +32,11 @@ import {
 /** 全局共享 TextureLoader 实例，避免重复创建与 window 污染 */
 const sharedTextureLoader = new THREE.TextureLoader();
 
+/** 可复用的 Vector3 与 Color 对象池，减少热路径 GC 压力 */
+const _tmpVec3 = new THREE.Vector3();
+const _tmpVec3B = new THREE.Vector3();
+const _tmpColor = new THREE.Color();
+
 /** 合并基础亮星与额外星座星表 */
 const ALL_STARS = [...STAR_LIST, ...EXTRA_STARS];
 /** 合并基础星座与88个现代星座连线 */
@@ -94,6 +99,72 @@ function buildHipparcosEclipticField(stars: HipparcosStar[], magLimitVal: number
   return { positions, colors, sizes, count };
 }
 
+/**
+ * 分片异步构建 Hipparcos 星场数据，避免主线程阻塞（约 8,785 颗星）。
+ * 每帧处理 chunkSize 颗（默认 1000），通过 setTimeout(..., 0) 让出控制权。
+ */
+function buildHipparcosEclipticFieldAsync(
+  stars: HipparcosStar[],
+  magLimitVal: number,
+  chunkSize = 1000
+): Promise<{ positions: Float32Array; colors: Float32Array; sizes: Float32Array; count: number }> {
+  return new Promise((resolve) => {
+    const validStars = stars.filter(s => s.dist !== null && s.dist > 0 && s.mag <= magLimitVal);
+    const count = validStars.length;
+    const positions = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    const sizes = new Float32Array(count);
+
+    const eps = 23.439 * Math.PI / 180;
+    const cosEps = Math.cos(eps);
+    const sinEps = Math.sin(eps);
+
+    let i = 0;
+    function processChunk() {
+      const end = Math.min(i + chunkSize, count);
+      for (; i < end; i++) {
+        const star = validStars[i];
+        const distLy = star.dist!;
+        const dScene = distLy * LY_TO_SCENE;
+
+        const decRad = star.dec * Math.PI / 180;
+        const raRad = star.ra * Math.PI / 12;
+        const cosDec = Math.cos(decRad);
+        const sinDec = Math.sin(decRad);
+        const cosRa = Math.cos(raRad);
+        const sinRa = Math.sin(raRad);
+
+        const vEqX = cosDec * cosRa;
+        const vEqY = cosDec * sinRa;
+        const vEqZ = sinDec;
+
+        const vEcX = vEqX;
+        const vEcY = vEqY * cosEps + vEqZ * sinEps;
+        const vEcZ = -vEqY * sinEps + vEqZ * cosEps;
+
+        positions[i * 3] = vEcX * dScene;
+        positions[i * 3 + 1] = vEcZ * dScene;
+        positions[i * 3 + 2] = vEcY * dScene;
+
+        const col = bvToRgb(star.bv);
+        colors[i * 3] = col.r;
+        colors[i * 3 + 1] = col.g;
+        colors[i * 3 + 2] = col.b;
+
+        const magT = Math.max(-1.5, Math.min(star.mag, 6.5));
+        const magSize = 6.0 - (magT + 1.5) * (3.5 / 8.0);
+        sizes[i] = magSize;
+      }
+      if (i < count) {
+        setTimeout(processChunk, 0);
+      } else {
+        resolve({ positions, colors, sizes, count });
+      }
+    }
+    processChunk();
+  });
+}
+
 function createHipparcosPoints(data: ReturnType<typeof buildHipparcosEclipticField>): THREE.Points {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
@@ -141,6 +212,7 @@ function createHipparcosPoints(data: ReturnType<typeof buildHipparcosEclipticFie
 }
 
 interface UniverseViewerProps {
+  renderer?: THREE.WebGLRenderer;
   startEntryAnimation?: boolean;
   currentTimestamp: number;
   strictPhysics: boolean;
@@ -182,6 +254,7 @@ export interface SatelliteDef {
   isProbe?: boolean; // is artificial space probe
   realDistance?: number;  // REAL orbital distance factor (relative to planet radius)
   realRadiusRatio?: number; // REAL size factor (relative to planet radius)
+  textureId?: string; // texture key for getPlanetTexture (defaults to nameEn.toLowerCase())
 }
 
 export const SATELLITE_DATA: Record<string, SatelliteDef[]> = {
@@ -189,28 +262,28 @@ export const SATELLITE_DATA: Record<string, SatelliteDef[]> = {
   venus: [],
   earth: [],
   mars: [
-    { nameZh: "火卫一 Phobos", nameEn: "Phobos", distance: 1.5, radiusRatio: 0.15, color: 0x90a4ae, speed: 1.9, realDistance: 2.766, realRadiusRatio: 0.0033 },
-    { nameZh: "火卫二 Deimos", nameEn: "Deimos", distance: 2.4, radiusRatio: 0.11, color: 0xb0bec5, speed: 1.1, realDistance: 6.921, realRadiusRatio: 0.0018 }
+    { nameZh: "火卫一 Phobos", nameEn: "Phobos", distance: 1.5, radiusRatio: 0.15, color: 0x90a4ae, speed: 1.9, realDistance: 2.766, realRadiusRatio: 0.0033, textureId: "phobos" },
+    { nameZh: "火卫二 Deimos", nameEn: "Deimos", distance: 2.4, radiusRatio: 0.11, color: 0xb0bec5, speed: 1.1, realDistance: 6.921, realRadiusRatio: 0.0018, textureId: "deimos" }
   ],
   jupiter: [
-    { nameZh: "木卫一 Io", nameEn: "Io", distance: 1.4, radiusRatio: 0.14, color: 0xffeb3b, speed: 2.3, realDistance: 6.031, realRadiusRatio: 0.026 },
-    { nameZh: "木卫二 Europa", nameEn: "Europa", distance: 1.9, radiusRatio: 0.12, color: 0x80deea, speed: 1.6, realDistance: 9.596, realRadiusRatio: 0.0223 },
-    { nameZh: "木卫三 Ganymede", nameEn: "Ganymede", distance: 2.5, radiusRatio: 0.15, color: 0xcfd8dc, speed: 1.1, realDistance: 15.311, realRadiusRatio: 0.0377 },
-    { nameZh: "木卫四 Callisto", nameEn: "Callisto", distance: 3.2, radiusRatio: 0.13, color: 0x78909c, speed: 0.7, realDistance: 26.93, realRadiusRatio: 0.0345 }
+    { nameZh: "木卫一 Io", nameEn: "Io", distance: 1.4, radiusRatio: 0.14, color: 0xffeb3b, speed: 2.3, realDistance: 6.031, realRadiusRatio: 0.026, textureId: "io" },
+    { nameZh: "木卫二 Europa", nameEn: "Europa", distance: 1.9, radiusRatio: 0.12, color: 0x80deea, speed: 1.6, realDistance: 9.596, realRadiusRatio: 0.0223, textureId: "europa" },
+    { nameZh: "木卫三 Ganymede", nameEn: "Ganymede", distance: 2.5, radiusRatio: 0.15, color: 0xcfd8dc, speed: 1.1, realDistance: 15.311, realRadiusRatio: 0.0377, textureId: "ganymede" },
+    { nameZh: "木卫四 Callisto", nameEn: "Callisto", distance: 3.2, radiusRatio: 0.13, color: 0x78909c, speed: 0.7, realDistance: 26.93, realRadiusRatio: 0.0345, textureId: "callisto" }
   ],
   saturn: [
-    { nameZh: "土卫六 Titan", nameEn: "Titan", distance: 3.2, radiusRatio: 0.17, color: 0xffb74d, speed: 1.0, realDistance: 20.982, realRadiusRatio: 0.0442 },
-    { nameZh: "土卫五 Rhea", nameEn: "Rhea", distance: 2.6, radiusRatio: 0.11, color: 0xb0bebe, speed: 1.4, realDistance: 9.052, realRadiusRatio: 0.0131 },
-    { nameZh: "土卫二 Enceladus", nameEn: "Enceladus", distance: 1.3, radiusRatio: 0.08, color: 0xe0f2f1, speed: 2.2, realDistance: 4.086, realRadiusRatio: 0.0043 }
+    { nameZh: "土卫六 Titan", nameEn: "Titan", distance: 3.2, radiusRatio: 0.17, color: 0xffb74d, speed: 1.0, realDistance: 20.982, realRadiusRatio: 0.0442, textureId: "titan" },
+    { nameZh: "土卫五 Rhea", nameEn: "Rhea", distance: 2.6, radiusRatio: 0.11, color: 0xb0bebe, speed: 1.4, realDistance: 9.052, realRadiusRatio: 0.0131, textureId: "rhea" },
+    { nameZh: "土卫二 Enceladus", nameEn: "Enceladus", distance: 1.3, radiusRatio: 0.08, color: 0xe0f2f1, speed: 2.2, realDistance: 4.086, realRadiusRatio: 0.0043, textureId: "enceladus" }
   ],
   uranus: [
-    { nameZh: "天卫三 Titania", nameEn: "Titania", distance: 2.3, radiusRatio: 0.14, color: 0xe1bee7, speed: 1.2, realDistance: 17.187, realRadiusRatio: 0.0311 },
-    { nameZh: "天卫四 Oberon", nameEn: "Oberon", distance: 3.0, radiusRatio: 0.13, color: 0xd1c4e9, speed: 0.8, realDistance: 23.007, realRadiusRatio: 0.030 },
-    { nameZh: "天卫一 Ariel", nameEn: "Ariel", distance: 1.7, radiusRatio: 0.10, color: 0xe0f2f1, speed: 1.8, realDistance: 7.532, realRadiusRatio: 0.0228 }
+    { nameZh: "天卫三 Titania", nameEn: "Titania", distance: 2.3, radiusRatio: 0.14, color: 0xe1bee7, speed: 1.2, realDistance: 17.187, realRadiusRatio: 0.0311, textureId: "titania" },
+    { nameZh: "天卫四 Oberon", nameEn: "Oberon", distance: 3.0, radiusRatio: 0.13, color: 0xd1c4e9, speed: 0.8, realDistance: 23.007, realRadiusRatio: 0.030, textureId: "oberon" },
+    { nameZh: "天卫一 Ariel", nameEn: "Ariel", distance: 1.7, radiusRatio: 0.10, color: 0xe0f2f1, speed: 1.8, realDistance: 7.532, realRadiusRatio: 0.0228, textureId: "ariel" }
   ],
   neptune: [
-    { nameZh: "海卫一 Triton", nameEn: "Triton", distance: 2.1, radiusRatio: 0.15, color: 0xb2dfdb, speed: -1.3, realDistance: 14.408, realRadiusRatio: 0.055 },
-    { nameZh: "海卫八 Proteus", nameEn: "Proteus", distance: 1.5, radiusRatio: 0.09, color: 0xb0bec5, speed: 1.9, realDistance: 4.778, realRadiusRatio: 0.0085 }
+    { nameZh: "海卫一 Triton", nameEn: "Triton", distance: 2.1, radiusRatio: 0.15, color: 0xb2dfdb, speed: -1.3, realDistance: 14.408, realRadiusRatio: 0.055, textureId: "triton" },
+    { nameZh: "海卫八 Proteus", nameEn: "Proteus", distance: 1.5, radiusRatio: 0.09, color: 0xb0bec5, speed: 1.9, realDistance: 4.778, realRadiusRatio: 0.0085, textureId: "proteus" }
   ]
 };
 
@@ -921,6 +994,7 @@ function calculateKinematicProgress(t: number, D: number): { progress: number, i
 }
 
 export default function UniverseViewer({
+  renderer: externalRenderer,
   startEntryAnimation = false,
   currentTimestamp,
   strictPhysics,
@@ -965,6 +1039,7 @@ export default function UniverseViewer({
   const galaxySpriteRef = useRef<THREE.Mesh | null>(null);
   const hipparcosRef = useRef<THREE.Points | null>(null);
   const hipparcosCatalogRef = useRef<HipparcosStar[] | null>(null);
+  const hipparcosBuildGenRef = useRef(0);
   const magLimitRef = useRef(magLimit);
   const textureOffsetsRef = useRef<Record<string, { u: number; v: number }>>(textureOffsets);
   const skipNextFocusRef = useRef(false);
@@ -1007,6 +1082,7 @@ export default function UniverseViewer({
   const selectedMoonPhaseRef = useRef<number | null>(null);
   const lastAngleTextRef = useRef<string>('');
   const lastMoonOrbitDaysRef = useRef<number>(0);
+  const moonOrbitFrameCounterRef = useRef<number>(0);
   const [isRotationSimActive, setIsRotationSimActive] = useState<boolean>(false);
   const isRotationSimActiveRef = useRef<boolean>(false);
   const solarTermsSelfRotationOffsetRef = useRef<number>(0);
@@ -1267,6 +1343,7 @@ export default function UniverseViewer({
   const isEnteringRef = useRef<boolean>(false);
   const entryProgressRef = useRef<number>(0);
   const startEntryRef = useRef<boolean>(false);
+  const justFinishedEntryRef = useRef<boolean>(false);
 
   // 天文现象演示相机控制
   const demoCameraRef = useRef<{
@@ -1603,6 +1680,21 @@ export default function UniverseViewer({
     earth_specular: '/textures/2k_earth_specular_map.jpg',
     earth_nightmap: '/textures/8k_earth_nightmap.jpg',
     saturn_ring: '/textures/8k_saturn_ring_alpha.png',
+    // Natural satellites — place NASA textures in public/textures/ to override procedural fallback
+    io: '/textures/2k_io.jpg',
+    europa: '/textures/2k_europa.jpg',
+    ganymede: '/textures/2k_ganymede.jpg',
+    callisto: '/textures/2k_callisto.jpg',
+    titan: '/textures/2k_titan.jpg',
+    phobos: '/textures/2k_phobos.jpg',
+    deimos: '/textures/2k_deimos.jpg',
+    rhea: '/textures/2k_rhea.jpg',
+    enceladus: '/textures/2k_enceladus.jpg',
+    titania: '/textures/2k_titania.jpg',
+    oberon: '/textures/2k_oberon.jpg',
+    ariel: '/textures/2k_ariel.jpg',
+    triton: '/textures/2k_triton.jpg',
+    proteus: '/textures/2k_proteus.jpg',
   };
 
   const textureCacheRef = useRef<Record<string, THREE.Texture>>({});
@@ -1757,8 +1849,9 @@ export default function UniverseViewer({
     camera.position.set(0, 25, 35);
     cameraRef.current = camera;
 
-    // 2. 创建 WebGLRenderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+    // 2. 创建或复用 WebGLRenderer
+    const isExternalRenderer = !!externalRenderer;
+    const renderer = isExternalRenderer ? externalRenderer : new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.localClippingEnabled = true;
@@ -1766,14 +1859,16 @@ export default function UniverseViewer({
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = exposure;
-    
-    // Style the canvas physically to fill container and display as block (prevent baseline gap / squeeze)
-    renderer.domElement.style.position = 'absolute';
-    renderer.domElement.style.top = '0';
-    renderer.domElement.style.left = '0';
-    renderer.domElement.style.width = '100%';
-    renderer.domElement.style.height = '100%';
-    renderer.domElement.style.display = 'block';
+
+    if (!isExternalRenderer) {
+      // Style the canvas physically to fill container and display as block (prevent baseline gap / squeeze)
+      renderer.domElement.style.position = 'absolute';
+      renderer.domElement.style.top = '0';
+      renderer.domElement.style.left = '0';
+      renderer.domElement.style.width = '100%';
+      renderer.domElement.style.height = '100%';
+      renderer.domElement.style.display = 'block';
+    }
 
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
@@ -1803,8 +1898,8 @@ export default function UniverseViewer({
     const sunPointLight = new THREE.PointLight(0xffffff, 3.5, 2500, 0.1);
     sunPointLight.position.set(0, 0, 0);
     sunPointLight.castShadow = true;
-    sunPointLight.shadow.mapSize.width = 2048;
-    sunPointLight.shadow.mapSize.height = 2048;
+    sunPointLight.shadow.mapSize.width = 512;
+    sunPointLight.shadow.mapSize.height = 512;
     sunPointLight.shadow.camera.near = 0.5;
     sunPointLight.shadow.camera.far = 2500;
     sunPointLight.shadow.bias = -0.0005;
@@ -1944,14 +2039,17 @@ export default function UniverseViewer({
     constellNameSpritesRef.current = nameSprites;
 
     // 异步加载 Hipparcos 真实 3D 星场（8785颗恒星，B-V色指数着色）
+    // 使用分片构建避免主线程阻塞
     loadHipparcosCatalog().then(catalog => {
       if (!sceneRef.current) return;
       hipparcosCatalogRef.current = catalog;
-      const data = buildHipparcosEclipticField(catalog, magLimitRef.current);
-      const hipparcosPoints = createHipparcosPoints(data);
-      sceneRef.current.add(hipparcosPoints);
-      hipparcosRef.current = hipparcosPoints;
-      console.log(`[Hipparcos] Loaded ${data.count} real stars into scene`);
+      buildHipparcosEclipticFieldAsync(catalog, magLimitRef.current).then(data => {
+        if (!sceneRef.current) return;
+        const hipparcosPoints = createHipparcosPoints(data);
+        sceneRef.current.add(hipparcosPoints);
+        hipparcosRef.current = hipparcosPoints;
+        console.log(`[Hipparcos] Loaded ${data.count} real stars into scene`);
+      });
     }).catch(err => {
       console.warn('[UniverseViewer] Failed to load Hipparcos catalog:', err);
     });
@@ -2304,11 +2402,16 @@ export default function UniverseViewer({
         // 创建静止完整环形轨道虚线/细线 - 配合 ORBIT_SCALE 因子排布位置
         const orbitPoints: THREE.Vector3[] = [];
         const samples = 2500;
-        for (let j = 0; j <= samples; j++) {
-          const daysEquivalent = (j / samples) * (PLANET_ORBITAL_DATA[config.id]?.period || 365);
-          const pos = OrbitEngine.getHeliocentricPosition(config.id, daysEquivalent, false);
-          orbitPoints.push(toThreePos(pos, ORBIT_SCALE));
-        }
+        
+        // 正统物理绘制法：获取当前历元（Epoch）的瞬时接触轨道（Osculating Orbit）。
+        // 这将保证：1. 椭圆头尾 100% 绝对闭合。2. 轨道倾角、长轴方向完美契合当前年份（不会和当前真实坐标发生进动脱轨）。
+        const baseDays = TimeEngine.getDaysSinceJ2000(currentTimestampRef.current);
+        const pointsRaw = OrbitEngine.getOsculatingOrbitPoints(config.id, baseDays, samples);
+        
+        pointsRaw.forEach(rawPos => {
+          orbitPoints.push(toThreePos(rawPos, ORBIT_SCALE));
+        });
+
         const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPoints);
         const orbitMat = new THREE.LineBasicMaterial({
           color: config.color,
@@ -2320,23 +2423,23 @@ export default function UniverseViewer({
         orbitLinesRef.current[config.id] = orbitLine;
       } else {
         // == 绘制月球围绕地球的公转轨道 (Natural Moon Orbit around Earth) ==
-        // 使用与月球位置完全相同的计算管线，确保 100% 同源同算
+        // 使用当前时刻的瞬时轨道根数（固定历元）绘制完美的闭合椭圆环
         const orbitPoints: THREE.Vector3[] = [];
         const samples = 1000;
         const baseDays = TimeEngine.getDaysSinceJ2000(currentTimestamp);
 
-        for (let j = 0; j <= samples; j++) {
-          // 在一个轨道周期内均匀采样，使用当前显示时刻的瞬时轨道根数
-          const days = baseDays + (j / samples) * 27.32166;
-          const moonRel = OrbitEngine.getLunarRelativePosition(days);
-          const pos = toThreePos(moonRel, ORBIT_SCALE);
+        const moonOrbitPointsRaw = OrbitEngine.getLunarOrbitRingPoints(baseDays, samples);
+        
+        moonOrbitPointsRaw.forEach(rawPos => {
+          const pos = toThreePos(rawPos, ORBIT_SCALE);
           if (!strictPhysics) {
             const earthStrictRad = ScaleEngine.getStrictRadius('earth');
             const earthObsRad = ScaleEngine.getObservableRadius('earth');
             pos.multiplyScalar(earthObsRad / earthStrictRad);
           }
           orbitPoints.push(pos);
-        }
+        });
+
         const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPoints);
         const orbitMat = new THREE.LineBasicMaterial({
           color: config.color,
@@ -2449,7 +2552,10 @@ export default function UniverseViewer({
       // 绘制公转可见卫星 / 探测器 (Sub-moons and Space Probes)
       const moons = SATELLITE_DATA[config.id] || [];
       moons.forEach(m => {
-        const distRatio = (strictPhysics && m.realDistance !== undefined) ? m.realDistance : m.distance;
+        // 严格物理模式下使用真实轨道距离和半径比例，教学模式下使用视觉比例
+        const realDistRatio = m.realDistance ?? m.distance;
+        const demoDistRatio = m.distance;
+        const distRatio = strictPhysics ? realDistRatio : demoDistRatio;
         const orbitRadius = config.radius * distRatio;
 
         // 查找真实轨道参数（来自 SATELLITE_CATALOG）
@@ -2473,19 +2579,28 @@ export default function UniverseViewer({
           opacity: 0.16
         });
         const orbitLine = new THREE.Line(ringGeo, ringMat);
-        orbitLine.name = 'satellite-orbit-line';
+        orbitLine.name = `satellite-orbit-line-${m.nameEn.toLowerCase()}`;
+        orbitLine.userData = {
+          orbitRadius,
+          realDistRatio,
+          demoDistRatio,
+          basePlanetRadius: ScaleEngine.getStrictRadius(config.id),
+          creationBaseRadius: config.radius
+        };
         tiltGroup.add(orbitLine); // Added to tiltGroup!
 
         // 2. 卫星/空间站实体 (Entities)
         let moonMesh: THREE.Mesh;
-        const sizeRatio = (strictPhysics && m.realRadiusRatio !== undefined) ? m.realRadiusRatio : m.radiusRatio;
+        // 严格物理模式下使用真实半径比例，教学模式下使用视觉比例
+        const realSizeRatio = m.realRadiusRatio ?? m.radiusRatio;
+        const demoSizeRatio = m.radiusRatio;
+        const sizeRatio = strictPhysics ? realSizeRatio : demoSizeRatio;
+        
         if (m.isProbe) {
           // 探针/空间站：立方体核心主体
           const bodyGeo = new THREE.BoxGeometry(config.radius * sizeRatio, config.radius * sizeRatio, config.radius * sizeRatio * 1.5);
-          const bodyMat = new THREE.MeshStandardMaterial({
-            color: m.color,
-            metalness: 0.9,
-            roughness: 0.2
+          const bodyMat = new THREE.MeshBasicMaterial({
+            color: m.color
           });
           moonMesh = new THREE.Mesh(bodyGeo, bodyMat);
 
@@ -2496,19 +2611,31 @@ export default function UniverseViewer({
           wing.name = 'solar-wing';
           moonMesh.add(wing);
         } else {
-          // 天然卫星：高精度球体质感
+          // 天然卫星：高精度球体质感（使用 StandardMaterial 产生明暗面，配合纹理贴图）
+          const texId = m.textureId || m.nameEn.toLowerCase();
+          const tex = getPlanetTexture(texId);
           const sphereGeo = new THREE.SphereGeometry(config.radius * sizeRatio, 64, 32);
           const sphereMat = new THREE.MeshStandardMaterial({
-            color: m.color,
+            map: tex,
+            color: 0xffffff,
             roughness: 0.85,
-            metalness: 0.1
+            metalness: 0.05,
+            bumpMap: tex,
+            bumpScale: 0.012
           });
           moonMesh = new THREE.Mesh(sphereGeo, sphereMat);
         }
 
-        moonMesh.name = `satellite-mesh-${m.nameEn}`;
+        moonMesh.name = `satellite-mesh-${m.nameEn.toLowerCase()}`;
         moonMesh.userData = {
           orbitRadius,
+          realDistRatio,
+          demoDistRatio,
+          realSizeRatio,
+          demoSizeRatio,
+          basePlanetRadius: ScaleEngine.getStrictRadius(config.id),
+          creationBaseRadius: config.radius,
+          creationGeomSize: config.radius * sizeRatio,
           speed: m.speed,
           periodDays,
           initialPhaseRad,
@@ -2520,6 +2647,7 @@ export default function UniverseViewer({
           isSatellite: true
         };
         tiltGroup.add(moonMesh); // Added to tiltGroup!
+        console.log('[UniverseViewer] Created satellite mesh:', moonMesh.name, 'for planet:', config.id, 'orbitRadius:', orbitRadius, 'meshRadius:', config.radius * sizeRatio);
       });
     });
 
@@ -3119,7 +3247,7 @@ export default function UniverseViewer({
           const hit = validHit.object;
           if (hit.userData?.isSatellite) {
             skipNextFocusRef.current = true;
-            onSelectPlanet(hit.userData.nameEn);
+            onSelectPlanet(hit.userData.nameEn.toLowerCase());
           } else {
             const pid = hit.userData?.planetId;
             if (pid) {
@@ -3210,6 +3338,7 @@ export default function UniverseViewer({
         if (entryProgressRef.current >= 1.0) {
           entryProgressRef.current = 1.0;
           isEnteringRef.current = false;
+          justFinishedEntryRef.current = true;
         }
         
         const p = entryProgressRef.current;
@@ -3341,8 +3470,10 @@ export default function UniverseViewer({
         let currentMoonOrbitRadius = 1;
 
         if (config.id === 'moon') {
-          const earthPosRaw = OrbitEngine.getHeliocentricPosition('earth', daysSinceJ2000);
-          const moonRelPosRaw = OrbitEngine.getLunarRelativePosition(daysSinceJ2000);
+          // 月球位置计算：使用真实系统时间的流逝，获取绝对物理坐标
+          // 使用量化时间缓存版本，避免每帧重复计算相近时刻的轨道根数
+          const earthPosRaw = OrbitEngine.getHeliocentricPositionCached('earth', daysSinceJ2000, true); // 必须传 true
+          const moonRelPosRaw = OrbitEngine.getLunarRelativePositionCached(daysSinceJ2000);
 
           // 统一坐标管道：真实 AU → 场景单位
           const earthPos = toThreePos(earthPosRaw, ORBIT_SCALE);
@@ -3375,7 +3506,8 @@ export default function UniverseViewer({
 
           finalPos = currentEarthPos.add(currentMoonRelPos);
         } else {
-          const rawPos = OrbitEngine.getHeliocentricPosition(config.id, daysSinceJ2000);
+          // 使用量化时间缓存版本，避免每帧重复计算相近时刻的轨道根数
+          const rawPos = OrbitEngine.getHeliocentricPositionCached(config.id, daysSinceJ2000);
           const realPos = toThreePos(rawPos, ORBIT_SCALE);
           const teachingPos = TeachingModeEngine.getHeliocentricPosition(config.id, realPos);
           finalPos = new THREE.Vector3().lerpVectors(realPos, teachingPos, smoothTeachingProgress);
@@ -3393,6 +3525,28 @@ export default function UniverseViewer({
         const orbitLine = orbitLinesRef.current[config.id];
         if (orbitLine) {
           if (config.id === 'moon') {
+            // 定期重算月球轨道线几何体（每30帧≈0.5s@60fps），
+            // 确保升交点退行等根数演化被反映，避免固定历元轨道线逐渐偏离真实月球
+            moonOrbitFrameCounterRef.current++;
+            if (moonOrbitFrameCounterRef.current % 30 === 0) {
+              const newOrbitPoints: THREE.Vector3[] = [];
+              const newOrbitRaw = OrbitEngine.getLunarOrbitRingPoints(daysSinceJ2000);
+              newOrbitRaw.forEach(rawPos => {
+                const pos = toThreePos(rawPos, ORBIT_SCALE);
+                if (!strictPhysicsRef.current) {
+                  const earthStrictRad = ScaleEngine.getStrictRadius('earth');
+                  const earthObsRad = ScaleEngine.getObservableRadius('earth');
+                  pos.multiplyScalar(earthObsRad / earthStrictRad);
+                }
+                newOrbitPoints.push(pos);
+              });
+              const geo = orbitLine.geometry;
+              geo.setFromPoints(newOrbitPoints);
+              geo.attributes.position.needsUpdate = true;
+              // 更新基准半径为当前值，使后续缩放比例保持为1
+              originalMoonOrbitRadius = currentMoonOrbitRadius;
+            }
+
             // 月球轨线在 earthGroup 内部，所以受到 earthScale 的影响
             // 真实世界的缩放比:
             const earthRealRadius = getPlanetRadius('earth');
@@ -3425,12 +3579,11 @@ export default function UniverseViewer({
           }
         }
 
-        // 获取太阳的世界坐标
-        const sunWorldPos = new THREE.Vector3();
+        // 获取太阳的世界坐标（使用对象池复用）
         if (sunMeshRef.current) {
-          sunMeshRef.current.getWorldPosition(sunWorldPos);
+          sunMeshRef.current.getWorldPosition(_tmpVec3);
         }
-        const lightDir = new THREE.Vector3().subVectors(sunWorldPos, finalPos).normalize();
+        const lightDir = _tmpVec3B.subVectors(_tmpVec3, finalPos).normalize();
         
         const tiltGroup = group.getObjectByName('planet-tilt-root') as THREE.Group;
         if (!tiltGroup) return;
@@ -3699,10 +3852,14 @@ export default function UniverseViewer({
         }
 
         // 行星搭载的所有子卫星/空间站公转自旋高精度更新
+        let satUpdateCount = 0;
+        const parentTeachingRadius = TeachingModeEngine.getRadius(config.id);
+
         tiltGroup.children.forEach(c => {
           if (c.name && c.name.startsWith('satellite-mesh-')) {
             const ud = c.userData;
             if (ud && ud.isSatellite) {
+              satUpdateCount++;
               let angle: number;
               if (ud.periodDays) {
                 // 使用真实轨道周期计算公转角速度
@@ -3714,11 +3871,55 @@ export default function UniverseViewer({
                 angle = ud.angle + (daysSinceJ2000 * orbitSpeed);
               }
 
+              // 计算当前帧的本地轨道半径，平滑过渡到教学模式距离
+              // 真实物理世界距离
+              const realWorldDist = ud.basePlanetRadius * ud.realDistRatio;
+              // 教学模式世界距离（母星教学半径 * 卫星视觉演示比例）
+              const demoWorldDist = parentTeachingRadius * ud.demoDistRatio;
+              // 平滑插值
+              const targetWorldDist = THREE.MathUtils.lerp(realWorldDist, demoWorldDist, smoothTeachingProgress);
+              const currentLocalDist = targetWorldDist / scale; // scale 是行星组当前的放大比例
+
               // 卫星在其倾斜自转赤道面 (tiltGroup 的本地 X-Z 轴) 中完美公转
-              c.position.set(Math.cos(angle) * ud.orbitRadius, 0, Math.sin(angle) * ud.orbitRadius);
+              c.position.set(Math.cos(angle) * currentLocalDist, 0, Math.sin(angle) * currentLocalDist);
 
               // 卫星自身再做微弱自旋转
               c.rotation.y += 0.025;
+              
+              // 动态修正卫星本体的缩放比例（尺寸）
+              // 真实物理本地尺寸
+              const realLocalSize = ud.basePlanetRadius * ud.realSizeRatio;
+              // 教学模式预期世界尺寸
+              const demoWorldSize = parentTeachingRadius * ud.demoSizeRatio;
+              
+              // 必须在“严格物理状态下的本地尺寸”和“为了达到演示世界尺寸所需的补偿本地尺寸”之间插值
+              // 注意：此时行星组本身正在被 scale 放缩，因此为了达到 demoWorldSize，本地需要的大小是 demoWorldSize / scale
+              // 由于 realLocalSize 是在行星未经 scale 时的正确物理大小，
+              // 当行星被 scale 放大时，真实物理模式下的真实世界大小就是 realLocalSize * scale。
+              // 我们想要的世界大小从 (realLocalSize * scale) 平滑过渡到 demoWorldSize：
+              const currentWorldSize = THREE.MathUtils.lerp(realLocalSize * scale, demoWorldSize, smoothTeachingProgress);
+              
+              // 网格几何体创建时的实际半径（直接记录，避免用当前模式反推导致偏差）
+              const geomSize = ud.creationGeomSize;
+              // 我们需要将这个 geomSize 缩放到 currentWorldSize / scale
+              const targetLocalScale = (currentWorldSize / scale) / geomSize;
+              
+              c.scale.set(targetLocalScale, targetLocalScale, targetLocalScale);
+            }
+          } else if (c.name && c.name.startsWith('satellite-orbit-line-')) {
+            const ud = c.userData;
+            if (ud && ud.basePlanetRadius) {
+              const realWorldDist = ud.basePlanetRadius * ud.realDistRatio;
+              const demoWorldDist = parentTeachingRadius * ud.demoDistRatio;
+              const targetWorldDist = THREE.MathUtils.lerp(realWorldDist, demoWorldDist, smoothTeachingProgress);
+              
+              const currentLocalDist = targetWorldDist / scale;
+              
+              // 轨道线几何体创建时的实际半径（直接记录，避免用当前模式反推导致偏差）
+              const geomRadius = ud.orbitRadius;
+              const localScale = currentLocalDist / geomRadius;
+              
+              c.scale.set(localScale, localScale, localScale);
             }
           }
         });
@@ -4384,7 +4585,8 @@ export default function UniverseViewer({
             const daysSinceJ2000 = TimeEngine.getDaysSinceJ2000(phaseTime);
             
             // 使用与渲染月球完全相同的计算管线，确保在空间中100%重合
-            const moonRelPosRaw = OrbitEngine.getLunarRelativePosition(daysSinceJ2000);
+            // 使用量化时间缓存避免重复计算
+            const moonRelPosRaw = OrbitEngine.getLunarRelativePositionCached(daysSinceJ2000);
             const moonRelPos = toThreePos(moonRelPosRaw, 22.0); // 统一坐标管道：真实 AU → 场景单位
 
             if (!strictPhysicsRef.current) {
@@ -4787,7 +4989,8 @@ export default function UniverseViewer({
             const coneLen = earthPos.distanceTo(moonPos);
 
             // 物理本影半顶角：由日-地几何唯一决定
-            const earthPosRaw = OrbitEngine.getHeliocentricPosition('earth', daysSinceJ2000);
+            // 使用量化时间缓存避免重复计算
+            const earthPosRaw = OrbitEngine.getHeliocentricPositionCached('earth', daysSinceJ2000);
             const sunToEarthDistAU = Math.sqrt(earthPosRaw.x * earthPosRaw.x + earthPosRaw.y * earthPosRaw.y + earthPosRaw.z * earthPosRaw.z);
             const sunToEarthDistKm = sunToEarthDistAU * 149597870.7;
             const { umbraAngle } = AstrophenomenaEngine.computeShadowCone(696340, 6371, sunToEarthDistKm);
@@ -5264,8 +5467,20 @@ export default function UniverseViewer({
           // 让控制器最小缩放距离也自适应
           controlsRef.current.minDistance = radOfTarget * 1.05;
 
-          // 选中星体改变时，重设 controls target 与相机视角位置以实现聚焦跟随
-          const shouldFocus = selectedPlanetIdRef.current !== lastSelectedPlanetIdRef.current || forceFocusRef.current;
+          let shouldFocus = selectedPlanetIdRef.current !== lastSelectedPlanetIdRef.current || forceFocusRef.current;
+
+          // 初始入场动画刚刚结束时，如果是太阳，拦截自动聚焦，使其停留在太阳系尺度
+          if (justFinishedEntryRef.current) {
+            if (selectedPlanetIdRef.current === 'sun') {
+              shouldFocus = false;
+              lastSelectedPlanetIdRef.current = 'sun';
+              lastTargetPosRef.current.copy(targetPos);
+              lastRadOfTargetRef.current = radOfTarget;
+              controlsRef.current.target.copy(targetPos);
+            }
+            justFinishedEntryRef.current = false;
+          }
+
           if (shouldFocus) {
             const isSat = !!getParentPlanetId(selectedPlanetIdRef.current) && !['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','sun','moon'].includes(selectedPlanetIdRef.current.toLowerCase());
             let offset: number;
@@ -5823,6 +6038,10 @@ export default function UniverseViewer({
           container.removeChild(renderer.domElement);
         }
       }
+      // 只有内部创建的 renderer 才 dispose，外部共享的 renderer 由 App 生命周期管理
+      if (!isExternalRenderer) {
+        renderer.dispose();
+      }
       constellLinesRef.current = null;
       constellNameSpritesRef.current.forEach(sprite => {
         sprite.parent?.remove(sprite);
@@ -6044,15 +6263,18 @@ export default function UniverseViewer({
       }
     });
 
-    // 同步 Hipparcos 3D 真实星场的星等过滤
+    // 异步重建 Hipparcos 3D 真实星场的星等过滤（分片避免阻塞）
     if (hipparcosRef.current && hipparcosCatalogRef.current) {
-      const newData = buildHipparcosEclipticField(hipparcosCatalogRef.current, magLimit);
-      hipparcosRef.current.geometry.dispose();
-      const newGeom = new THREE.BufferGeometry();
-      newGeom.setAttribute('position', new THREE.BufferAttribute(newData.positions, 3));
-      newGeom.setAttribute('color', new THREE.BufferAttribute(newData.colors, 3));
-      newGeom.setAttribute('size', new THREE.BufferAttribute(newData.sizes, 1));
-      hipparcosRef.current.geometry = newGeom;
+      const gen = ++hipparcosBuildGenRef.current;
+      buildHipparcosEclipticFieldAsync(hipparcosCatalogRef.current, magLimit).then(data => {
+        if (gen !== hipparcosBuildGenRef.current || !hipparcosRef.current) return;
+        hipparcosRef.current.geometry.dispose();
+        const newGeom = new THREE.BufferGeometry();
+        newGeom.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+        newGeom.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
+        newGeom.setAttribute('size', new THREE.BufferAttribute(data.sizes, 1));
+        hipparcosRef.current.geometry = newGeom;
+      });
     }
   }, [magLimit, showConstellLines, showConstellNames]);
 
@@ -6146,7 +6368,7 @@ export default function UniverseViewer({
     if (intersects.length > 0) {
       const hit = intersects[0].object;
       if (hit.userData?.isSatellite) {
-        onSelectPlanet(hit.userData.nameEn);
+        onSelectPlanet(hit.userData.nameEn.toLowerCase());
         onFocusPlanet?.();
       } else {
         const pid = hit.userData?.planetId;

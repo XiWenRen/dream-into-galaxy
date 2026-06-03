@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import * as THREE from 'three';
 import { motion } from "motion/react";
 import UniverseViewer from './components/UniverseViewer';
 import StarrySkyViewer from './components/StarrySkyViewer';
@@ -63,6 +64,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialEntry, setIsInitialEntry] = useState(true);
   const [mountViewer, setMountViewer] = useState(false);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const [lang, setLang] = useState<'zh' | 'en'>('zh');
   const [selectedPlanetId, setSelectedPlanetId] = useState<string>('sun');
   const [crossSectionActive, setCrossSectionActive] = useState<boolean>(false);
@@ -78,6 +80,23 @@ export default function App() {
     }, 400);
     return () => clearTimeout(timer);
   }, []);
+
+  // 创建共享的 WebGLRenderer，避免双上下文重复创建与销毁
+  useEffect(() => {
+    if (!mountViewer) return;
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.localClippingEnabled = true;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = exposure;
+    rendererRef.current = renderer;
+    return () => {
+      renderer.dispose();
+      rendererRef.current = null;
+    };
+  }, [mountViewer]);
 
   // 验证系统状态
   const [panelTab, setPanelTab] = useState<'packing' | 'audit'>('audit');
@@ -152,7 +171,8 @@ export default function App() {
             setLatitude(offsetCoords[browserOffset].lat);
             setLongitude(offsetCoords[browserOffset].lon);
           }
-        }
+        },
+        { timeout: 1500, enableHighAccuracy: false, maximumAge: Infinity }
       );
     }
   }, []);
@@ -260,39 +280,51 @@ export default function App() {
   }, []);
 
   // 1b. 天文现象演示自动播放逻辑（步进模式：只切换步骤，不改变时间流速）
+  // 使用 rAF accumulator 模式替代 setInterval，消除时序竞争
   useEffect(() => {
     if (!demoState.isPlaying || !demoState.activePhenomenon) return;
     const stepDurationSec = DEMO_STEP_DURATION[demoState.activePhenomenon] || 8;
-    const intervalMs = (stepDurationSec * 1000) / demoState.playbackSpeed;
+    const stepIntervalMs = (stepDurationSec * 1000) / demoState.playbackSpeed;
 
-    const timer = setInterval(() => {
-      setDemoState(prev => {
-        if (!prev.isPlaying || !prev.activePhenomenon) return prev;
-        const steps = getPhenomenonSteps(prev.activePhenomenon).length;
-        const nextPhase = prev.demoPhase + 1;
-        if (nextPhase >= steps) {
-          // 如果需要循环，则在此处理，或者停止
-          return { ...prev, demoPhase: steps - 1, isPlaying: false };
-        }
-        
-        // 自动播放时也需要同步跳转时间
-        if (prev.activePhenomenon === 'moon-phases') {
-          setTimeState(timePrev => {
-            const base = getCurrentCycleNewMoon(timePrev.currentTimestamp);
-            const targetAstronomic = getExactMoonPhaseTime(base, nextPhase);
-            const bestLocalHour = MOON_PHASE_BEST_VIEW_HOURS[nextPhase];
-            const target = TimeEngine.getTimestampForLocalHour(targetAstronomic, bestLocalHour, timezoneOffset);
-            return { ...timePrev, currentTimestamp: target };
-          });
-        } else if (prev.activePhenomenon === 'solar-terms') {
-           // ... 暂时不处理节气时间跳转，或者保持原样
-        }
-        
-        return { ...prev, demoPhase: nextPhase };
-      });
-    }, intervalMs);
+    let acc = 0;
+    let last = performance.now();
+    let rafId = 0;
 
-    return () => clearInterval(timer);
+    const tick = (now: number) => {
+      const dt = now - last;
+      last = now;
+      acc += dt;
+
+      if (acc >= stepIntervalMs) {
+        acc = 0;
+        setDemoState(prev => {
+          if (!prev.isPlaying || !prev.activePhenomenon) return prev;
+          const steps = getPhenomenonSteps(prev.activePhenomenon).length;
+          const nextPhase = prev.demoPhase + 1;
+          if (nextPhase >= steps) {
+            return { ...prev, demoPhase: steps - 1, isPlaying: false };
+          }
+
+          if (prev.activePhenomenon === 'moon-phases') {
+            setTimeState(timePrev => {
+              const base = getCurrentCycleNewMoon(timePrev.currentTimestamp);
+              const targetAstronomic = getExactMoonPhaseTime(base, nextPhase);
+              const bestLocalHour = MOON_PHASE_BEST_VIEW_HOURS[nextPhase];
+              const target = TimeEngine.getTimestampForLocalHour(targetAstronomic, bestLocalHour, timezoneOffset);
+              return { ...timePrev, currentTimestamp: target };
+            });
+          } else if (prev.activePhenomenon === 'solar-terms') {
+            // ... 暂时不处理节气时间跳转，或者保持原样
+          }
+
+          return { ...prev, demoPhase: nextPhase };
+        });
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
   }, [demoState.isPlaying, demoState.playbackSpeed, demoState.activePhenomenon, timezoneOffset]);
 
   // 2. 实时查询公转轨道的 二十四节气 属性
@@ -622,9 +654,11 @@ export default function App() {
         <LoadingScreen
           lang={lang}
           theme={theme}
+          onLaunch={() => {
+            setIsInitialEntry(false);
+          }}
           onLoadComplete={() => {
             setIsLoading(false);
-            setIsInitialEntry(false);
           }}
         />
       )}
@@ -956,6 +990,7 @@ export default function App() {
           {mountViewer && (
             landed ? (
               <StarrySkyViewer
+                renderer={rendererRef.current}
                 currentTimestamp={timeState.currentTimestamp}
                 latitude={latitude}
                 longitude={longitude}
@@ -979,6 +1014,7 @@ export default function App() {
               />
             ) : (
               <UniverseViewer
+                renderer={rendererRef.current}
                 startEntryAnimation={!isInitialEntry}
                 currentTimestamp={timeState.currentTimestamp}
                 selectedPlanetId={selectedPlanetId}

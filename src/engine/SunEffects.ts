@@ -58,10 +58,13 @@ const SUN_SURFACE_FRAGMENT_SHADER = `
     );
   }
 
+  uniform int uFbmOctaves;
+
   float fbm(vec2 p) {
     float v = 0.0;
     float a = 0.5;
     for (int i = 0; i < 5; i++) {
+      if (i >= uFbmOctaves) break;
       v += a * noise(p);
       p *= 2.0;
       a *= 0.5;
@@ -388,6 +391,7 @@ export function buildSunGroup(
       uLimbDarkening: { value: 0.6 },
       uTurbulenceScale: { value: 8.0 },
       uTurbulenceSpeed: { value: 0.005 },
+      uFbmOctaves: { value: 3 },
     },
   });
 
@@ -643,8 +647,8 @@ export function updateSunEffects(
       flareSprite.visible = flareSprite.material.opacity > 0.02;
 
       // Stellar color temperature: G2V ~ 5778K → warm yellow-white
-      const tempColor = new THREE.Color().setHSL(0.1, 0.35, Math.min(0.95, 0.6 + brightnessRatio * 0.3));
-      flareSprite.material.color.lerp(tempColor, 0.05);
+      _sunScreenColor.setHSL(0.1, 0.35, Math.min(0.95, 0.6 + brightnessRatio * 0.3));
+      flareSprite.material.color.lerp(_sunScreenColor, 0.05);
     } else {
       flareSprite.material.opacity = THREE.MathUtils.lerp(flareSprite.material.opacity, 0.0, 0.15);
       flareSprite.visible = flareSprite.material.opacity > 0.02;
@@ -663,18 +667,23 @@ export function updateSunEffects(
  * @returns  Screen position in CSS pixels, visibility flag, apparent scale, and opacity hint;
  *           or null if the sun is behind the camera.
  */
+const _sunScreenPos = new THREE.Vector3();
+const _sunScreenDir = new THREE.Vector3();
+const _sunScreenToSun = new THREE.Vector3();
+const _sunScreenColor = new THREE.Color();
+
 export function getSunScreenPosition(
   sunGroup: THREE.Group,
   camera: THREE.Camera,
   renderer: THREE.WebGLRenderer
 ): { x: number; y: number; visible: boolean; scale: number; opacity: number } | null {
-  const sunPos = new THREE.Vector3();
+  const sunPos = _sunScreenPos;
   sunGroup.getWorldPosition(sunPos);
 
   // Check if behind camera
-  const camDir = new THREE.Vector3();
+  const camDir = _sunScreenDir;
   camera.getWorldDirection(camDir);
-  const toSun = new THREE.Vector3().subVectors(sunPos, camera.position);
+  const toSun = _sunScreenToSun.subVectors(sunPos, camera.position);
   if (toSun.dot(camDir) < 0) {
     return null;
   }
