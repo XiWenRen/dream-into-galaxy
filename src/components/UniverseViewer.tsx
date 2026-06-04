@@ -27,6 +27,8 @@ import {
   createMoonGlowTexture,
   createUniverseStarTexture,
   createConstellationLabelSprite,
+  getSharedPlanetTexture,
+  getSharedRawTexture,
 } from '../engine/TextureFactory';
 
 /** 全局共享 TextureLoader 实例，避免重复创建与 window 污染 */
@@ -1080,6 +1082,9 @@ export default function UniverseViewer({
   const moonPhaseGhostsRef = useRef<THREE.Group | null>(null);
   const moonPhaseGhostMeshesRef = useRef<THREE.Group[]>([]);
   const selectedMoonPhaseRef = useRef<number | null>(null);
+  // 按需初始化函数引用（避免在同步 init 中阻塞主线程）
+  const ensureSolarTermGhostsRef = useRef<(() => void) | null>(null);
+  const ensureMoonPhaseGhostsRef = useRef<(() => void) | null>(null);
   const lastAngleTextRef = useRef<string>('');
   const lastMoonOrbitDaysRef = useRef<number>(0);
   const moonOrbitFrameCounterRef = useRef<number>(0);
@@ -1462,6 +1467,12 @@ export default function UniverseViewer({
           demoCameraRef.current.startZoomDistance = cameraRef.current.position.distanceTo(controlsRef.current.target);
         }
       }
+      // 按需创建演示专用资源，避免阻塞首屏初始化
+      if (demoState.activePhenomenon === 'solar-terms') {
+        ensureSolarTermGhostsRef.current?.();
+      } else if (demoState.activePhenomenon === 'moon-phases') {
+        ensureMoonPhaseGhostsRef.current?.();
+      }
     } else {
       demoCameraRef.current.active = false;
       demoCameraRef.current.phenomenon = null;
@@ -1699,54 +1710,9 @@ export default function UniverseViewer({
 
   const textureCacheRef = useRef<Record<string, THREE.Texture>>({});
 
-  // 统一异步网路纹理加速器 (带高阶 Canvas 程序化备份，绝对不黑屏不报错)
+  // 统一针对全局共享的异步网路纹理加速器 (带高阶 Canvas 程序化备份)
   const getPlanetTexture = (id: string, onUpdate?: () => void): THREE.Texture => {
-    if (textureCacheRef.current[id]) {
-      return textureCacheRef.current[id];
-    }
-
-    const fallbackTex = createProceduralTexture(id);
-    textureCacheRef.current[id] = fallbackTex;
-
-    const realUrl = REAL_TEXTURE_URLS[id];
-    if (realUrl) {
-      // 复用模块级 TextureLoader 避免重复实例化开销
-      sharedTextureLoader.load(
-        realUrl,
-        (loadedTex) => {
-          loadedTex.colorSpace = THREE.SRGBColorSpace;
-          
-          loadedTex.wrapS = THREE.RepeatWrapping;
-          loadedTex.wrapT = THREE.RepeatWrapping;
-
-          // 核心高稳定性渐进绘制：将网络下载的真彩位图精确绘制在已有 Canvas 上，安全跨越 WebGL 内部切换局限
-          const img = loadedTex.image;
-          const canvas = fallbackTex.image as HTMLCanvasElement;
-          if (canvas && canvas.getContext) {
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(img, 0, 0);
-              fallbackTex.wrapS = loadedTex.wrapS;
-              fallbackTex.wrapT = loadedTex.wrapT;
-              fallbackTex.colorSpace = loadedTex.colorSpace;
-              fallbackTex.needsUpdate = true;
-            }
-          }
-          
-          if (onUpdate) {
-            onUpdate();
-          }
-        },
-        undefined,
-        (err) => {
-          console.warn(`NASA texture loading failed for ${id}, using beautiful high-definition procedural engine fallback.`, err);
-        }
-      );
-    }
-
-    return fallbackTex;
+    return getSharedPlanetTexture(id, REAL_TEXTURE_URLS, onUpdate);
   };
 
 
@@ -1796,16 +1762,17 @@ export default function UniverseViewer({
 
     // 银河系全景背景：3D 空间中的 face-on 薄盘图片
     // 太阳在盘面上，距离银心象征性偏移；盘法线指向银北极
-    const galaxyTex = new THREE.TextureLoader().load('/textures/milky_way_galaxy.png');
-    galaxyTex.colorSpace = THREE.SRGBColorSpace;
     const galaxyGeo = new THREE.CircleGeometry(500000, 64);
     const galaxyMat = new THREE.MeshBasicMaterial({
-      map: galaxyTex,
       transparent: true,
       opacity: 0,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending
+    });
+    getSharedRawTexture('/textures/milky_way_galaxy.png', (tex) => {
+      galaxyMat.map = tex;
+      galaxyMat.needsUpdate = true;
     });
     const galaxyMesh = new THREE.Mesh(galaxyGeo, galaxyMat);
 
@@ -2061,7 +2028,7 @@ export default function UniverseViewer({
     scene.add(sunGroup);
     sunMeshRef.current = sunGroup;
 
-    // 8.5 创建二十四节气地球虚影 (Solar Term Ghost Earths)
+    // 8.5 创建二十四节气地球虚影容器（Mesh 按需懒加载，避免阻塞初始化）
     const ghostGroup = new THREE.Group();
     ghostGroup.name = 'solar-term-ghosts';
     ghostGroup.visible = false;
@@ -2069,159 +2036,16 @@ export default function UniverseViewer({
     solarTermGhostsRef.current = ghostGroup;
     solarTermGhostMeshesRef.current = [];
 
-    const EARTH_ORBIT_RADIUS = 22.0; // Scene units at 1 AU
-    const GHOST_RADIUS = 0.28;
-    const earthTex = getPlanetTexture('earth');
-    const earthObliquityRad = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
-
-    const SEASON_COLORS = [
-      // Spring (0-5)
-      0x4ade80, 0x4ade80, 0x4ade80, 0x4ade80, 0x4ade80, 0x4ade80,
-      // Summer (6-11)
-      0xf87171, 0xf87171, 0xf87171, 0xf87171, 0xf87171, 0xf87171,
-      // Autumn (12-17)
-      0xfbbf24, 0xfbbf24, 0xfbbf24, 0xfbbf24, 0xfbbf24, 0xfbbf24,
-      // Winter (18-23)
-      0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee,
-    ];
-
     const initYear = new Date(currentTimestampRef.current).getUTCFullYear();
     lastSolarTermsYearRef.current = initYear;
 
-    SOLAR_TERMS.forEach((term, index) => {
-      // 计算该年份当前节气的精确时间戳，获取此时地球无校准偏移的克卜勒轨道位置
-      const targetTimestamp = AstrophenomenaEngine.getSolarTermTimestamp(initYear, term.eclipticLongitude);
-      const days = TimeEngine.getDaysSinceJ2000(targetTimestamp);
-      const rawPos = OrbitEngine.getHeliocentricPosition('earth', days, false);
-      const targetPos = toThreePos(rawPos, ORBIT_SCALE);
-      
-      const x = targetPos.x;
-      const y = targetPos.y;
-      const z = targetPos.z;
-
-      const ghostColor = new THREE.Color(SEASON_COLORS[index]);
-      const ghostColorHex = SEASON_COLORS[index];
-
-      // 每个节气虚影使用独立 Group，包含倾斜（和真实地球一致）
-      const ghostWrapper = new THREE.Group();
-      ghostWrapper.position.set(x, y, z);
-      ghostWrapper.userData = { solarTermIndex: index, isSolarTermGhost: true };
-      ghostGroup.add(ghostWrapper);
-      solarTermGhostMeshesRef.current.push(ghostWrapper);
-
-      // 倾斜组（与真实地球相同的黄轴倾角）
-      const tiltGroup = new THREE.Group();
-      tiltGroup.rotation.x = earthObliquityRad;
-      ghostWrapper.add(tiltGroup);
-
-      // 主虚影球体：使用地球真实纹理，但透明虚化 + 季节色自发光
-      const ghostGeo = new THREE.SphereGeometry(GHOST_RADIUS, 32, 16);
-      const ghostMat = new THREE.MeshStandardMaterial({
-        map: earthTex,
-        bumpMap: earthTex,
-        bumpScale: 0.015,
-        roughness: 0.55,
-        metalness: 0.1,
-        transparent: true,
-        opacity: 0.45,
-        depthWrite: false,
-        emissive: ghostColor,
-        emissiveIntensity: 0.35,
-        side: THREE.FrontSide,
-      });
-      const ghostMesh = new THREE.Mesh(ghostGeo, ghostMat);
-      ghostMesh.name = `solar-term-ghost-mesh-${index}`;
-      tiltGroup.add(ghostMesh);
-
-      // 地球赤道环（红色，与真实地球一致）
-      const eqGeo = new THREE.RingGeometry(GHOST_RADIUS * 1.02, GHOST_RADIUS * 1.06, 64);
-      eqGeo.rotateX(Math.PI / 2);
-      const eqMat = new THREE.MeshBasicMaterial({
-        color: 0xff3333,
-        transparent: true,
-        opacity: 0.7,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-      const eqMesh = new THREE.Mesh(eqGeo, eqMat);
-      eqMesh.name = `solar-term-equator-${index}`;
-      tiltGroup.add(eqMesh);
-
-    });
-
-    // 8.6 创建月相轨道虚影 (Moon Phase Ghost Moons)
+    // 8.6 创建月相轨道虚影容器（Mesh 按需懒加载，避免阻塞初始化）
     const moonPhaseGhostGroup = new THREE.Group();
     moonPhaseGhostGroup.name = 'moon-phase-ghosts';
     moonPhaseGhostGroup.visible = false;
     scene.add(moonPhaseGhostGroup);
     moonPhaseGhostsRef.current = moonPhaseGhostGroup;
     moonPhaseGhostMeshesRef.current = [];
-
-    const MOON_PHASE_ORBIT_RADIUS = 2.5; // 月球轨道半径（相对于地球的演示距离）
-    const MOON_GHOST_RADIUS = 0.12;
-    const moonTex = getPlanetTexture('moon');
-
-    MOON_PHASES.forEach((phase, index) => {
-      const angleRad = (phase.angleDeg * Math.PI) / 180;
-      const mx = Math.cos(angleRad) * MOON_PHASE_ORBIT_RADIUS;
-      const mz = Math.sin(angleRad) * MOON_PHASE_ORBIT_RADIUS;
-      const my = 0;
-
-      const ghostWrapper = new THREE.Group();
-      ghostWrapper.position.set(mx, my, mz);
-      ghostWrapper.userData = { moonPhaseIndex: index, isMoonPhaseGhost: true };
-      moonPhaseGhostGroup.add(ghostWrapper);
-      moonPhaseGhostMeshesRef.current.push(ghostWrapper);
-
-      // 主虚影球体：月球纹理，透明虚化 + 淡黄色自发光
-      const ghostGeo = new THREE.SphereGeometry(MOON_GHOST_RADIUS, 32, 16);
-      const ghostMat = new THREE.MeshStandardMaterial({
-        map: moonTex,
-        bumpMap: moonTex,
-        bumpScale: 0.01,
-        roughness: 0.6,
-        metalness: 0.05,
-        transparent: true,
-        opacity: 0.35,
-        depthWrite: false,
-        emissive: 0xfff8e7,
-        emissiveIntensity: 0.25,
-        side: THREE.FrontSide,
-      });
-      const ghostMesh = new THREE.Mesh(ghostGeo, ghostMat);
-      ghostMesh.name = `moon-phase-ghost-mesh-${index}`;
-      ghostWrapper.add(ghostMesh);
-
-      /* 去掉外圈渲染，不添加 Ring 和 Glow
-      // 白色细轨道环
-      const ringGeo = new THREE.RingGeometry(MOON_GHOST_RADIUS * 1.05, MOON_GHOST_RADIUS * 1.12, 64);
-      ringGeo.rotateX(Math.PI / 2);
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.25,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-      const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-      ringMesh.name = `moon-phase-ring-${index}`;
-      ghostWrapper.add(ringMesh);
-
-      // 外发光光晕（淡黄色）
-      const glowGeo = new THREE.SphereGeometry(MOON_GHOST_RADIUS * 1.5, 24, 12);
-      const glowMat = new THREE.MeshBasicMaterial({
-        color: 0xfff8e7,
-        transparent: true,
-        opacity: 0.06,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.BackSide,
-      });
-      const glowMesh = new THREE.Mesh(glowGeo, glowMat);
-      glowMesh.name = `moon-phase-glow-${index}`;
-      ghostWrapper.add(glowMesh);
-      */
-    });
 
     // 增加太阳的 X-Y-Z 坐标轴展示
     const sunAxes = new THREE.AxesHelper(sunRadius * 2.2);
@@ -2401,8 +2225,8 @@ export default function UniverseViewer({
       if (!isMoon) {
         // 创建静止完整环形轨道虚线/细线 - 配合 ORBIT_SCALE 因子排布位置
         const orbitPoints: THREE.Vector3[] = [];
-        const samples = 2500;
-        
+        const samples = 1000;
+
         // 正统物理绘制法：获取当前历元（Epoch）的瞬时接触轨道（Osculating Orbit）。
         // 这将保证：1. 椭圆头尾 100% 绝对闭合。2. 轨道倾角、长轴方向完美契合当前年份（不会和当前真实坐标发生进动脱轨）。
         const baseDays = TimeEngine.getDaysSinceJ2000(currentTimestampRef.current);
@@ -3430,8 +3254,11 @@ export default function UniverseViewer({
             }
             orbitPoints.push(pos);
           }
-          moonOrbitLine.geometry.dispose();
-          moonOrbitLine.geometry = new THREE.BufferGeometry().setFromPoints(orbitPoints);
+          moonOrbitLine.geometry.setFromPoints(orbitPoints);
+          if (moonOrbitLine.geometry.attributes.position) {
+            moonOrbitLine.geometry.attributes.position.needsUpdate = true;
+          }
+          moonOrbitLine.geometry.computeBoundingSphere();
         }
       }
 
@@ -6022,6 +5849,143 @@ export default function UniverseViewer({
     };
 
     initializeCameraToSelectedPlanet();
+
+    // ═══════════════════════════════════════════════════════════════
+    // 按需初始化演示专用资源（避免阻塞首屏同步初始化）
+    // ═══════════════════════════════════════════════════════════════
+    const ensureSolarTermGhosts = () => {
+      if (solarTermGhostMeshesRef.current.length > 0) return;
+      if (!solarTermGhostsRef.current) return;
+
+      const GHOST_RADIUS = 0.28;
+      const earthTex = getPlanetTexture('earth');
+      const earthObliquityRad = ((CELESTIAL_PHYSICS['earth']?.obliquity || 23.44) * Math.PI) / 180;
+
+      const SEASON_COLORS = [
+        0x4ade80, 0x4ade80, 0x4ade80, 0x4ade80, 0x4ade80, 0x4ade80,
+        0xf87171, 0xf87171, 0xf87171, 0xf87171, 0xf87171, 0xf87171,
+        0xfbbf24, 0xfbbf24, 0xfbbf24, 0xfbbf24, 0xfbbf24, 0xfbbf24,
+        0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee, 0x22d3ee,
+      ];
+
+      const year = lastSolarTermsYearRef.current ?? new Date(currentTimestampRef.current).getUTCFullYear();
+
+      SOLAR_TERMS.forEach((term, index) => {
+        const targetTimestamp = AstrophenomenaEngine.getSolarTermTimestamp(year, term.eclipticLongitude);
+        const days = TimeEngine.getDaysSinceJ2000(targetTimestamp);
+        const rawPos = OrbitEngine.getHeliocentricPosition('earth', days, false);
+        const targetPos = toThreePos(rawPos, ORBIT_SCALE);
+
+        const ghostColor = new THREE.Color(SEASON_COLORS[index]);
+
+        const ghostWrapper = new THREE.Group();
+        ghostWrapper.position.copy(targetPos);
+        ghostWrapper.userData = { solarTermIndex: index, isSolarTermGhost: true };
+        solarTermGhostsRef.current!.add(ghostWrapper);
+        solarTermGhostMeshesRef.current.push(ghostWrapper);
+
+        const tiltGroup = new THREE.Group();
+        tiltGroup.rotation.x = earthObliquityRad;
+        ghostWrapper.add(tiltGroup);
+
+        const ghostGeo = new THREE.SphereGeometry(GHOST_RADIUS, 32, 16);
+        const ghostMat = new THREE.MeshStandardMaterial({
+          map: earthTex,
+          bumpMap: earthTex,
+          bumpScale: 0.015,
+          roughness: 0.55,
+          metalness: 0.1,
+          transparent: true,
+          opacity: 0.45,
+          depthWrite: false,
+          emissive: ghostColor,
+          emissiveIntensity: 0.35,
+          side: THREE.FrontSide,
+        });
+        const ghostMesh = new THREE.Mesh(ghostGeo, ghostMat);
+        ghostMesh.name = `solar-term-ghost-mesh-${index}`;
+        tiltGroup.add(ghostMesh);
+
+        const eqGeo = new THREE.RingGeometry(GHOST_RADIUS * 1.02, GHOST_RADIUS * 1.06, 64);
+        eqGeo.rotateX(Math.PI / 2);
+        const eqMat = new THREE.MeshBasicMaterial({
+          color: 0xff3333,
+          transparent: true,
+          opacity: 0.7,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const eqMesh = new THREE.Mesh(eqGeo, eqMat);
+        eqMesh.name = `solar-term-equator-${index}`;
+        tiltGroup.add(eqMesh);
+      });
+
+      // 若创建时年份已变化，立即更新到当前年份轨道位置
+      const currentYear = new Date(currentTimestampRef.current).getUTCFullYear();
+      if (currentYear !== year) {
+        lastSolarTermsYearRef.current = currentYear;
+        SOLAR_TERMS.forEach((term, index) => {
+          const wrapper = solarTermGhostMeshesRef.current[index];
+          if (!wrapper) return;
+          const targetTimestamp = AstrophenomenaEngine.getSolarTermTimestamp(currentYear, term.eclipticLongitude);
+          const days = TimeEngine.getDaysSinceJ2000(targetTimestamp);
+          const rawPos = OrbitEngine.getHeliocentricPosition('earth', days, false);
+          const targetPos = toThreePos(rawPos, ORBIT_SCALE);
+          wrapper.position.copy(targetPos);
+        });
+      }
+    };
+
+    const ensureMoonPhaseGhosts = () => {
+      if (moonPhaseGhostMeshesRef.current.length > 0) return;
+      if (!moonPhaseGhostsRef.current) return;
+
+      const MOON_PHASE_ORBIT_RADIUS = 2.5;
+      const MOON_GHOST_RADIUS = 0.12;
+      const moonTex = getPlanetTexture('moon');
+
+      MOON_PHASES.forEach((phase, index) => {
+        const angleRad = (phase.angleDeg * Math.PI) / 180;
+        const mx = Math.cos(angleRad) * MOON_PHASE_ORBIT_RADIUS;
+        const mz = Math.sin(angleRad) * MOON_PHASE_ORBIT_RADIUS;
+        const my = 0;
+
+        const ghostWrapper = new THREE.Group();
+        ghostWrapper.position.set(mx, my, mz);
+        ghostWrapper.userData = { moonPhaseIndex: index, isMoonPhaseGhost: true };
+        moonPhaseGhostsRef.current!.add(ghostWrapper);
+        moonPhaseGhostMeshesRef.current.push(ghostWrapper);
+
+        const ghostGeo = new THREE.SphereGeometry(MOON_GHOST_RADIUS, 32, 16);
+        const ghostMat = new THREE.MeshStandardMaterial({
+          map: moonTex,
+          bumpMap: moonTex,
+          bumpScale: 0.01,
+          roughness: 0.6,
+          metalness: 0.05,
+          transparent: true,
+          opacity: 0.35,
+          depthWrite: false,
+          emissive: 0xfff8e7,
+          emissiveIntensity: 0.25,
+          side: THREE.FrontSide,
+        });
+        const ghostMesh = new THREE.Mesh(ghostGeo, ghostMat);
+        ghostMesh.name = `moon-phase-ghost-mesh-${index}`;
+        ghostWrapper.add(ghostMesh);
+      });
+    };
+
+    ensureSolarTermGhostsRef.current = ensureSolarTermGhosts;
+    ensureMoonPhaseGhostsRef.current = ensureMoonPhaseGhosts;
+
+    // 若当前已处于演示模式，立即创建资源
+    if (demoStateRef.current?.activePhenomenon === 'solar-terms') {
+      ensureSolarTermGhosts();
+    }
+    if (demoStateRef.current?.activePhenomenon === 'moon-phases') {
+      ensureMoonPhaseGhosts();
+    }
 
     animate();
 

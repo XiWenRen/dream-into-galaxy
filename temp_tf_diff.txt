@@ -1,0 +1,607 @@
+﻿diff --git a/src/engine/TextureFactory.ts b/src/engine/TextureFactory.ts
+index fdfb3c7..e6c814f 100644
+--- a/src/engine/TextureFactory.ts
++++ b/src/engine/TextureFactory.ts
+@@ -25,6 +25,7 @@ function getCachedTexture(key: string, generator: () => THREE.Texture): THREE.Te
+ // ============================================================================
+ 
+ export function createProceduralMoonTexture(): THREE.Texture {
++  return getCachedTexture('procedural_moon', () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = 512;
+   canvas.height = 256;
+@@ -102,11 +103,13 @@ export function createProceduralMoonTexture(): THREE.Texture {
+   // 校准：SphereGeometry +z 面对应 u=0.25，将纹理向右平移 0.25 使正面(u=0.5)对准 +z
+   texture.offset.x = 0.25;
+   return texture;
++});
+ }
+ 
+ /** Create a procedural Saturn ring texture with banded structure.
+  *  RingGeometry UVs: u=angle, v=radius(0=inner,1=outer). We vary along Y. */
+ export function createSaturnRingTexture(): THREE.Texture {
++  return getCachedTexture('saturn_ring_pattern', () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = 1;
+   canvas.height = 512;
+@@ -132,102 +135,98 @@ export function createSaturnRingTexture(): THREE.Texture {
+   texture.wrapS = THREE.RepeatWrapping;
+   texture.wrapT = THREE.ClampToEdgeWrapping;
+   return texture;
++});
+ }
+ 
++
+ export function createSolarCoronaTexture(): THREE.Texture {
+-  const canvas = document.createElement('canvas');
+-  canvas.width = 128;
+-  canvas.height = 128;
+-  const ctx = canvas.getContext('2d')!;
+-  const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+-  grad.addColorStop(0, 'rgba(255, 255, 245, 1.0)');
+-  grad.addColorStop(0.12, 'rgba(254, 215, 120, 0.9)');
+-  grad.addColorStop(0.35, 'rgba(251, 146, 50, 0.55)');
+-  grad.addColorStop(0.65, 'rgba(239, 68, 68, 0.22)');
+-  grad.addColorStop(1.0, 'rgba(127, 29, 29, 0.0)');
+-  ctx.fillStyle = grad;
+-  ctx.beginPath();
+-  ctx.arc(64, 64, 64, 0, Math.PI * 2);
+-  ctx.fill();
+-  return new THREE.CanvasTexture(canvas);
++  return getCachedTexture('solar_corona', () => {
++    const canvas = document.createElement('canvas');
++    canvas.width = 128;
++    canvas.height = 128;
++    const ctx = canvas.getContext('2d')!;
++    const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
++    grad.addColorStop(0, 'rgba(255, 255, 245, 1.0)');
++    grad.addColorStop(0.12, 'rgba(254, 215, 120, 0.9)');
++    grad.addColorStop(0.35, 'rgba(251, 146, 50, 0.55)');
++    grad.addColorStop(0.65, 'rgba(239, 68, 68, 0.22)');
++    grad.addColorStop(1.0, 'rgba(127, 29, 29, 0.0)');
++    ctx.fillStyle = grad;
++    ctx.beginPath();
++    ctx.arc(64, 64, 64, 0, Math.PI * 2);
++    ctx.fill();
++    return new THREE.CanvasTexture(canvas);
++  });
+ }
+ 
+ export function createBrightStarGlowTexture(): THREE.Texture {
+-  const canvas = document.createElement('canvas');
+-  canvas.width = 64;
+-  canvas.height = 64;
+-  const ctx = canvas.getContext('2d')!;
+-  const imgData = ctx.createImageData(64, 64);
+-  const data = imgData.data;
+-
+-  const decay_radius = 4.5;
+-  const thickness_decay = 0.7;
+-  const length_decay = 18.0;
+-
+-  for (let y = 0; y < 64; y++) {
+-    for (let x = 0; x < 64; x++) {
+-      const dx = x - 31.5;
+-      const dy = y - 31.5;
+-      const dist = Math.sqrt(dx * dx + dy * dy);
+-
+-      const glow = Math.exp(-dist / decay_radius);
+-      const spikeH = Math.exp(-Math.abs(dy) / thickness_decay) * Math.exp(-Math.abs(dx) / length_decay);
+-      const spikeV = Math.exp(-Math.abs(dx) / thickness_decay) * Math.exp(-Math.abs(dy) / length_decay);
+-
+-      let intensity = glow + 0.65 * (spikeH + spikeV);
+-      intensity = Math.max(0.0, Math.min(1.0, intensity));
+-
+-      const idx = (y * 64 + x) * 4;
+-      data[idx] = 255;
+-      data[idx + 1] = 255;
+-      data[idx + 2] = 255;
+-      data[idx + 3] = Math.floor(intensity * 255);
++  return getCachedTexture('bright_star_glow', () => {
++    const canvas = document.createElement('canvas');
++    canvas.width = 64;
++    canvas.height = 64;
++    const ctx = canvas.getContext('2d')!;
++    const imgData = ctx.createImageData(64, 64);
++    const data = imgData.data;
++
++    const decay_radius = 4.5;
++    const thickness_decay = 0.7;
++    const length_decay = 18.0;
++
++    for (let y = 0; y < 64; y++) {
++      for (let x = 0; x < 64; x++) {
++        const dx = x - 31.5;
++        const dy = y - 31.5;
++        const dist = Math.sqrt(dx * dx + dy * dy);
++
++        const glow = Math.exp(-dist / decay_radius);
++        const spikeH = Math.exp(-Math.abs(dy) / thickness_decay) * Math.exp(-Math.abs(dx) / length_decay);
++        const spikeV = Math.exp(-Math.abs(dx) / thickness_decay) * Math.exp(-Math.abs(dy) / length_decay);
++
++        let intensity = glow + 0.65 * (spikeH + spikeV);
++        intensity = Math.max(0.0, Math.min(1.0, intensity));
++
++        const idx = (y * 64 + x) * 4;
++        data[idx] = 255;
++        data[idx + 1] = 255;
++        data[idx + 2] = 255;
++        data[idx + 3] = Math.floor(intensity * 255);
++      }
+     }
+-  }
+-  ctx.putImageData(imgData, 0, 0);
+-  const texture = new THREE.CanvasTexture(canvas);
+-  texture.colorSpace = THREE.SRGBColorSpace;
+-  return texture;
++    ctx.putImageData(imgData, 0, 0);
++    const texture = new THREE.CanvasTexture(canvas);
++    texture.colorSpace = THREE.SRGBColorSpace;
++    return texture;
++  });
+ }
+ 
+ export function createCircleTexture(): THREE.Texture {
+-  const canvas = document.createElement('canvas');
+-  canvas.width = 16;
+-  canvas.height = 16;
+-  const ctx = canvas.getContext('2d')!;
+-  const imgData = ctx.createImageData(16, 16);
+-  const data = imgData.data;
+-
+-  const decay_radius = 1.2;
+-  const thickness_decay = 0.4;
+-  const length_decay = 5.0;
+-
+-  for (let y = 0; y < 16; y++) {
+-    for (let x = 0; x < 16; x++) {
+-      const dx = x - 7.5;
+-      const dy = y - 7.5;
+-      const dist = Math.sqrt(dx * dx + dy * dy);
++  return getCachedTexture('circle_texture', () => {
++    const canvas = document.createElement('canvas');
++    canvas.width = 16;
++    canvas.height = 16;
++    const ctx = canvas.getContext('2d')!;
+ 
+-      const glow = Math.exp(-dist / decay_radius);
+-      const spikeH = Math.exp(-Math.abs(dy) / thickness_decay) * Math.exp(-Math.abs(dx) / length_decay);
+-      const spikeV = Math.exp(-Math.abs(dx) / thickness_decay) * Math.exp(-Math.abs(dy) / length_decay);
++    // Draw a sharp circular dot with smooth antialiasing
++    const grad = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
++    grad.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
++    grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
++    grad.addColorStop(0.8, 'rgba(255, 255, 255, 0.2)');
++    grad.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');
+ 
+-      let intensity = glow + 0.65 * (spikeH + spikeV);
+-      intensity = Math.max(0.0, Math.min(1.0, intensity));
++    ctx.fillStyle = grad;
++    ctx.fillRect(0, 0, 16, 16);
+ 
+-      const idx = (y * 16 + x) * 4;
+-      data[idx] = 255;
+-      data[idx + 1] = 255;
+-      data[idx + 2] = 255;
+-      data[idx + 3] = Math.floor(intensity * 255);
+-    }
+-  }
+-  ctx.putImageData(imgData, 0, 0);
+-  const texture = new THREE.CanvasTexture(canvas);
+-  return texture;
++    const texture = new THREE.CanvasTexture(canvas);
++    return texture;
++  });
+ }
+ 
++const labelCache = new Map<string, { texture: THREE.CanvasTexture; width: number; height: number }>();
+ export function createConstellationLabelTexture(text: string): { texture: THREE.CanvasTexture; width: number; height: number } {
++  if (labelCache.has(text)) {
++    return labelCache.get(text)!;
++  }
++
+   const canvas = document.createElement('canvas');
+   const ctx = canvas.getContext('2d')!;
+   const fontSize = 22;
+@@ -252,6 +251,10 @@ export function createConstellationLabelTexture(text: string): { texture: THREE.
+   const texture = new THREE.CanvasTexture(canvas);
+   texture.minFilter = THREE.LinearFilter;
+   return { texture, width, height };
++
++  const res = { texture, width, height };
++  labelCache.set(text, res);
++  return res;
+ }
+ 
+ export function createConstellationLabelSprite(text: string): THREE.Sprite {
+@@ -272,6 +275,7 @@ export function createConstellationLabelSprite(text: string): THREE.Sprite {
+  * 从底部向上渐变的柔和半透明纹理，用于模拟日出日落时地平线附近的宏大霞光
+  */
+ export function createHorizonGlowTexture(): THREE.Texture {
++  return getCachedTexture('horizon_glow', () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = 256;
+   canvas.height = 256;
+@@ -302,6 +306,7 @@ export function createHorizonGlowTexture(): THREE.Texture {
+   const texture = new THREE.CanvasTexture(canvas);
+   texture.colorSpace = THREE.SRGBColorSpace;
+   return texture;
++});
+ }
+ 
+ // ============================================================================
+@@ -317,7 +322,110 @@ export function createProceduralTexture(id: string): THREE.Texture {
+     const ctx = canvas.getContext('2d')!;
+     ctx.scale(2, 2); // 自动对齐坐标实现高分辨率平滑渲染 (4K超清级清晰度)
+ 
+-    if (id === 'sun') {
++    if (id === 'sun_telescope') {
++      // 太阳滤镜目镜特写贴图：高对比度巴德膜/双带滤镜效果
++      // 背景：深橙红色
++      ctx.fillStyle = '#ea580c'; // 橘黄色基础
++      ctx.fillRect(0, 0, 1024, 512);
++
++      // 叠加明暗色斑，模拟大面积的太阳黑子活跃区和日冕热流流体
++      const heatGrad = ctx.createLinearGradient(0, 0, 1024, 0);
++      heatGrad.addColorStop(0, '#d97706');
++      heatGrad.addColorStop(0.3, '#f59e0b');
++      heatGrad.addColorStop(0.5, '#ea580c');
++      heatGrad.addColorStop(0.7, '#f59e0b');
++      heatGrad.addColorStop(1, '#d97706');
++      ctx.fillStyle = heatGrad;
++      ctx.globalAlpha = 0.85;
++      ctx.fillRect(0, 0, 1024, 512);
++      ctx.globalAlpha = 1.0;
++
++      // 叠加极其致密的太阳表面米粒组织 (Solar Granulation)
++      for (let i = 0; i < 1500; i++) {
++        const x = Math.random() * 1024;
++        const y = Math.random() * 512;
++        const r = Math.random() * 3 + 1.5;
++        // 使用非常明亮的金黄色，造成致密的反差
++        const gGrad = ctx.createRadialGradient(x, y, 0, x, y, r);
++        gGrad.addColorStop(0, 'rgba(254, 240, 138, 0.6)');
++        gGrad.addColorStop(1, 'rgba(234, 88, 12, 0)');
++        ctx.fillStyle = gGrad;
++        ctx.beginPath();
++        ctx.arc(x, y, r, 0, Math.PI * 2);
++        ctx.fill();
++      }
++
++      // 绘制日珥/耀斑流丝 (Solar Filaments & Plages)
++      ctx.shadowColor = '#fef08a';
++      ctx.shadowBlur = 8;
++      ctx.strokeStyle = 'rgba(254, 240, 138, 0.85)';
++      ctx.lineWidth = 3;
++      for (let i = 0; i < 12; i++) {
++        ctx.beginPath();
++        const sx = Math.random() * 900 + 60;
++        const sy = Math.random() * 350 + 80;
++        ctx.moveTo(sx, sy);
++        ctx.bezierCurveTo(
++          sx + (Math.random() - 0.5) * 120,
++          sy + (Math.random() - 0.5) * 80,
++          sx + (Math.random() - 0.5) * 120,
++          sy + (Math.random() - 0.5) * 80,
++          sx + (Math.random() - 0.5) * 150,
++          sy + (Math.random() - 0.5) * 100
++        );
++        ctx.stroke();
++      }
++      ctx.shadowBlur = 0; // 重置阴影
++
++      // 绘制几组非常清晰的特大太阳黑子群 (Highly Detailed Sunspots)
++      // 太阳黑子包含：本影 (Umbra, 几乎纯黑核心) + 半影 (Penumbra, 灰褐色条纹外圈)
++      const sunspots = [
++        // 核心中央耀眼的大黑子群（坐标位于 512, 256 附近，直面 200x 特写视场中心）
++        { cx: 512, cy: 256, rPen: 25, rUmb: 11 },
++        { cx: 538, cy: 272, rPen: 14, rUmb: 6 },
++        { cx: 485, cy: 248, rPen: 10, rUmb: 4.5 },
++        { cx: 500, cy: 280, rPen: 8, rUmb: 3 },
++        
++        // 周边辅助黑子群
++        { cx: 320, cy: 220, rPen: 18, rUmb: 8 },
++        { cx: 345, cy: 235, rPen: 10, rUmb: 4.5 },
++        { cx: 310, cy: 200, rPen: 7, rUmb: 3 },
++        { cx: 680, cy: 300, rPen: 22, rUmb: 10 },
++        { cx: 710, cy: 290, rPen: 12, rUmb: 5 },
++        { cx: 660, cy: 320, rPen: 8, rUmb: 3.5 },
++        { cx: 180, cy: 280, rPen: 14, rUmb: 6 }
++      ];
++
++      sunspots.forEach(spot => {
++        // 1. 绘制半影 (Penumbra) - 呈灰红褐色，带有不规则的毛刺边缘
++        ctx.fillStyle = 'rgba(120, 30, 4, 0.85)';
++        ctx.beginPath();
++        // 增加一点形状不规则度
++        const steps = 10;
++        for (let j = 0; j <= steps; j++) {
++          const angle = (j / steps) * Math.PI * 2;
++          const noise = 0.85 + Math.random() * 0.3;
++          const rx = spot.cx + Math.cos(angle) * spot.rPen * noise;
++          const ry = spot.cy + Math.sin(angle) * spot.rPen * noise;
++          if (j === 0) ctx.moveTo(rx, ry);
++          else ctx.lineTo(rx, ry);
++        }
++        ctx.fill();
++
++        // 2. 绘制本影 (Umbra) - 几乎纯黑的冷核
++        ctx.fillStyle = 'rgba(15, 2, 0, 0.98)';
++        ctx.beginPath();
++        for (let j = 0; j <= steps; j++) {
++          const angle = (j / steps) * Math.PI * 2;
++          const noise = 0.9 + Math.random() * 0.2;
++          const rx = spot.cx + Math.cos(angle) * spot.rUmb * noise;
++          const ry = spot.cy + Math.sin(angle) * spot.rUmb * noise;
++          if (j === 0) ctx.moveTo(rx, ry);
++          else ctx.lineTo(rx, ry);
++        }
++        ctx.fill();
++      });
++    } else if (id === 'sun') {
+     // 太阳：暗红色背景配超高亮度金黄色热流
+     const grad = ctx.createLinearGradient(0, 0, 0, 512);
+     grad.addColorStop(0, '#ff1a00');
+@@ -1150,6 +1258,7 @@ export function createProceduralTexture(id: string): THREE.Texture {
+ 
+ /** 生成 1D 线性纹理用于各行星的解析式星环 */
+ export function createProceduralRingTexture(planetId: string): THREE.Texture {
++  return getCachedTexture('ring_pattern_' + planetId, () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = 512;
+   canvas.height = 2; // 1D texture
+@@ -1196,10 +1305,12 @@ export function createProceduralRingTexture(planetId: string): THREE.Texture {
+   texture.wrapS = THREE.ClampToEdgeWrapping;
+   texture.wrapT = THREE.ClampToEdgeWrapping;
+   return texture;
++});
+ }
+ 
+ /** 生成月球朦胧雾态光晕 (Misty Moonlight Glow Sprite) 径向渐变贴图 */
+ export function createMoonGlowTexture(): THREE.Texture {
++  return getCachedTexture('moon_glow', () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = 128;
+   canvas.height = 128;
+@@ -1218,10 +1329,12 @@ export function createMoonGlowTexture(): THREE.Texture {
+ 
+   const texture = new THREE.CanvasTexture(canvas);
+   return texture;
++});
+ }
+ 
+ /** 生成三维宇宙背景星芒 (4-Point Diffraction Spikes) 径向渐变贴图 */
+ export function createUniverseStarTexture(): THREE.Texture {
++  return getCachedTexture('universe_star', () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = 32;
+   canvas.height = 32;
+@@ -1256,6 +1369,7 @@ export function createUniverseStarTexture(): THREE.Texture {
+   ctx.putImageData(imgData, 0, 0);
+   const texture = new THREE.CanvasTexture(canvas);
+   return texture;
++});
+ }
+ 
+ // ============================================================================
+@@ -1264,6 +1378,7 @@ export function createUniverseStarTexture(): THREE.Texture {
+ 
+ /** Soft circular bokeh blob — the classic lens flare artifact */
+ export function createLensFlareBlobTexture(size = 128): THREE.Texture {
++  return getCachedTexture('lens_flare_blob_' + size, () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = size;
+   canvas.height = size;
+@@ -1283,10 +1398,12 @@ export function createLensFlareBlobTexture(size = 128): THREE.Texture {
+   const tex = new THREE.CanvasTexture(canvas);
+   tex.colorSpace = THREE.SRGBColorSpace;
+   return tex;
++});
+ }
+ 
+ /** Thin ring ghost — simulates internal lens reflection */
+ export function createLensFlareRingTexture(size = 128): THREE.Texture {
++  return getCachedTexture('lens_flare_ring_' + size, () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = size;
+   canvas.height = size;
+@@ -1321,10 +1438,12 @@ export function createLensFlareRingTexture(size = 128): THREE.Texture {
+   const tex = new THREE.CanvasTexture(canvas);
+   tex.colorSpace = THREE.SRGBColorSpace;
+   return tex;
++});
+ }
+ 
+ /** Hexagonal aperture-shaped flare artifact */
+ export function createLensFlareHexTexture(size = 128): THREE.Texture {
++  return getCachedTexture('lens_flare_hex_' + size, () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = size;
+   canvas.height = size;
+@@ -1362,10 +1481,12 @@ export function createLensFlareHexTexture(size = 128): THREE.Texture {
+   const tex = new THREE.CanvasTexture(canvas);
+   tex.colorSpace = THREE.SRGBColorSpace;
+   return tex;
++});
+ }
+ 
+ /** Small star-burst sparkle for lens flare artifacts */
+ export function createLensFlareSparkleTexture(size = 64): THREE.Texture {
++  return getCachedTexture('lens_flare_sparkle_' + size, () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = size;
+   canvas.height = size;
+@@ -1414,10 +1535,12 @@ export function createLensFlareSparkleTexture(size = 64): THREE.Texture {
+   const tex = new THREE.CanvasTexture(canvas);
+   tex.colorSpace = THREE.SRGBColorSpace;
+   return tex;
++});
+ }
+ 
+ /** High-frequency seamless noise texture for detail bump map */
+ export function createNoiseTexture(): THREE.Texture {
++  return getCachedTexture('noise_texture', () => {
+   const canvas = document.createElement('canvas');
+   canvas.width = 256;
+   canvas.height = 256;
+@@ -1441,4 +1564,160 @@ export function createNoiseTexture(): THREE.Texture {
+   texture.wrapT = THREE.RepeatWrapping;
+   texture.minFilter = THREE.LinearMipmapLinearFilter;
+   return texture;
++});
++}
++
++
++// ============================================================================
++// Global Shared Texture Singleton Manager
++// ============================================================================
++
++const textureLoadingStates = new Map<string, 'loading' | 'loaded' | 'failed'>();
++const sharedTextureLoader = new THREE.TextureLoader();
++const rawTextureCache = new Map<string, THREE.Texture>();
++const rawTextureLoadingStates = new Map<string, 'loading' | 'loaded' | 'failed'>();
++const textureLoadCallbacks = new Map<string, (() => void)[]>();
++const rawTextureCallbacks = new Map<string, ((tex: THREE.Texture) => void)[]>();
++
++export function getSharedPlanetTexture(
++  id: string,
++  realTextureUrls: Record<string, string>,
++  onUpdate?: () => void
++): THREE.Texture {
++  const fallbackTex = createProceduralTexture(id);
++  const state = textureLoadingStates.get(id);
++
++  if (state === 'loaded' || state === 'failed') {
++    return fallbackTex;
++  }
++
++  if (state === 'loading') {
++    if (onUpdate) {
++      if (!textureLoadCallbacks.has(id)) {
++        textureLoadCallbacks.set(id, []);
++      }
++      textureLoadCallbacks.get(id)!.push(onUpdate);
++    }
++    return fallbackTex;
++  }
++
++  const realUrl = realTextureUrls[id];
++  if (realUrl) {
++    textureLoadingStates.set(id, 'loading');
++    if (onUpdate) {
++      if (!textureLoadCallbacks.has(id)) {
++        textureLoadCallbacks.set(id, []);
++      }
++      textureLoadCallbacks.get(id)!.push(onUpdate);
++    }
++
++    sharedTextureLoader.load(
++      realUrl,
++      (loadedTex) => {
++        loadedTex.colorSpace = THREE.SRGBColorSpace;
++        loadedTex.wrapS = THREE.RepeatWrapping;
++        loadedTex.wrapT = THREE.RepeatWrapping;
++
++        const img = loadedTex.image;
++        const canvas = fallbackTex.image as HTMLCanvasElement;
++        if (canvas && canvas.getContext) {
++          canvas.width = img.width;
++          canvas.height = img.height;
++          const ctx = canvas.getContext('2d');
++          if (ctx) {
++            ctx.drawImage(img, 0, 0);
++            fallbackTex.wrapS = loadedTex.wrapS;
++            fallbackTex.wrapT = loadedTex.wrapT;
++            fallbackTex.colorSpace = loadedTex.colorSpace;
++            fallbackTex.needsUpdate = true;
++          }
++        }
++        textureLoadingStates.set(id, 'loaded');
++        const cbs = textureLoadCallbacks.get(id);
++        if (cbs) {
++          cbs.forEach(cb => {
++            try { cb(); } catch (e) { console.error(e); }
++          });
++          textureLoadCallbacks.delete(id);
++        }
++      },
++      undefined,
++      (err) => {
++        console.warn(`NASA texture loading failed for ${id}, using beautiful high-definition procedural engine fallback.`, err);
++        textureLoadingStates.set(id, 'failed');
++        const cbs = textureLoadCallbacks.get(id);
++        if (cbs) {
++          cbs.forEach(cb => {
++            try { cb(); } catch (e) { console.error(e); }
++          });
++          textureLoadCallbacks.delete(id);
++        }
++      }
++    );
++  } else {
++    textureLoadingStates.set(id, 'loaded');
++  }
++
++  return fallbackTex;
++}
++
++export function getSharedRawTexture(
++  url: string,
++  onLoad: (tex: THREE.Texture) => void
++): void {
++  if (rawTextureCache.has(url)) {
++    onLoad(rawTextureCache.get(url)!);
++    return;
++  }
++
++  const state = rawTextureLoadingStates.get(url);
++  if (state === 'failed') {
++    return;
++  }
++
++  if (state === 'loading') {
++    if (!rawTextureCallbacks.has(url)) {
++      rawTextureCallbacks.set(url, []);
++    }
++    rawTextureCallbacks.get(url)!.push(onLoad);
++    return;
++  }
++
++  rawTextureLoadingStates.set(url, 'loading');
++  if (!rawTextureCallbacks.has(url)) {
++    rawTextureCallbacks.set(url, []);
++  }
++  rawTextureCallbacks.get(url)!.push(onLoad);
++
++  sharedTextureLoader.load(
++    url,
++    (tex) => {
++      tex.colorSpace = THREE.SRGBColorSpace;
++      rawTextureCache.set(url, tex);
++      rawTextureLoadingStates.set(url, 'loaded');
++      const cbs = rawTextureCallbacks.get(url);
++      if (cbs) {
++        cbs.forEach(cb => {
++          try { cb(tex); } catch (e) { console.error(e); }
++        });
++        rawTextureCallbacks.delete(url);
++      }
++    },
++    undefined,
++    (err) => {
++      console.warn(`Raw texture loading failed for ${url}`, err);
++      rawTextureLoadingStates.set(url, 'failed');
++      rawTextureCallbacks.delete(url);
++    }
++  );
++}
++
++export function clearSharedTextureCache(): void {
++  globalTextureCache.clear();
++  labelCache.clear();
++  textureLoadingStates.clear();
++  rawTextureCache.clear();
++  rawTextureLoadingStates.clear();
++  textureLoadCallbacks.clear();
++  rawTextureCallbacks.clear();
+ }
