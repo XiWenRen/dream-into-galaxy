@@ -7,6 +7,8 @@ import { J2000_TIMESTAMP } from './TimeEngine';
 import { SATELLITE_CATALOG, getSatelliteHeliocentricPosition } from './SatelliteData';
 import { LUNAR_TA, LUNAR_TB } from '../data/lunarMeeusCoefficients';
 import { LUT_DATA } from '../data/astroCalibrationLUT';
+import { LUNAR_ECLIPSE_EVENTS } from '../data/eclipseEvents';
+
 
 export interface KeplerElements {
   id: string;
@@ -334,12 +336,155 @@ export class OrbitEngine {
     };
   }
 
-  /**
-   * 获取地月相对坐标（包含 NASA LUT 差值校准）
-   */
-  static getLunarRelativePosition(days: number): { x: number; y: number; z: number } {
+  // ---------------------------------------------------------------------------
+  // NASA 月食轨道时间校准系统
+  // ---------------------------------------------------------------------------
+  private static readonly _lunarCalibrationCache = new Map<string, { simStart: number; simPeak: number; simEnd: number }>();
+
+  private static getUncalibratedSeparationAngle(days: number): number {
+    const earthPos = this.getHeliocentricPosition('earth', days, true);
     const rawPos = this.getLunarRelativePositionRaw(days);
     const jd = 2451545.0 + days;
+    const offset = this.interpolateOffsetForBody(jd, 'moon');
+    const moonRel = {
+      x: rawPos.x + offset.x,
+      y: rawPos.y + offset.y,
+      z: rawPos.z + offset.z
+    };
+    const es = { x: -earthPos.x, y: -earthPos.y, z: -earthPos.z };
+    const em = moonRel;
+    const esLen = Math.sqrt(es.x * es.x + es.y * es.y + es.z * es.z);
+    const emLen = Math.sqrt(em.x * em.x + em.y * em.y + em.z * em.z);
+    const dot = es.x * em.x + es.y * em.y + es.z * em.z;
+    const cosAngle = dot / (esLen * emLen);
+    const angleRad = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+    return (angleRad * 180.0) / Math.PI;
+  }
+
+  private static getLunarCalibration(eventDate: string, greatestTs: number): { simStart: number; simPeak: number; simEnd: number } {
+    if (this._lunarCalibrationCache.has(eventDate)) {
+      return this._lunarCalibrationCache.get(eventDate)!;
+    }
+
+    const centerDays = (greatestTs / 86400000) - 10957.5;
+    const coarseStep = 0.01;   // ~14.4 min
+    const fineStep = 0.0005;   // ~43 sec
+    const maxRadius = 1.0;     // 24h
+
+    // 1. 寻找模拟中的极值点 (最大食)
+    let simPeakDays = centerDays;
+    let minAngle = Infinity;
+    for (let d = centerDays - maxRadius; d <= centerDays + maxRadius; d += coarseStep) {
+      const angle = Math.abs(180 - this.getUncalibratedSeparationAngle(d));
+      if (angle < minAngle) {
+        minAngle = angle;
+        simPeakDays = d;
+      }
+    }
+    
+    // 精细搜索
+    let refinedPeak = simPeakDays;
+    for (let d = simPeakDays - 0.02; d <= simPeakDays + 0.02; d += fineStep) {
+      const angle = Math.abs(180 - this.getUncalibratedSeparationAngle(d));
+      if (angle < minAngle) {
+        minAngle = angle;
+        refinedPeak = d;
+      }
+    }
+
+    // 2. 寻找初亏 (simStart) 和复圆 (simEnd) 时刻：即放大后的视半径初切/终切处，对应 uncalibrated angle = 1.02°
+    let simStartDays = refinedPeak;
+    for (let d = refinedPeak; d > refinedPeak - maxRadius; d -= fineStep) {
+      const sep = Math.abs(180 - this.getUncalibratedSeparationAngle(d));
+      if (sep >= 1.02) {
+        simStartDays = d;
+        break;
+      }
+    }
+
+    let simEndDays = refinedPeak;
+    for (let d = refinedPeak; d < refinedPeak + maxRadius; d += fineStep) {
+      const sep = Math.abs(180 - this.getUncalibratedSeparationAngle(d));
+      if (sep >= 1.02) {
+        simEndDays = d;
+        break;
+      }
+    }
+
+    const cal = {
+      simStart: Math.round((simStartDays + 10957.5) * 86400000),
+      simPeak: Math.round((refinedPeak + 10957.5) * 86400000),
+      simEnd: Math.round((simEndDays + 10957.5) * 86400000),
+    };
+    this._lunarCalibrationCache.set(eventDate, cal);
+    return cal;
+  }
+
+  static getCalibratedDaysForMoon(days: number): number {
+    const timestamp = (days + 10957.5) * 86400000;
+    
+    // 匹配前后 1.5 天范围内的月食事件（考虑时区/UTC跨天）
+    const event = LUNAR_ECLIPSE_EVENTS.find(e => {
+      const eventTs = new Date(`${e.date}T${e.greatestUTC}Z`).getTime();
+      return Math.abs(timestamp - eventTs) < 1.5 * 24 * 3600000;
+    });
+
+    if (!event || !event.partialDuration) {
+      return days;
+    }
+
+    const greatestTs = new Date(`${event.date}T${event.greatestUTC}Z`).getTime();
+    const match = event.partialDuration.match(/(\d+)h(\d+)m/);
+    if (!match) return days;
+    const hours = parseInt(match[1]);
+    const minutes = parseInt(match[2]);
+    const durationMs = (hours * 3600 + minutes * 60) * 1000;
+    
+    const nasaStart = greatestTs - durationMs / 2;
+    const nasaEnd = greatestTs + durationMs / 2;
+
+    const cal = this.getLunarCalibration(event.date, greatestTs);
+
+    // 平滑渐变缓冲区：1小时
+    const blendMargin = 3600000;
+    const startLimit = nasaStart - blendMargin;
+    const endLimit = nasaEnd + blendMargin;
+
+    if (timestamp < startLimit || timestamp > endLimit) {
+      return days;
+    }
+
+    let calTs = timestamp;
+    if (timestamp >= nasaStart && timestamp <= greatestTs) {
+      // 映射 [nasaStart, greatestTs] -> [simStart, simPeak]
+      const t = (timestamp - nasaStart) / (greatestTs - nasaStart);
+      calTs = cal.simStart + t * (cal.simPeak - cal.simStart);
+    } else if (timestamp > greatestTs && timestamp <= nasaEnd) {
+      // 映射 [greatestTs, nasaEnd] -> [simPeak, simEnd]
+      const t = (timestamp - greatestTs) / (nasaEnd - greatestTs);
+      calTs = cal.simPeak + t * (cal.simEnd - cal.simPeak);
+    } else if (timestamp >= startLimit && timestamp < nasaStart) {
+      // 从正常时间到 simStart 的平滑过渡
+      const t = (timestamp - startLimit) / blendMargin;
+      const targetTs = cal.simStart;
+      calTs = timestamp + t * (targetTs - nasaStart);
+    } else if (timestamp > nasaEnd && timestamp <= endLimit) {
+      // 从 simEnd 到正常时间的平滑过渡
+      const t = (timestamp - nasaEnd) / blendMargin;
+      const startTs = cal.simEnd;
+      calTs = startTs + t * (endLimit - startTs);
+    }
+
+    return (calTs / 86400000) - 10957.5;
+  }
+
+  /**
+   * 获取地月相对坐标（包含 NASA LUT 差值及月食轨道时间校准）
+   */
+  static getLunarRelativePosition(days: number): { x: number; y: number; z: number } {
+    const calibratedDays = this.getCalibratedDaysForMoon(days);
+    const rawPos = this.getLunarRelativePositionRaw(calibratedDays);
+    const jd = 2451545.0 + calibratedDays;
     const offset = this.interpolateOffsetForBody(jd, 'moon');
     return {
       x: rawPos.x + offset.x,
@@ -347,6 +492,7 @@ export class OrbitEngine {
       z: rawPos.z + offset.z
     };
   }
+
 
   // ---------------------------------------------------------------------------
   // 量化时间缓存：避免每帧重复计算相近时刻的轨道位置（高频渲染路径专用）

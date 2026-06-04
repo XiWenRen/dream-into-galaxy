@@ -29,6 +29,7 @@ import {
   createLensFlareSparkleTexture,
   createHorizonGlowTexture,
   createProceduralTexture,
+  createMoonGlowTexture,
 } from '../engine/TextureFactory';
 
 import { loadHipparcosCatalog, bvToRgb } from '../engine/HipparcosLoader';
@@ -211,6 +212,7 @@ const _tempV3 = new THREE.Vector3();
 const _toObserver = new THREE.Vector3();
 const _up = new THREE.Vector3();
 const _right = new THREE.Vector3();
+const _negRight = new THREE.Vector3();
 const _trueUp = new THREE.Vector3();
 const _matrix = new THREE.Matrix4();
 const _negToObserver = new THREE.Vector3();
@@ -568,9 +570,9 @@ function setTidallyLockedOrientation(
   _right.crossVectors(_up, _toObserver).normalize();
   _trueUp.crossVectors(_toObserver, _right).normalize();
 
-  // SphereGeometry 的正面是 +z 方向，因此需要 -toObserver 作为 z 基向量
-  _negToObserver.copy(_toObserver).negate();
-  _matrix.makeBasis(_right, _trueUp, _negToObserver);
+  // 对齐天体视角的左右与正反面（X轴面向观察者，Y轴指向北天极，Z轴指向左侧，构成无镜像右手系）
+  _negRight.copy(_right).negate();
+  _matrix.makeBasis(_toObserver, _trueUp, _negRight);
   body.quaternion.setFromRotationMatrix(_matrix);
 }
 
@@ -748,6 +750,7 @@ export default function StarrySkyViewer({
   const starsGroupRef = useRef<THREE.Group | null>(null);
   const sunSkyRef = useRef<THREE.Mesh | null>(null);
   const moonSkyRef = useRef<THREE.Mesh | null>(null);
+  const eclipseUniformsRef = useRef<any>(null);
   const sunCoronaSpriteRef = useRef<THREE.Sprite | null>(null);
   const horizonGlowSpriteRef = useRef<THREE.Mesh | null>(null);
   const moonHazeSpriteRef = useRef<THREE.Sprite | null>(null);
@@ -927,7 +930,7 @@ export default function StarrySkyViewer({
         moonSky.visible = true;
         if (observerBodyId === 'earth') {
           moonSky.scale.setScalar(1.0);
-          moonMat.color.setHex(0xffffff);
+          moonMat.color.setHex(0xa0a0a0);
           moonMat.emissive.setHex(0x000000);
           moonMat.emissiveIntensity = 0;
           loadRealTexture(dominant.textureUrl, textureCacheRef, (tex) => {
@@ -936,20 +939,25 @@ export default function StarrySkyViewer({
               tex.wrapS = THREE.RepeatWrapping;
               tex.wrapT = THREE.ClampToEdgeWrapping;
               tex.minFilter = THREE.LinearFilter;
-              tex.offset.x = 0.25 + off.u;
+              tex.offset.x = off.u;
               tex.offset.y = off.v;
-              (moonSkyRef.current.material as THREE.MeshStandardMaterial).map = tex;
-              (moonSkyRef.current.material as THREE.MeshStandardMaterial).needsUpdate = true;
+              const moonMat = moonSkyRef.current.material as THREE.MeshStandardMaterial;
+              moonMat.map = tex;
+              if (moonMat.bumpMap) {
+                moonMat.bumpMap.offset.x = off.u;
+                moonMat.bumpMap.offset.y = off.v;
+              }
+              moonMat.needsUpdate = true;
             }
           });
           // 重置光晕为月球白色
           if (moonHazeSpriteRef.current) {
-            moonHazeSpriteRef.current.position.set(0, 0, 0);
+            moonHazeSpriteRef.current.position.set(-8.5, 0, 0);
             moonHazeSpriteRef.current.material.color.setHex(0xffffff);
           }
         } else if (observerBodyId === 'moon') {
           moonSky.scale.setScalar(4.0);
-          moonMat.color.setHex(0xffffff);
+          moonMat.color.setHex(0xa0a0a0);
           moonMat.emissive.setHex(0x1a5a8a);
           moonMat.emissiveIntensity = 0.6;
           loadRealTexture(dominant.textureUrl, textureCacheRef, (tex) => {
@@ -958,22 +966,27 @@ export default function StarrySkyViewer({
               tex.wrapS = THREE.RepeatWrapping;
               tex.wrapT = THREE.ClampToEdgeWrapping;
               tex.minFilter = THREE.LinearFilter;
-              tex.offset.x = 0.25 + off.u;
+              tex.offset.x = off.u;
               tex.offset.y = off.v;
-              (moonSkyRef.current.material as THREE.MeshStandardMaterial).map = tex;
-              (moonSkyRef.current.material as THREE.MeshStandardMaterial).needsUpdate = true;
+              const moonMat = moonSkyRef.current.material as THREE.MeshStandardMaterial;
+              moonMat.map = tex;
+              if (moonMat.bumpMap) {
+                moonMat.bumpMap.offset.x = off.u;
+                moonMat.bumpMap.offset.y = off.v;
+              }
+              moonMat.needsUpdate = true;
             }
           });
           // 地球蓝晕光（从月球看地球）
           if (moonHazeSpriteRef.current) {
-            moonHazeSpriteRef.current.position.set(0, 0, 0);
+            moonHazeSpriteRef.current.position.set(-8.5, 0, 0);
             moonHazeSpriteRef.current.material.color.setHex(0x88bbff);
             moonHazeSpriteRef.current.material.opacity = 0.6;
           }
         } else {
           // General satellite observer: parent planet as dominant body
           moonSky.scale.setScalar(1.0);
-          moonMat.color.setHex(0xffffff);
+          moonMat.color.setHex(0xa0a0a0);
           moonMat.emissive.setHex(0x000000);
           moonMat.emissiveIntensity = 0;
           loadRealTexture(dominant.textureUrl, textureCacheRef, (tex) => {
@@ -982,10 +995,15 @@ export default function StarrySkyViewer({
               tex.wrapS = THREE.RepeatWrapping;
               tex.wrapT = THREE.ClampToEdgeWrapping;
               tex.minFilter = THREE.LinearFilter;
-              tex.offset.x = 0.25 + off.u;
+              tex.offset.x = off.u;
               tex.offset.y = off.v;
-              (moonSkyRef.current.material as THREE.MeshStandardMaterial).map = tex;
-              (moonSkyRef.current.material as THREE.MeshStandardMaterial).needsUpdate = true;
+              const moonMat = moonSkyRef.current.material as THREE.MeshStandardMaterial;
+              moonMat.map = tex;
+              if (moonMat.bumpMap) {
+                moonMat.bumpMap.offset.x = off.u;
+                moonMat.bumpMap.offset.y = off.v;
+              }
+              moonMat.needsUpdate = true;
             }
           });
           if (moonHazeSpriteRef.current) {
@@ -1837,17 +1855,80 @@ export default function StarrySkyViewer({
     moonNoiseTex.repeat.set(128, 64);
     const moonMat = new THREE.MeshStandardMaterial({ 
       map: moonTexture,
-      roughness: 0.9,
-      metalness: 0.05,
+      roughness: 1.0,
+      metalness: 0.0,
       bumpMap: moonNoiseTex,
-      bumpScale: 0.03,
+      bumpScale: 0.02,
+      color: 0xa0a0a0,
     });
+
+    const eclipseUniforms = {
+      uEclipseActive: { value: 0.0 },
+      uShadowDirection: { value: new THREE.Vector3(0, 0, -1) },
+      uUmbraRadius: { value: 4.58 * Math.PI / 180 },
+      uPenumbraRadius: { value: 7.63 * Math.PI / 180 },
+    };
+    eclipseUniformsRef.current = eclipseUniforms;
+
+    moonMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uEclipseActive = eclipseUniforms.uEclipseActive;
+      shader.uniforms.uShadowDirection = eclipseUniforms.uShadowDirection;
+      shader.uniforms.uUmbraRadius = eclipseUniforms.uUmbraRadius;
+      shader.uniforms.uPenumbraRadius = eclipseUniforms.uPenumbraRadius;
+
+      shader.vertexShader = `
+        varying vec3 vEclipseWorldPos;
+        ${shader.vertexShader}
+      `;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+        vEclipseWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;`
+      );
+
+      shader.fragmentShader = `
+        varying vec3 vEclipseWorldPos;
+        uniform float uEclipseActive;
+        uniform vec3 uShadowDirection;
+        uniform float uUmbraRadius;
+        uniform float uPenumbraRadius;
+        ${shader.fragmentShader}
+      `;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <colorspace_fragment>',
+        `#include <colorspace_fragment>
+        if (uEclipseActive > 0.5) {
+          vec3 fragDir = normalize(vEclipseWorldPos);
+          float cosDiff = dot(fragDir, uShadowDirection);
+          float angle = acos(clamp(cosDiff, -1.0, 1.0));
+          if (angle < uPenumbraRadius) {
+            float shadowFactor = smoothstep(uUmbraRadius, uPenumbraRadius, angle);
+            vec3 bloodMoonColor = gl_FragColor.rgb * vec3(0.85, 0.22, 0.08) * 0.18;
+            gl_FragColor.rgb = mix(bloodMoonColor, gl_FragColor.rgb, shadowFactor);
+          }
+        }`
+      );
+    };
+
     const moonSky = new THREE.Mesh(moonGeom, moonMat);
+    moonSky.renderOrder = 10;
     scene.add(moonSky);
     moonSkyRef.current = moonSky;
 
-    // 月球无大气层，使用 Sprite 模拟动态月晕（初始隐藏，根据观测状态动态控制可见性）
-    const moonHazeSprite = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false }));
+    // 月球使用 Sprite 模拟动态月晕
+    const moonGlowTex = createMoonGlowTexture();
+    const moonHazeMat = new THREE.SpriteMaterial({
+      map: moonGlowTex,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      opacity: 0.8,
+      color: new THREE.Color(0xdbeafe),
+      depthWrite: false,
+    });
+    const moonHazeSprite = new THREE.Sprite(moonHazeMat);
+    moonHazeSprite.scale.set(55.0, 55.0, 1.0);
+    moonHazeSprite.position.set(-8.5, 0, 0); // 后移至月球本体后方，借助深度测试实现月面无白圈截断
+    moonHazeSprite.renderOrder = 9; // 优先绘制，借助深度测试实现月亮本身对其中心的天然遮挡
     moonSky.add(moonHazeSprite);
     moonHazeSpriteRef.current = moonHazeSprite;
 
@@ -1962,6 +2043,12 @@ export default function StarrySkyViewer({
       const intersects = raycaster.intersectObjects(targets);
       if (intersects.length > 0) {
         let hit = intersects[0].object;
+        if (hit === moonHazeSpriteRef.current || (hit.parent && hit.parent === moonSkyRef.current)) {
+          hit = moonSkyRef.current;
+        }
+        if (hit.parent && hit.parent === sunSkyRef.current) {
+          hit = sunSkyRef.current;
+        }
         if (hit.parent && hit.parent.userData.type === 'planet-detailed') {
           hit = hit.parent;
         }
@@ -2121,6 +2208,12 @@ export default function StarrySkyViewer({
       const intersects = raycaster.intersectObjects(targets);
       if (intersects.length > 0) {
         let hit = intersects[0].object;
+        if (hit === moonHazeSpriteRef.current || (hit.parent && hit.parent === moonSkyRef.current)) {
+          hit = moonSkyRef.current;
+        }
+        if (hit.parent && hit.parent === sunSkyRef.current) {
+          hit = sunSkyRef.current;
+        }
         if (hit.parent && hit.parent.userData.type === 'planet-detailed') {
           hit = hit.parent;
         }
@@ -2374,22 +2467,110 @@ export default function StarrySkyViewer({
         }
         eclipseCheckCounterRef.current++;
         const moonMat = moonSkyRef.current.material as THREE.MeshStandardMaterial;
+        
+        // Use a wider window (1.6 degrees separation) to calculate visual overlap transitions
+        // This ensures the shader is active before the visual shadow touches the Moon, eliminating entry/exit jumps.
+        const isLunarEclipseActive = eclipses.angleDegrees > 90.0 && (180.0 - eclipses.angleDegrees) < 1.6;
+
         if (eclipses.solarEclipse) {
           moonMat.color.setHex(0x111111);
-          if (moonHazeSpriteRef.current) moonHazeSpriteRef.current.material.opacity = 0.0;
-        } else if (eclipses.lunarEclipse) {
-          moonMat.color.setHex(0xb23315);
           if (moonHazeSpriteRef.current) {
-            moonHazeSpriteRef.current.material.color.setHex(0xff3311);
-            moonHazeSpriteRef.current.material.opacity = 0.85;
+            moonHazeSpriteRef.current.visible = false;
+            moonHazeSpriteRef.current.material.opacity = 0.0;
+          }
+          if (eclipseUniformsRef.current) {
+            eclipseUniformsRef.current.uEclipseActive.value = 0.0;
+          }
+        } else if (isLunarEclipseActive) {
+          // Base color of the Moon remains 0xa0a0a0 to allow shader to calculate shaded and unshaded regions without blowing out
+          moonMat.color.setHex(0xa0a0a0);
+          
+          if (moonHazeSpriteRef.current) {
+            moonHazeSpriteRef.current.visible = moonSkyRef.current.visible;
+          }
+          
+          if (eclipseUniformsRef.current) {
+            eclipseUniformsRef.current.uEclipseActive.value = 1.0;
+            
+            // Get direction vectors
+            const dirSun = sunPos.clone().normalize();
+            const dirShadow = dirSun.clone().negate(); // Shadow center is opposite to the Sun
+            const dirMoon = moonPos.clone().normalize();
+            
+            // Calculate actual angular separation
+            const alpha = dirMoon.angleTo(dirShadow);
+            
+            // Exaggerate separation by 6.1x to match the visual size exaggeration of the Moon
+            const exaggeration = 6.1;
+            const visualAlpha = Math.min(Math.PI, alpha * exaggeration);
+            
+            if (alpha > 0.0001) {
+              const axis = new THREE.Vector3().crossVectors(dirMoon, dirShadow).normalize();
+              const dirShadowVisual = dirMoon.clone().applyAxisAngle(axis, visualAlpha);
+              eclipseUniformsRef.current.uShadowDirection.value.copy(dirShadowVisual);
+            } else {
+              eclipseUniformsRef.current.uShadowDirection.value.copy(dirShadow);
+            }
+            
+            // Update Haze Sprite color and opacity based on shadow overlap progress
+            if (moonHazeSpriteRef.current) {
+              const rUmbra = 4.58 * Math.PI / 180;
+              const rPenumbra = 7.63 * Math.PI / 180;
+              const rMoon = 1.53 * Math.PI / 180;
+              
+              const totalityEnd = rUmbra - rMoon;   // ~3.05 degrees
+              const eclipseEnd = rPenumbra + rMoon;   // ~9.16 degrees
+              
+              if (visualAlpha < totalityEnd) {
+                // Totality: deep red glow
+                moonHazeSpriteRef.current.material.color.setHex(0xff3311);
+                moonHazeSpriteRef.current.material.opacity = 0.75;
+              } else if (visualAlpha > eclipseEnd) {
+                // Out of eclipse: normal Full Moon glow
+                moonHazeSpriteRef.current.material.color.setHex(0xdbeafe);
+                const glowFactor = Math.max(0.12, moonPhaseInfo.percent);
+                moonHazeSpriteRef.current.material.opacity = 0.8 * glowFactor;
+              } else {
+                // Partial eclipse transitions
+                const t = (visualAlpha - totalityEnd) / (eclipseEnd - totalityEnd);
+                const colorRed = new THREE.Color(0xff3311);
+                const colorNormal = new THREE.Color(0xdbeafe);
+                const finalColor = new THREE.Color().lerpColors(colorRed, colorNormal, t);
+                moonHazeSpriteRef.current.material.color.copy(finalColor);
+                
+                const opacityNormal = 0.8 * Math.max(0.12, moonPhaseInfo.percent);
+                moonHazeSpriteRef.current.material.opacity = THREE.MathUtils.lerp(0.75, opacityNormal, t);
+              }
+            }
           }
         } else {
-          moonMat.color.setHex(0xffffff);
+          moonMat.color.setHex(0xa0a0a0);
+          if (eclipseUniformsRef.current) {
+            eclipseUniformsRef.current.uEclipseActive.value = 0.0;
+          }
           if (moonHazeSpriteRef.current) {
+            moonHazeSpriteRef.current.visible = moonSkyRef.current.visible;
             moonHazeSpriteRef.current.material.color.setHex(0xdbeafe);
             const glowFactor = Math.max(0.12, moonPhaseInfo.percent);
             moonHazeSpriteRef.current.material.opacity = 0.8 * glowFactor;
           }
+        }
+
+        // Calculate offset for Moon glow based on Sun direction and phase
+        if (moonHazeSpriteRef.current) {
+          const dirSun = sunPos.clone().normalize();
+          const localSunY = dirSun.dot(_trueUp);
+          const localSunZ = dirSun.dot(_negRight);
+          const projLen = Math.sqrt(localSunZ * localSunZ + localSunY * localSunY);
+          let shiftY = 0;
+          let shiftZ = 0;
+          if (projLen > 0.01) {
+            // Offset shifts more as the phase grows thinner (less illuminated)
+            const shiftAmount = 2.4 * (1.0 - moonPhaseInfo.percent);
+            shiftY = (localSunY / projLen) * shiftAmount;
+            shiftZ = (localSunZ / projLen) * shiftAmount;
+          }
+          moonHazeSpriteRef.current.position.set(-8.5, shiftY, shiftZ);
         }
       }
     } else if (observerBodyId === 'moon') {
@@ -2406,6 +2587,7 @@ export default function StarrySkyViewer({
         setTidallyLockedOrientation(moonSkyRef.current, cameraRef.current?.position ?? new THREE.Vector3(0, 0, 0.1), celestialNorth);
         // Earth atmospheric glow as seen from the Moon
         if (moonHazeSpriteRef.current) {
+          moonHazeSpriteRef.current.position.set(-8.5, 0, 0); // reset position
           moonHazeSpriteRef.current.visible = moonCoords.alt > -2;
           moonHazeSpriteRef.current.material.color.setHex(0x4a90d9);
           moonHazeSpriteRef.current.material.opacity = 0.45;
@@ -2666,6 +2848,39 @@ export default function StarrySkyViewer({
       lineMat.opacity = constellVisible ? 0.35 * Math.max(0, 1 - skyBrightness) : 0;
       constellLinesRef.current.visible = constellVisible;
     }
+
+    // Calculate day length based on sun declination and observer latitude
+    const phi = (latitude * Math.PI) / 180;
+    const delta = (sunDec * Math.PI) / 180;
+    const tanPhiTanDelta = Math.tan(phi) * Math.tan(delta);
+    let dayLength: number;
+    if (tanPhiTanDelta <= -1) {
+      dayLength = 24; // Polar day
+    } else if (tanPhiTanDelta >= 1) {
+      dayLength = 0; // Polar night
+    } else {
+      const H0 = Math.acos(Math.max(-1, Math.min(1, -tanPhiTanDelta)));
+      dayLength = (2 * H0 * 180 / Math.PI) / 15; // hours
+    }
+
+    daysSinceJ2000Ref.current = days;
+    moonPhaseInfoRef.current = moonPhaseInfo;
+    sunRaRef.current = sunRa;
+    sunDecRef.current = sunDec;
+    moonRaRef.current = moonRa;
+    moonDecRef.current = moonDec;
+
+    setSkyData({
+      lst,
+      sunAlt: sunCoords.alt,
+      moonAlt: moonCoords.alt,
+      moonPhasePercent: moonPhaseInfo.percent,
+      moonPhaseName: moonPhaseInfo.nameKey,
+      solarEclipse: eclipseState.solarEclipse,
+      lunarEclipse: eclipseState.lunarEclipse,
+      dayLength,
+      sunDeclination: sunDec
+    });
   }, [currentTimestamp, latitude, longitude, observerBodyId, showConstellLines, showStarNames, showConstellNames, magLimit]);
 
   // 渲染帧与高频大气闪烁/抖动渲染循环
@@ -2975,8 +3190,12 @@ export default function StarrySkyViewer({
             const dominant = getDominantBodyInfo(observerBodyIdRef.current);
             if (dominant) {
               const off = textureOffsetsRef.current[dominant.id] ?? { u: 0, v: 0 };
-              mat.map.offset.x = 0.25 + off.u;
+              mat.map.offset.x = off.u;
               mat.map.offset.y = off.v;
+              if (mat.bumpMap) {
+                mat.bumpMap.offset.x = off.u;
+                mat.bumpMap.offset.y = off.v;
+              }
             }
           }
         }

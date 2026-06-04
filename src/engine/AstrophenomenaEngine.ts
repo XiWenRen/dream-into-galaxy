@@ -198,6 +198,31 @@ export class AstrophenomenaEngine {
     return '';
   }
 
+  static getNASAWindow(timestamp: number, type: 'solar' | 'lunar'): { start: number; end: number } | null {
+    if (type === 'lunar') {
+      // Find the closest event in LUNAR_ECLIPSE_EVENTS (within 1.5 days to handle UTC conversion)
+      const event = LUNAR_ECLIPSE_EVENTS.find(e => {
+        const eventTs = new Date(`${e.date}T${e.greatestUTC}Z`).getTime();
+        return Math.abs(timestamp - eventTs) < 1.5 * 24 * 3600000;
+      });
+
+      if (event && event.partialDuration) {
+        const match = event.partialDuration.match(/(\d+)h(\d+)m/);
+        if (match) {
+          const hours = parseInt(match[1]);
+          const minutes = parseInt(match[2]);
+          const durationMs = (hours * 3600 + minutes * 60) * 1000;
+          const greatestTs = new Date(`${event.date}T${event.greatestUTC}Z`).getTime();
+          return {
+            start: greatestTs - durationMs / 2,
+            end: greatestTs + durationMs / 2
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   /**
    * 计算给定交食事件的真实开始与结束时间（初亏/复圆或 P1/P4）
    * @param timestamp 交食峰值时间戳 (ms)
@@ -205,6 +230,9 @@ export class AstrophenomenaEngine {
    * @returns { start, end } 开始和结束时间戳 (ms)
    */
   static getEclipseWindow(timestamp: number, type: 'solar' | 'lunar'): { start: number; end: number } {
+    const nasaWin = this.getNASAWindow(timestamp, type);
+    if (nasaWin) return nasaWin;
+
     const centerDays = (timestamp / 86400000) - 10957.5;
     const coarseStep = 0.01;   // ~14.4 min
     const fineStep = 0.0005;   // ~43 sec
@@ -463,9 +491,8 @@ export class AstrophenomenaEngine {
     const solarEclipse = dot > 0 && angleDeg < 0.55;
 
     // 月食 (Lunar Eclipse)：满月期。地日向量与地月向量正好反向 (dot < 0)。
-    // 此时月球进入地球本影/半影。地心处地球本影锥半顶角约 0.46°-0.75°，
-    // 取保守阈值 0.8°。
-    const lunarEclipse = dot < 0 && (180 - angleDeg) < 0.8;
+    // 此时月球进入地球本影。地球本影锥半径约 0.76°，月球视半径约 0.26°，初亏/复圆临界偏角为 1.02°
+    const lunarEclipse = dot < 0 && (180 - angleDeg) < 1.02;
 
     return {
       solarEclipse,

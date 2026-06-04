@@ -246,10 +246,10 @@ export default function App() {
     return Math.max(0, Math.min(1, pct));
   }, [timeState.currentTimestamp, eclipseWindow]);
 
-  // 贴图便宜位置调试 (用于行星面板上交互式校准纹理偏移)
-  // 月球默认偏移 u=0.42，经滑块校准后固定
+  // 贴图偏移位置调试 (用于行星面板上交互式校准纹理偏移)
+  // 月球默认偏移 u=0.0，右手系下正面默认对齐
   const [textureOffsets, setTextureOffsets] = useState<Record<string, { u: number; v: number }>>({
-    moon: { u: 0.42, v: 0 }
+    moon: { u: 0.0, v: 0 }
   });
 
   // 处理无极缩放 (Seamless Zoom / Cloud entry effect overlay) 动态面纱

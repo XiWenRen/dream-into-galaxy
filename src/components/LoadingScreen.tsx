@@ -365,80 +365,200 @@ export default function LoadingScreen({ onLoadComplete, onLaunch, lang, theme }:
         </div>
       </div>
 
-      {/* Lower Section (Progress Bar or Spacecraft Button) */}
-      <div className="w-full max-w-md flex flex-col items-center justify-center min-h-[160px] z-10 px-6 mb-8">
-        {!showStartBtn ? (
-          /* Telemetry Progress Bar Section */
-          <div className="w-80 flex flex-col items-center transition-opacity duration-300">
-            {/* Linear progress bar */}
-            <div className="w-full h-1 bg-slate-950/80 rounded-full overflow-hidden border border-white/5 mb-3 relative">
-              <div
-                className={`h-full bg-gradient-to-r ${themeConfig.progressBg} rounded-full transition-all duration-150 ease-out`}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            {/* Telemetry metadata */}
-            <div className="flex justify-between w-full px-1 text-[9px] font-mono text-slate-500">
-              <span className={`font-bold ${themeConfig.accentText}`}>{Math.round(progress)}%</span>
-              <span className="uppercase tracking-widest">{lang === 'zh' ? '系统数据初始化中' : 'INITIALIZING LAUNCH PAD'}</span>
-            </div>
-          </div>
-        ) : (
-          /* Spacecraft Launcher Button */
-          <button
-            onClick={handleLaunch}
-            disabled={isLaunching}
-            className={`group flex flex-col items-center focus:outline-none select-none relative cursor-pointer ${
-              isLaunching
-                ? 'transition-all duration-[2500ms] ease-in-out'
-                : 'hover:scale-105 transition-all duration-300'
-            }`}
+      {/* Lower Section (3D Flight HUD) */}
+      <div 
+        className="w-full max-w-xl flex items-center justify-center min-h-[220px] z-10 px-6 mb-8"
+        style={{
+          perspective: '1000px',
+          transformStyle: 'preserve-3d',
+        }}
+      >
+        <div 
+          className="flex flex-col items-center justify-center transition-all duration-[2200ms] ease-in-out"
+          style={{
+            transform: 'rotateX(40deg)', // Tilts the entire HUD forward into the screen
+            transformStyle: 'preserve-3d',
+            opacity: isLaunching ? 0.9 : 1,
+          }}
+        >
+          {/* Centered Circular HUD Container */}
+          <div 
+            className="relative w-56 h-56 flex items-center justify-center"
             style={{
-              transform: isLaunching ? 'perspective(1000px) rotateX(80deg) translateY(-600px) scale(0.02)' : 'none',
-              opacity: isLaunching ? 0 : 1,
-              transition: isLaunching ? 'transform 2500ms cubic-bezier(0.6, 0, 0.8, 0.2), opacity 2200ms ease-in' : undefined,
+              transformStyle: 'preserve-3d',
+              transition: 'opacity 0.8s ease-out',
             }}
           >
-            {/* Spacecraft outline SVG */}
-            <svg
-              className="w-20 h-20 -rotate-45"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke={themeConfig.rocketColor}
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ filter: `drop-shadow(0 0 15px ${themeConfig.rocketColor})` }}
+            {/* 3/4 Circular SVG Progress Bar */}
+            <svg 
+              className={`absolute w-full h-full transition-opacity duration-700 ${isLaunching ? 'opacity-0' : 'opacity-100'}`}
+              viewBox="0 0 224 224"
+              style={{ transform: 'rotateX(0deg)', transformStyle: 'preserve-3d' }}
             >
-              {/* Custom spaceshuttle/probe geometry */}
-              <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
-              <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
-              <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
-              <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
-              <circle cx="13" cy="11" r="1.5" fill={themeConfig.rocketColor} fillOpacity="0.5" />
+              {/* Background Track (3/4 Circle) */}
+              <circle
+                cx="112"
+                cy="112"
+                r="82"
+                stroke="rgba(255, 255, 255, 0.08)"
+                strokeWidth="4"
+                fill="none"
+                strokeLinecap="round"
+                strokeDasharray={`${0.75 * 2 * Math.PI * 82} ${2 * Math.PI * 82}`}
+                transform="rotate(135, 112, 112)"
+              />
+              {/* Active Progress Arc */}
+              <circle
+                cx="112"
+                cy="112"
+                r="82"
+                stroke={`url(#hud-progress-gradient-${theme})`}
+                strokeWidth="4"
+                fill="none"
+                strokeLinecap="round"
+                strokeDasharray={`${(progress / 100) * 0.75 * 2 * Math.PI * 82} ${2 * Math.PI * 82}`}
+                transform="rotate(135, 112, 112)"
+                style={{
+                  filter: `drop-shadow(0 0 8px ${themeConfig.rocketColor})`,
+                  transition: 'stroke-dasharray 0.15s ease-out',
+                }}
+              />
+              {/* Defs for theme gradients */}
+              <defs>
+                <linearGradient id={`hud-progress-gradient-${theme}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor={theme === 'cosmic-dark' ? '#f59e0b' : theme === 'neon-hologram' ? '#d946ef' : theme === 'solar-gold' ? '#ea580c' : '#06b6d4'} />
+                  <stop offset="100%" stopColor={theme === 'cosmic-dark' ? '#fde047' : theme === 'neon-hologram' ? '#f472b6' : theme === 'solar-gold' ? '#fde047' : '#60a5fa'} />
+                </linearGradient>
+              </defs>
             </svg>
 
-            {/* High-fidelity rocket flame particle effect */}
-            {isLaunching && (
-              <div className="mt-1 h-24 overflow-visible flex justify-center">
+            {/* Glowing Pointer Cursor (圆形光点) moving along the progress arc */}
+            {!isLaunching && progress > 0 && progress < 100 && (() => {
+              const angle = 135 + progress * 2.7;
+              const angleRad = (angle * Math.PI) / 180;
+              const pointerX = 112 + 82 * Math.cos(angleRad);
+              const pointerY = 112 + 82 * Math.sin(angleRad);
+              return (
+                <div
+                  className="absolute rounded-full transition-all duration-150 ease-out"
+                  style={{
+                    left: `${pointerX}px`,
+                    top: `${pointerY}px`,
+                    width: '10px',
+                    height: '10px',
+                    backgroundColor: themeConfig.rocketColor,
+                    boxShadow: `0 0 14px ${themeConfig.rocketColor}, 0 0 4px ${themeConfig.rocketColor}`,
+                    transform: 'translate(-50%, -50%)',
+                    transformStyle: 'preserve-3d',
+                  }}
+                />
+              );
+            })()}
+
+            {/* HUD Percentage and Telemetry Labels (positioned in the bottom 90° gap) */}
+            <div 
+              className={`absolute bottom-3 flex flex-col items-center justify-center font-mono text-center pointer-events-none transition-all duration-700 ${isLaunching ? 'opacity-0 scale-75' : 'opacity-100 scale-100'}`}
+              style={{ transformStyle: 'preserve-3d' }}
+            >
+              <span className="text-sm font-bold text-slate-100 tracking-wider">
+                {Math.round(progress)}%
+              </span>
+              <span className="text-[7px] text-slate-500 uppercase tracking-widest mt-0.5 whitespace-nowrap">
+                {progress < 100 ? (lang === 'zh' ? '正在连接' : 'SYNCING') : (lang === 'zh' ? '连接成功' : 'CONNECTED')}
+              </span>
+            </div>
+
+            {/* Centered Rocket Button */}
+            <button
+              onClick={handleLaunch}
+              disabled={progress < 100 || isLaunching}
+              className={`group flex flex-col items-center focus:outline-none select-none relative ${
+                isLaunching
+                  ? 'transition-all duration-[2500ms]'
+                  : 'transition-all duration-300'
+              }`}
+              style={{
+                transform: isLaunching 
+                  ? 'translateY(-600px) scale(0.01) translateZ(100px)' 
+                  : (progress >= 100 ? 'scale(1.08)' : 'scale(1)'),
+                opacity: isLaunching ? 0 : 1,
+                cursor: progress >= 100 ? 'pointer' : 'default',
+                transition: isLaunching ? 'transform 2500ms cubic-bezier(0.6, 0, 0.8, 0.2), opacity 2200ms ease-in' : undefined,
+                transformStyle: 'preserve-3d',
+              }}
+            >
+              {/* Launch halo effect */}
+              {progress >= 100 && !isLaunching && (
+                <div 
+                  className="absolute inset-0 w-24 h-24 -m-2 rounded-full border border-cyan-400/20 animate-ping opacity-60 pointer-events-none"
+                  style={{ animationDuration: '2s' }}
+                />
+              )}
+
+              {/* Rocket SVG */}
+              <svg
+                className={`w-20 h-20 -rotate-45 transition-transform duration-300 ${
+                  progress >= 100 && !isLaunching ? 'group-hover:scale-110' : ''
+                }`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={themeConfig.rocketColor}
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ filter: `drop-shadow(0 0 15px ${themeConfig.rocketColor})` }}
+              >
+                <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+                <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+                <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+                <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+                <circle cx="13" cy="11" r="1.5" fill={themeConfig.rocketColor} fillOpacity="0.5" />
+              </svg>
+
+              {/* High-fidelity rocket flame particle effect - ALWAYS active! */}
+              <div 
+                className="absolute top-16 left-1/2 -translate-x-1/2 h-28 overflow-visible flex justify-center pointer-events-none"
+                style={{ 
+                  transform: 'rotateX(-40deg) translateZ(-10px)', // adjust flame angle in 3D
+                  transformStyle: 'preserve-3d' 
+                }}
+              >
                 <RocketFlame
-                  active={isLaunching}
+                  active={true}
                   theme={theme}
-                  width={60}
-                  height={120}
-                  particleScale={1.3}
+                  width={isLaunching ? 70 : 45}
+                  height={isLaunching ? 150 : 100}
+                  particleScale={isLaunching ? 1.5 : 0.9}
                 />
               </div>
-            )}
 
-            {/* Text label underneath (Only shows if NOT launching) */}
-            {!isLaunching && (
-              <span className="text-[10px] tracking-[0.3em] uppercase text-white font-mono opacity-60 group-hover:opacity-100 group-hover:text-cyan-200 mt-4 transition-all duration-300 animate-pulse">
-                {lang === 'zh' ? '点击发射以探索' : 'LAUNCH PROBE TO EXPLORE'}
-              </span>
-            )}
-          </button>
-        )}
+              {/* Launcher Text labels underneath */}
+              <div 
+                className="mt-6 flex flex-col items-center justify-center font-mono whitespace-nowrap pointer-events-none animate-fade-in"
+                style={{ transform: 'rotateX(-20deg)' }}
+              >
+                {progress < 100 ? (
+                  <span className="text-[8px] tracking-[0.25em] text-slate-500 uppercase animate-pulse">
+                    {lang === 'zh' ? '深空巡航准备中...' : 'PREPARING ENGINE...'}
+                  </span>
+                ) : !isLaunching ? (
+                  <div className="flex flex-col items-center space-y-1">
+                    <span className="text-[10px] tracking-[0.3em] uppercase text-white font-bold group-hover:text-cyan-300 transition-all duration-300">
+                      {lang === 'zh' ? '点击发射探索' : 'LAUNCH EXPLORER'}
+                    </span>
+                    <span className="text-[7px] tracking-[0.2em] text-slate-400 uppercase">
+                      {lang === 'zh' ? '就绪' : 'SYSTEM READY'}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-[9px] tracking-[0.3em] uppercase text-cyan-400 font-bold animate-ping">
+                    {lang === 'zh' ? '正在升空...' : 'ASCENDING...'}
+                  </span>
+                )}
+              </div>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Bottom Legal / Version Section */}
