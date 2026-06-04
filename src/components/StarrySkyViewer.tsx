@@ -28,6 +28,7 @@ import {
   createLensFlareHexTexture,
   createLensFlareSparkleTexture,
   createHorizonGlowTexture,
+  createProceduralTexture,
 } from '../engine/TextureFactory';
 
 import { loadHipparcosCatalog, bvToRgb } from '../engine/HipparcosLoader';
@@ -1759,15 +1760,24 @@ export default function StarrySkyViewer({
     const detailNoiseTex = createNoiseTexture();
     detailNoiseTex.repeat.set(128, 64);
 
-    const targetPlanetIds = ['venus', 'mars', 'jupiter', 'saturn'];
+    const targetPlanetIds = ['sun', 'venus', 'mars', 'jupiter', 'saturn'];
     targetPlanetIds.forEach(pid => {
       const geom = new THREE.SphereGeometry(7.2, 32, 32);
-      const mat = new THREE.MeshStandardMaterial({
-        roughness: 0.85,
-        metalness: 0.05,
-        bumpMap: detailNoiseTex,
-        bumpScale: 0.04,
-      });
+      let mat: THREE.Material;
+      if (pid === 'sun') {
+        mat = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 1.0
+        });
+      } else {
+        mat = new THREE.MeshStandardMaterial({
+          roughness: 0.85,
+          metalness: 0.05,
+          bumpMap: detailNoiseTex,
+          bumpScale: 0.04,
+        });
+      }
       const mesh = new THREE.Mesh(geom, mat);
       mesh.visible = false;
       mesh.userData = {
@@ -1777,12 +1787,30 @@ export default function StarrySkyViewer({
       scene.add(mesh);
       detailedPlanets[pid] = mesh;
 
-      const url = DOMINANT_BODY_TEXTURES[pid];
-      if (url) {
-        loadRealTexture(url, textureCacheRef, (tex) => {
-          mat.map = tex;
-          mat.needsUpdate = true;
-        });
+      if (pid === 'sun') {
+        const fallbackTex = createProceduralTexture('sun_telescope');
+        fallbackTex.wrapS = THREE.RepeatWrapping;
+        fallbackTex.wrapT = THREE.ClampToEdgeWrapping;
+        (mat as THREE.MeshBasicMaterial).map = fallbackTex;
+        mat.needsUpdate = true;
+
+        const url = DOMINANT_BODY_TEXTURES['sun'];
+        if (url) {
+          loadRealTexture(url, textureCacheRef, (tex) => {
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+            (mat as THREE.MeshBasicMaterial).map = tex;
+            mat.needsUpdate = true;
+          });
+        }
+      } else {
+        const url = DOMINANT_BODY_TEXTURES[pid];
+        if (url) {
+          loadRealTexture(url, textureCacheRef, (tex) => {
+            (mat as THREE.MeshStandardMaterial).map = tex;
+            mat.needsUpdate = true;
+          });
+        }
       }
 
       // 土星光环加到子物体并带上约23度的倾斜角
@@ -1943,7 +1971,7 @@ export default function StarrySkyViewer({
         }
         container.style.cursor = closestTarget ? 'crosshair' : 'pointer';
 
-        if (hit === sunSkyRef.current) {
+        if (hit === sunSkyRef.current || hit === detailedPlanetsRef.current['sun']) {
           setHoveredCelestial({
             id: 'sun',
             nameZh: '太阳 (The Sun)',
@@ -2105,7 +2133,7 @@ export default function StarrySkyViewer({
         selectedObjectRef.current = hit;
         setSelectionRingKey(k => k + 1);
 
-        if (hit === sunSkyRef.current) {
+        if (hit === sunSkyRef.current || hit === detailedPlanetsRef.current['sun']) {
           setSelectedCelestial({
             id: 'sun',
             nameZh: '太阳 (The Sun)',
@@ -2695,13 +2723,25 @@ export default function StarrySkyViewer({
         // 1a. 天空霞光穹顶着色器 uniforms 实时更新 - ZERO ALLOCATION
         if (horizonGlowSpriteRef.current && sunSkyRef.current) {
           const sunAlt = sunAltRef.current;
-          // 望远镜放大观测时，设置虚拟太阳高度为-30 degree，自动令着色器隐藏白昼蓝天和耀斑热点，呈现墨黑太空背景
-          const sunAltVal = telescopeActiveRef.current ? -30.0 : sunAlt;
           sunSkyRef.current.getWorldPosition(_sunWorldPos);
 
           const mat = horizonGlowSpriteRef.current.material as THREE.ShaderMaterial;
           // 太阳方向归一化
           _sunDir.copy(_sunWorldPos).normalize();
+
+          // 望远镜模式下观测太阳，模拟加装巴德膜（太阳滤镜），将天空背景及霞光完全消光变黑
+          let solarFilterStrength = 0.0;
+          if (telescopeActiveRef.current && cameraRef.current) {
+            _camDir.set(0, 0, -1).applyQuaternion(cameraRef.current.quaternion).normalize();
+            const angleToSun = _camDir.angleTo(_sunDir) * (180 / Math.PI);
+            if (angleToSun < 12.0) {
+              solarFilterStrength = Math.max(0, 1 - angleToSun / 12.0);
+            }
+          }
+
+          // 根据太阳滤镜强度平滑调整太阳的虚拟高度，实现对准太阳时才消光和隐藏大气热点，而看向其他方向时保留白天天空
+          const sunAltVal = sunAlt - solarFilterStrength * (sunAlt + 30.0);
+
           mat.uniforms.sunDir.value.copy(_sunDir);
           mat.uniforms.sunAlt.value = sunAltVal;
           mat.uniforms.uTime.value = performance.now() * 0.001;
@@ -2728,16 +2768,6 @@ export default function StarrySkyViewer({
             // 完全夜晚/望远镜模式：纯黑背景，以便清晰观测日面轮廓
             _topColor.setRGB(0.0, 0.0, 0.0);
             _horizonColor.setRGB(0.0, 0.0, 0.0);
-          }
-
-          // 望远镜模式下观测太阳，模拟加装巴德膜（太阳滤镜），将天空背景及霞光完全消光变黑
-          let solarFilterStrength = 0;
-          if (telescopeActiveRef.current && cameraRef.current) {
-            _camDir.set(0, 0, -1).applyQuaternion(cameraRef.current.quaternion).normalize();
-            const angleToSun = _camDir.angleTo(_sunDir) * (180 / Math.PI);
-            if (angleToSun < 12.0) {
-              solarFilterStrength = Math.max(0, 1 - angleToSun / 12.0);
-            }
           }
 
           if (solarFilterStrength > 0) {
@@ -2857,6 +2887,35 @@ export default function StarrySkyViewer({
             if (detailedMesh) detailedMesh.visible = false;
           }
         });
+
+        // 3a. 太阳高倍率 3D 特写切换与更新 - ZERO ALLOCATION
+        const shouldShowDetailedSun = telescopeActiveRef.current && fovRef.current <= 6.5;
+        const detailedSun = detailedPlanetsRef.current['sun'];
+        if (sunSkyRef.current && detailedSun) {
+          if (shouldShowDetailedSun) {
+            // 隐藏天幕太阳球体材质本身，保留天幕物体以供日冕/子项在日食等极端情况下渲染
+            sunSkyRef.current.material.visible = false;
+
+            // 显示并更新高倍 3D 详细太阳 Mesh
+            detailedSun.visible = sunSkyRef.current.visible;
+            detailedSun.position.copy(sunSkyRef.current.position);
+            detailedSun.scale.setScalar(getAngularScale(32, 278, 7.2));
+
+            // 对齐北极
+            setTidallyLockedOrientation(detailedSun, cameraRef.current?.position ?? _defaultNorth, _celestialNorth);
+
+            // 同步材质状态（透明度及日食暗化）
+            const sunMat = sunSkyRef.current.material as THREE.MeshBasicMaterial;
+            const detailedSunMat = detailedSun.material as THREE.MeshBasicMaterial;
+            detailedSunMat.color.copy(sunMat.color);
+            detailedSunMat.opacity = sunMat.opacity;
+            detailedSunMat.transparent = sunMat.transparent;
+          } else {
+            // 隐藏 3D 详细太阳，恢复普通天幕太阳
+            detailedSun.visible = false;
+            sunSkyRef.current.material.visible = true;
+          }
+        }
 
         // 4. 背景暗星 GPU Shader 驱动（每帧仅更新 uniforms，零 CPU 遍历）- CACHED PRECESSION MATRIX
         if (backgroundPointsRef.current) {
