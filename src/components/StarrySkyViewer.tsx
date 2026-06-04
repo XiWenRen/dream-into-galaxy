@@ -1560,7 +1560,7 @@ export default function StarrySkyViewer({
 
     // 7. 太阳系两大顶流 (Sun 及 Moon) 在天幕投影
     // 增强太阳本体：更大、更亮、带轻微自发光
-    const sunGeom = new THREE.SphereGeometry(10.5, 32, 32);
+    const sunGeom = new THREE.SphereGeometry(10.5, 128, 128);
     const sunMat = new THREE.MeshBasicMaterial({ color: 0xfffef5 });
     const sunSky = new THREE.Mesh(sunGeom, sunMat);
     scene.add(sunSky);
@@ -1762,7 +1762,7 @@ export default function StarrySkyViewer({
 
     const targetPlanetIds = ['sun', 'venus', 'mars', 'jupiter', 'saturn'];
     targetPlanetIds.forEach(pid => {
-      const geom = new THREE.SphereGeometry(7.2, 32, 32);
+      const geom = new THREE.SphereGeometry(7.2, 128, 128);
       let mat: THREE.Material;
       if (pid === 'sun') {
         mat = new THREE.MeshBasicMaterial({
@@ -1831,7 +1831,7 @@ export default function StarrySkyViewer({
     });
     detailedPlanetsRef.current = detailedPlanets;
 
-    const moonGeom = new THREE.SphereGeometry(7.2, 32, 32);
+    const moonGeom = new THREE.SphereGeometry(7.2, 128, 128);
     const moonTexture = createProceduralMoonTexture();
     const moonNoiseTex = createNoiseTexture();
     moonNoiseTex.repeat.set(128, 64);
@@ -2739,8 +2739,8 @@ export default function StarrySkyViewer({
             }
           }
 
-          // 根据太阳滤镜强度平滑调整太阳的虚拟高度，实现对准太阳时才消光和隐藏大气热点，而看向其他方向时保留白天天空
-          const sunAltVal = sunAlt - solarFilterStrength * (sunAlt + 30.0);
+          // 根据太阳滤镜强度平滑调整太阳的虚拟高度，对准时使其收拢在深昏影阶段，保留一圈深蓝色散射微光与日面软光晕
+          const sunAltVal = sunAlt - solarFilterStrength * (sunAlt + 6.0);
 
           mat.uniforms.sunDir.value.copy(_sunDir);
           mat.uniforms.sunAlt.value = sunAltVal;

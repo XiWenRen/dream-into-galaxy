@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { translations, transitionFactList, transitionTipList } from '../i18n';
-
 import { SATELLITE_CATALOG } from '../engine/SatelliteData';
+import RocketFlame from './RocketFlame';
 
 interface TransitionScreenProps {
   direction: 'toStarry' | 'toUniverse';
@@ -330,9 +330,17 @@ export default function TransitionScreen({
                 <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
                 <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
               </svg>
-              {/* Flame tail */}
+              {/* High-fidelity rocket flame particle effect */}
               {progress < 90 && (
-                <div className="w-1.5 h-4 bg-gradient-to-t from-transparent via-orange-500 to-yellow-400 rounded-full thrust-fire mt-0.5" />
+                <div className="mt-0.5 h-8 overflow-visible flex justify-center">
+                  <RocketFlame
+                    active={progress < 90}
+                    theme={theme}
+                    width={20}
+                    height={40}
+                    particleScale={0.6}
+                  />
+                </div>
               )}
             </div>
           </div>
@@ -376,8 +384,16 @@ export default function TransitionScreen({
                 <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
                 <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
               </svg>
-              {/* Flame tail */}
-              <div className="w-1.5 h-4 bg-gradient-to-t from-transparent via-orange-500 to-yellow-400 rounded-full thrust-fire mt-0.5" />
+              {/* High-fidelity rocket flame particle effect */}
+              <div className="mt-0.5 h-8 overflow-visible flex justify-center">
+                <RocketFlame
+                  active={true}
+                  theme={theme}
+                  width={20}
+                  height={40}
+                  particleScale={0.6}
+                />
+              </div>
             </div>
           </div>
         )}

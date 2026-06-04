@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { translations, transitionFactList, transitionTipList } from '../i18n';
+import RocketFlame from './RocketFlame';
 
 interface LoadingScreenProps {
   onLoadComplete?: () => void;
@@ -417,9 +418,17 @@ export default function LoadingScreen({ onLoadComplete, onLaunch, lang, theme }:
               <circle cx="13" cy="11" r="1.5" fill={themeConfig.rocketColor} fillOpacity="0.5" />
             </svg>
 
-            {/* Pulsing thruster fire (Only shows during launching) */}
+            {/* High-fidelity rocket flame particle effect */}
             {isLaunching && (
-              <div className="w-4 h-12 bg-gradient-to-b from-yellow-300 via-orange-500 to-red-600 rounded-b-full ignition-flame mt-1 shadow-[0_0_25px_#f97316]" />
+              <div className="mt-1 h-24 overflow-visible flex justify-center">
+                <RocketFlame
+                  active={isLaunching}
+                  theme={theme}
+                  width={60}
+                  height={120}
+                  particleScale={1.3}
+                />
+              </div>
             )}
 
             {/* Text label underneath (Only shows if NOT launching) */}
