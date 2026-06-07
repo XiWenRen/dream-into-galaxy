@@ -1006,6 +1006,9 @@ export default function App() {
                 onChangeTextureOffset={(id, offset) => setTextureOffsets(prev => ({ ...prev, [id]: offset }))}
                 exposure={exposure}
                 demoState={demoState}
+                eclipseEventTs={eclipseEventTs}
+                eclipseEventType={eclipseEventType}
+                eclipseWindow={eclipseWindow}
                 onExitLanding={() => triggerViewTransition(false)}
                 selectedCelestial={selectedCelestial}
                 setSelectedCelestial={setSelectedCelestial}

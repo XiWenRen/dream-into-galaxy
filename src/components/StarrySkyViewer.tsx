@@ -10,6 +10,7 @@ import { TimeEngine } from '../engine/TimeEngine';
 import { OrbitEngine } from '../engine/OrbitEngine';
 import { AstrophenomenaEngine } from '../engine/AstrophenomenaEngine';
 import { ObserverEngine } from '../engine/ObserverEngine';
+import { LUNAR_ECLIPSE_EVENTS } from '../data/eclipseEvents';
 import { translations } from '../i18n';
 import type { PhenomenaDemoState } from '../types/astronomy';
 import { SATELLITE_CATALOG } from '../engine/SatelliteData';
@@ -217,6 +218,23 @@ const _trueUp = new THREE.Vector3();
 const _matrix = new THREE.Matrix4();
 const _negToObserver = new THREE.Vector3();
 const _defaultNorth = new THREE.Vector3(0, 1, 0);
+
+const AU_KM = 149597870.7;
+const DEG_TO_RAD = Math.PI / 180.0;
+const LUNAR_ECLIPSE_EVENT_MATCH_MS = 1.5 * 24 * 3600000;
+
+const smoothstepScalar = (edge0: number, edge1: number, value: number): number => {
+  const t = THREE.MathUtils.clamp((value - edge0) / Math.max(1e-9, edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+const findLunarEclipseEventByTimestamp = (timestamp: number | null | undefined) => {
+  if (timestamp == null) return null;
+  return LUNAR_ECLIPSE_EVENTS.find(event => {
+    const eventTs = new Date(`${event.date}T${event.greatestUTC}Z`).getTime();
+    return Math.abs(timestamp - eventTs) < LUNAR_ECLIPSE_EVENT_MATCH_MS;
+  }) ?? null;
+};
 
 
 /**
@@ -697,6 +715,9 @@ interface StarrySkyViewerProps {
   onChangeTextureOffset?: (planetId: string, offset: { u: number; v: number }) => void;
   exposure?: number;
   demoState?: PhenomenaDemoState;
+  eclipseEventTs?: number | null;
+  eclipseEventType?: 'solar' | 'lunar' | null;
+  eclipseWindow?: { start: number; end: number } | null;
   onExitLanding?: () => void;
   selectedCelestial?: {
     id: string;
@@ -734,6 +755,9 @@ export default function StarrySkyViewer({
   onChangeTextureOffset,
   exposure = 1.5,
   demoState,
+  eclipseEventTs = null,
+  eclipseEventType = null,
+  eclipseWindow = null,
   onExitLanding,
   selectedCelestial,
   setSelectedCelestial,
@@ -1867,6 +1891,9 @@ export default function StarrySkyViewer({
       uShadowDirection: { value: new THREE.Vector3(0, 0, -1) },
       uUmbraRadius: { value: 4.58 * Math.PI / 180 },
       uPenumbraRadius: { value: 7.63 * Math.PI / 180 },
+      uShadowSoftness: { value: 0.35 * Math.PI / 180 },
+      uEclipseStrength: { value: 1.0 },
+      uBloodIntensity: { value: 0.0 },
     };
     eclipseUniformsRef.current = eclipseUniforms;
 
@@ -1875,6 +1902,9 @@ export default function StarrySkyViewer({
       shader.uniforms.uShadowDirection = eclipseUniforms.uShadowDirection;
       shader.uniforms.uUmbraRadius = eclipseUniforms.uUmbraRadius;
       shader.uniforms.uPenumbraRadius = eclipseUniforms.uPenumbraRadius;
+      shader.uniforms.uShadowSoftness = eclipseUniforms.uShadowSoftness;
+      shader.uniforms.uEclipseStrength = eclipseUniforms.uEclipseStrength;
+      shader.uniforms.uBloodIntensity = eclipseUniforms.uBloodIntensity;
 
       shader.vertexShader = `
         varying vec3 vEclipseWorldPos;
@@ -1892,6 +1922,9 @@ export default function StarrySkyViewer({
         uniform vec3 uShadowDirection;
         uniform float uUmbraRadius;
         uniform float uPenumbraRadius;
+        uniform float uShadowSoftness;
+        uniform float uEclipseStrength;
+        uniform float uBloodIntensity;
         ${shader.fragmentShader}
       `;
       shader.fragmentShader = shader.fragmentShader.replace(
@@ -1901,10 +1934,12 @@ export default function StarrySkyViewer({
           vec3 fragDir = normalize(vEclipseWorldPos);
           float cosDiff = dot(fragDir, uShadowDirection);
           float angle = acos(clamp(cosDiff, -1.0, 1.0));
-          if (angle < uPenumbraRadius) {
-            float shadowFactor = smoothstep(uUmbraRadius, uPenumbraRadius, angle);
-            vec3 bloodMoonColor = gl_FragColor.rgb * vec3(0.85, 0.22, 0.08) * 0.18;
-            gl_FragColor.rgb = mix(bloodMoonColor, gl_FragColor.rgb, shadowFactor);
+          if (angle < uUmbraRadius + uShadowSoftness) {
+            float umbraMask = 1.0 - smoothstep(uUmbraRadius - uShadowSoftness, uUmbraRadius + uShadowSoftness, angle);
+            vec3 coldShadow = gl_FragColor.rgb * vec3(0.08, 0.075, 0.09);
+            vec3 bloodMoonColor = gl_FragColor.rgb * vec3(0.95, 0.20, 0.065) * 0.34;
+            vec3 eclipseColor = mix(coldShadow, bloodMoonColor, clamp(uBloodIntensity, 0.0, 1.0));
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, eclipseColor, umbraMask * clamp(uEclipseStrength, 0.0, 1.0));
           }
         }`
       );
@@ -2468,9 +2503,23 @@ export default function StarrySkyViewer({
         eclipseCheckCounterRef.current++;
         const moonMat = moonSkyRef.current.material as THREE.MeshStandardMaterial;
         
-        // Use a wider window (1.6 degrees separation) to calculate visual overlap transitions
-        // This ensures the shader is active before the visual shadow touches the Moon, eliminating entry/exit jumps.
-        const isLunarEclipseActive = eclipses.angleDegrees > 90.0 && (180.0 - eclipses.angleDegrees) < 1.6;
+        const moonVisualRadius = Math.atan((7.2 * moonSkyRef.current.scale.x) / 270);
+        const moonPhysicalRadius = Math.max(0.0001, ((satInfo.angularDiameter ?? 30) / 120.0) * DEG_TO_RAD);
+        const visualExaggeration = THREE.MathUtils.clamp(moonVisualRadius / moonPhysicalRadius, 1.0, 12.0);
+        const earthToMoonKm = Math.max(1, eclipses.earthToMoonDist * AU_KM);
+        const sunToEarthKm = Math.max(1, eclipses.earthToSunDist * AU_KM);
+        const { umbraAngle } = AstrophenomenaEngine.computeShadowCone(696340, 6371, sunToEarthKm);
+        const earthUmbraRadiusKm = Math.max(1, 6371 - earthToMoonKm * Math.tan(umbraAngle));
+        const umbraVisualRadius = Math.atan(earthUmbraRadiusKm / earthToMoonKm) * visualExaggeration;
+        const shadowSoftness = Math.max(0.18 * DEG_TO_RAD, moonVisualRadius * 0.12);
+        const selectedLunarEvent = findLunarEclipseEventByTimestamp(eclipseEventTs);
+        const selectedLunarWindowActive =
+          eclipseEventType === 'lunar' &&
+          !!eclipseWindow &&
+          currentTimestamp >= eclipseWindow.start &&
+          currentTimestamp <= eclipseWindow.end;
+        const actualShadowSeparation = Math.max(0, (180.0 - eclipses.angleDegrees) * DEG_TO_RAD) * visualExaggeration;
+        const naturalLunarEclipseActive = !selectedLunarWindowActive && actualShadowSeparation < (umbraVisualRadius + moonVisualRadius + shadowSoftness);
 
         if (eclipses.solarEclipse) {
           moonMat.color.setHex(0x111111);
@@ -2481,8 +2530,7 @@ export default function StarrySkyViewer({
           if (eclipseUniformsRef.current) {
             eclipseUniformsRef.current.uEclipseActive.value = 0.0;
           }
-        } else if (isLunarEclipseActive) {
-          // Base color of the Moon remains 0xa0a0a0 to allow shader to calculate shaded and unshaded regions without blowing out
+        } else if (selectedLunarWindowActive || naturalLunarEclipseActive) {
           moonMat.color.setHex(0xa0a0a0);
           
           if (moonHazeSpriteRef.current) {
@@ -2490,56 +2538,69 @@ export default function StarrySkyViewer({
           }
           
           if (eclipseUniformsRef.current) {
-            eclipseUniformsRef.current.uEclipseActive.value = 1.0;
-            
-            // Get direction vectors
             const dirSun = sunPos.clone().normalize();
-            const dirShadow = dirSun.clone().negate(); // Shadow center is opposite to the Sun
+            const dirShadow = dirSun.clone().negate();
             const dirMoon = moonPos.clone().normalize();
+            const contactSeparation = umbraVisualRadius + moonVisualRadius;
+            let visualShadowSeparation = Math.min(Math.PI, actualShadowSeparation);
+            let eclipseStrength = 1.0;
+            let umbralMagnitude = THREE.MathUtils.clamp((contactSeparation - visualShadowSeparation) / (2 * moonVisualRadius), 0, 2);
             
-            // Calculate actual angular separation
-            const alpha = dirMoon.angleTo(dirShadow);
-            
-            // Exaggerate separation by 6.1x to match the visual size exaggeration of the Moon
-            const exaggeration = 6.1;
-            const visualAlpha = Math.min(Math.PI, alpha * exaggeration);
-            
-            if (alpha > 0.0001) {
-              const axis = new THREE.Vector3().crossVectors(dirMoon, dirShadow).normalize();
-              const dirShadowVisual = dirMoon.clone().applyAxisAngle(axis, visualAlpha);
+            if (selectedLunarWindowActive && eclipseWindow) {
+              const progress = THREE.MathUtils.clamp(
+                (currentTimestamp - eclipseWindow.start) / Math.max(1, eclipseWindow.end - eclipseWindow.start),
+                0,
+                1
+              );
+              const approach = smoothstepScalar(0, 1, progress <= 0.5 ? progress * 2 : (1 - progress) * 2);
+              const peakMagnitude = Math.max(
+                0,
+                selectedLunarEvent?.umbralMagnitude ?? ((contactSeparation - actualShadowSeparation) / (2 * moonVisualRadius))
+              );
+              const peakSeparation = Math.max(0, contactSeparation - peakMagnitude * 2 * moonVisualRadius);
+              visualShadowSeparation = THREE.MathUtils.lerp(contactSeparation + shadowSoftness * 0.5, peakSeparation, approach);
+              eclipseStrength = smoothstepScalar(0, 0.025, progress) * (1 - smoothstepScalar(0.975, 1, progress));
+              umbralMagnitude = peakMagnitude * approach;
+            }
+
+            if (umbralMagnitude <= 0.001 || eclipseStrength <= 0.001) {
+              eclipseUniformsRef.current.uEclipseActive.value = 0.0;
+            } else {
+              eclipseUniformsRef.current.uEclipseActive.value = 1.0;
+            }
+
+            let axis = new THREE.Vector3().crossVectors(dirMoon, dirShadow);
+            if (axis.lengthSq() < 0.000001) {
+              axis = new THREE.Vector3().crossVectors(dirMoon, new THREE.Vector3(0, 1, 0));
+            }
+            if (axis.lengthSq() < 0.000001) {
+              axis = new THREE.Vector3().crossVectors(dirMoon, new THREE.Vector3(1, 0, 0));
+            }
+            axis.normalize();
+
+            if (visualShadowSeparation > 0.000001) {
+              const dirShadowVisual = dirMoon.clone().applyAxisAngle(axis, Math.min(Math.PI, visualShadowSeparation));
               eclipseUniformsRef.current.uShadowDirection.value.copy(dirShadowVisual);
             } else {
-              eclipseUniformsRef.current.uShadowDirection.value.copy(dirShadow);
+              eclipseUniformsRef.current.uShadowDirection.value.copy(dirMoon);
             }
+            eclipseUniformsRef.current.uUmbraRadius.value = umbraVisualRadius;
+            eclipseUniformsRef.current.uPenumbraRadius.value = umbraVisualRadius + shadowSoftness;
+            eclipseUniformsRef.current.uShadowSoftness.value = shadowSoftness;
+            eclipseUniformsRef.current.uEclipseStrength.value = eclipseStrength;
+            eclipseUniformsRef.current.uBloodIntensity.value = smoothstepScalar(0.82, 1.0, umbralMagnitude);
             
-            // Update Haze Sprite color and opacity based on shadow overlap progress
             if (moonHazeSpriteRef.current) {
-              const rUmbra = 4.58 * Math.PI / 180;
-              const rPenumbra = 7.63 * Math.PI / 180;
-              const rMoon = 1.53 * Math.PI / 180;
-              
-              const totalityEnd = rUmbra - rMoon;   // ~3.05 degrees
-              const eclipseEnd = rPenumbra + rMoon;   // ~9.16 degrees
-              
-              if (visualAlpha < totalityEnd) {
-                // Totality: deep red glow
+              const bloodGlow = smoothstepScalar(0.82, 1.0, umbralMagnitude);
+              if (bloodGlow > 0.01) {
                 moonHazeSpriteRef.current.material.color.setHex(0xff3311);
-                moonHazeSpriteRef.current.material.opacity = 0.75;
-              } else if (visualAlpha > eclipseEnd) {
-                // Out of eclipse: normal Full Moon glow
-                moonHazeSpriteRef.current.material.color.setHex(0xdbeafe);
-                const glowFactor = Math.max(0.12, moonPhaseInfo.percent);
-                moonHazeSpriteRef.current.material.opacity = 0.8 * glowFactor;
+                moonHazeSpriteRef.current.material.opacity = THREE.MathUtils.lerp(0.18, 0.72, bloodGlow) * eclipseStrength;
               } else {
-                // Partial eclipse transitions
-                const t = (visualAlpha - totalityEnd) / (eclipseEnd - totalityEnd);
-                const colorRed = new THREE.Color(0xff3311);
-                const colorNormal = new THREE.Color(0xdbeafe);
-                const finalColor = new THREE.Color().lerpColors(colorRed, colorNormal, t);
+                const partial = THREE.MathUtils.clamp(umbralMagnitude, 0, 1);
+                const finalColor = new THREE.Color().lerpColors(new THREE.Color(0xdbeafe), new THREE.Color(0x8b1a10), partial);
                 moonHazeSpriteRef.current.material.color.copy(finalColor);
-                
                 const opacityNormal = 0.8 * Math.max(0.12, moonPhaseInfo.percent);
-                moonHazeSpriteRef.current.material.opacity = THREE.MathUtils.lerp(0.75, opacityNormal, t);
+                moonHazeSpriteRef.current.material.opacity = THREE.MathUtils.lerp(opacityNormal, 0.16, partial) * Math.max(0.35, eclipseStrength);
               }
             }
           }
@@ -2881,7 +2942,7 @@ export default function StarrySkyViewer({
       dayLength,
       sunDeclination: sunDec
     });
-  }, [currentTimestamp, latitude, longitude, observerBodyId, showConstellLines, showStarNames, showConstellNames, magLimit]);
+  }, [currentTimestamp, latitude, longitude, observerBodyId, showConstellLines, showStarNames, showConstellNames, magLimit, eclipseEventTs, eclipseEventType, eclipseWindow]);
 
   // 渲染帧与高频大气闪烁/抖动渲染循环
   useEffect(() => {
